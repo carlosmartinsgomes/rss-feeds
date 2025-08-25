@@ -1,0 +1,14 @@
+[
+  {
+    "id": "inmode-press",
+    "url": "https://inmodeinvestors.com/press-release/",
+    "item_selector": "article",
+    "title": "InMode press releases"
+  },
+  {
+    "id": "pubmatic-press",
+    "url": "https://pubmatic.com/press-releases/",
+    "item_selector": "article",
+    "title": "PubMatic press releases"
+  }
+]
