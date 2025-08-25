@@ -1,0 +1,5 @@
+/.github/workflows/generate-rss.yml    # workflow agendado
+/feeds/                                # outputs (ficheiros .xml) – vai ser publicado
+/scripts/generate_feeds.py             # o script que gera os RSS
+sites.json                             # lista de sites/parametros a monitorizar
+README.md
