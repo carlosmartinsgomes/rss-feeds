@@ -167,6 +167,7 @@
       "link": "a@href",
       "date": "time",
       "description": "p",
+      "render_file": "scripts/rendered/businesswire-page1.html",
       "filters": {
         "keywords": ["rbrk","rubrik","alab","astera","anet","arista","duol","duolingo","axon","crwd","crowdstrike","ddog","datadog","ftnt","fortinet","hims","hers","hims&hers","iot","samsara","mndy","monday.com","onon","on holdings","on holding","on running","ttd","trade desk"]
       }
@@ -180,6 +181,7 @@
       "link": "a@href",
       "date": "time",
       "description": "p",
+      "render_file": "scripts/rendered/businesswire-page2.html",
       "filters": {
         "keywords": ["rbrk","rubrik","alab","astera","anet","arista","duol","duolingo","axon","crwd","crowdstrike","ddog","datadog","ftnt","fortinet","hims","hers","hims&hers","iot","samsara","mndy","monday.com","onon","on holdings","on holding","on running","ttd","trade desk"]
       }
@@ -193,6 +195,7 @@
       "link": "a@href",
       "date": "time",
       "description": "p",
+      "render_file": "scripts/rendered/businesswire-page3.html",
       "filters": {
         "keywords": ["rbrk","rubrik","alab","astera","anet","arista","duol","duolingo","axon","crwd","crowdstrike","ddog","datadog","ftnt","fortinet","hims","hers","hims&hers","iot","samsara","mndy","monday.com","onon","on holdings","on holding","on running","ttd","trade desk"]
       }
@@ -206,6 +209,7 @@
       "link": "a@href",
       "date": "time",
       "description": "p",
+      "render_file": "scripts/rendered/businesswire-page4.html",
       "filters": {
         "keywords": ["rbrk","rubrik","alab","astera","anet","arista","duol","duolingo","axon","crwd","crowdstrike","ddog","datadog","ftnt","fortinet","hims","hers","hims&hers","iot","samsara","mndy","monday.com","onon","on holdings","on holding","on running","ttd","trade desk"]
       }
@@ -219,6 +223,7 @@
       "link": "a@href",
       "date": "time",
       "description": "p",
+      "render_file": "scripts/rendered/businesswire-page5.html",
       "filters": {
         "keywords": ["rbrk","rubrik","alab","astera","anet","arista","duol","duolingo","axon","crwd","crowdstrike","ddog","datadog","ftnt","fortinet","hims","hers","hims&hers","iot","samsara","mndy","monday.com","onon","on holdings","on holding","on running","ttd","trade desk"]
       }
