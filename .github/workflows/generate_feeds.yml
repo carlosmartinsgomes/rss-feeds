@@ -1,4 +1,4 @@
-name: Generate RSS feeds (stable)
+name: Generate RSS feeds (stable + businesswire)
 
 on:
   push:
@@ -62,7 +62,6 @@ jobs:
           echo "NPM version: $(npm --version)"
           echo "Listing $SCRIPTS/node_modules top entries:"
           ls -la "$SCRIPTS/node_modules" | sed -n '1,200p' || true
-          # try require
           node -e "try { require('./${{ steps.detect.outputs.scripts_dir }}/node_modules/playwright'); console.log('playwright ok'); } catch(e) { console.error('playwright require failed:', e.message); process.exit(2); }"
 
       - name: Set up Python
@@ -79,7 +78,7 @@ jobs:
             pip install requests beautifulsoup4 feedgen lxml
           fi
 
-      - name: Render pages that need JS (explicit list)
+      - name: Render pages that need JS (explicit list, incl. BusinessWire)
         run: |
           SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
           if [ -z "$SCRIPTS" ]; then
@@ -87,11 +86,16 @@ jobs:
             exit 0
           fi
           mkdir -p "$SCRIPTS/rendered"
-          # Only render known pages that require JS (explicit, avoids parsing sites.json in YAML)
+          # Explicit render targets (BusinessWire pages included)
           RENDER_TARGETS=(
             "https://inmodeinvestors.com/press-release|$SCRIPTS/rendered/inmode-press.html"
             "https://www.darkreading.com/|$SCRIPTS/rendered/darkreading.html"
             "https://www.iotworldtoday.com/|$SCRIPTS/rendered/iotworldtoday.html"
+            "https://www.businesswire.com/newsroom|$SCRIPTS/rendered/businesswire-page1.html"
+            "https://www.businesswire.com/newsroom?page=2|$SCRIPTS/rendered/businesswire-page2.html"
+            "https://www.businesswire.com/newsroom?page=3|$SCRIPTS/rendered/businesswire-page3.html"
+            "https://www.businesswire.com/newsroom?page=4|$SCRIPTS/rendered/businesswire-page4.html"
+            "https://www.businesswire.com/newsroom?page=5|$SCRIPTS/rendered/businesswire-page5.html"
           )
           for pair in "${RENDER_TARGETS[@]}"; do
             url="${pair%%|*}"
