@@ -23,44 +23,56 @@ jobs:
       - name: Determine scripts directory
         id: find_scripts
         run: |
-          # procura scripts/ em dois lugares comuns
           if [ -d "./scripts" ]; then
             echo "scripts_dir=scripts" >> $GITHUB_OUTPUT
           elif [ -d "./rss-feeds/scripts" ]; then
             echo "scripts_dir=rss-feeds/scripts" >> $GITHUB_OUTPUT
           else
-            # fallback: procura recursivamente
             found=$(find . -type d -name scripts | head -n 1)
-            if [ -n "$found" ]; then
-              # remove leading './'
-              found="${found#./}"
-              echo "scripts_dir=$found" >> $GITHUB_OUTPUT
-            else
-              echo "scripts_dir=" >> $GITHUB_OUTPUT
-            fi
+            found="${found#./}"
+            echo "scripts_dir=$found" >> $GITHUB_OUTPUT
           fi
-          echo "Detected scripts_dir=${{ steps.find_scripts.outputs.scripts_dir || '' }}"
+          echo "Detected scripts_dir=${{ steps.find_scripts.outputs.scripts_dir }}"
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      - name: Install Playwright (Node) and browsers (if scripts dir exists)
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/ms-playwright
+            ${{ steps.find_scripts.outputs.scripts_dir }}/node_modules
+            ~/.npm
+          key: ${{ runner.os }}-playwright-cache-v1
+          restore-keys: |
+            ${{ runner.os }}-playwright-cache-v1
+
+      - name: Install Playwright (Node) and deps
         if: steps.find_scripts.outputs.scripts_dir != ''
         run: |
           SCRIPTS_DIR="${{ steps.find_scripts.outputs.scripts_dir }}"
           echo "Using scripts dir: $SCRIPTS_DIR"
           cd "$SCRIPTS_DIR"
-          # reduzir logs do npm install
           export NPM_CONFIG_LOGLEVEL=error
           npm install playwright --no-audit --no-fund --silent --no-progress || true
-          # instalar browsers (pode demorar; saída reduzida)
+          # instalar browsers (pode demorar; com cache será evitado em runs seguintes)
           npx playwright install --with-deps
 
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
 
       - name: Install Python deps (explicit)
         run: |
@@ -91,26 +103,21 @@ jobs:
       - name: Debug - show some files (optional)
         run: |
           echo "Detected scripts dir: ${{ steps.find_scripts.outputs.scripts_dir }}"
-          echo "Listing root:"
           ls -la
-          echo "Listing scripts dir:"
           ls -la "${{ steps.find_scripts.outputs.scripts_dir }}" || true
-          echo "sites.json preview:"
           sed -n '1,200p' "${{ steps.find_scripts.outputs.scripts_dir }}/sites.json" || true
-          echo "rendered file heads (if any):"
           head -n 5 "${{ steps.find_scripts.outputs.scripts_dir }}/rendered/darkreading.html" || true
           head -n 5 "${{ steps.find_scripts.outputs.scripts_dir }}/rendered/iotworldtoday.html" || true
 
       - name: Run feed generator (Python)
         run: |
           SCRIPTS_DIR="${{ steps.find_scripts.outputs.scripts_dir }}"
-          # se o generate_feeds.py estiver na root scripts/ ou em rss-feeds/scripts/ detectado
           if [ -f "${SCRIPTS_DIR}/generate_feeds.py" ]; then
             python3 "${SCRIPTS_DIR}/generate_feeds.py"
           elif [ -f "scripts/generate_feeds.py" ]; then
             python3 scripts/generate_feeds.py
           else
-            echo "generate_feeds.py not found in detected scripts dir nor in scripts/ - aborting"
+            echo "generate_feeds.py not found - aborting"
             exit 1
           fi
 
