@@ -21,18 +21,13 @@ async function render(url, outPath) {
 
   const page = await context.newPage();
 
-  // bloquear requests pesados / anúncios para acelerar e evitar timeouts
   await page.route('**/*', (route) => {
     const req = route.request();
     const url = req.url().toLowerCase();
-
-    // resource types to block
     const blockedResourceTypes = ['image', 'stylesheet', 'font', 'media'];
     if (blockedResourceTypes.includes(req.resourceType())) {
       return route.abort();
     }
-
-    // block common tracking/ad domains
     const blockedDomains = [
       'googlesyndication', 'doubleclick', 'google-analytics', 'ads', 'adsystem',
       'akamaihd', 'scorecardresearch', 'adsafeprotected', 'quantserve',
@@ -41,12 +36,9 @@ async function render(url, outPath) {
     for (const d of blockedDomains) {
       if (url.includes(d)) return route.abort();
     }
-
-    // otherwise continue
     return route.continue();
   });
 
-  // set a default navigation timeout somewhat generous but not huge
   page.setDefaultNavigationTimeout(60000);
 
   let lastError = null;
@@ -54,12 +46,9 @@ async function render(url, outPath) {
     try {
       console.log(`Attempt ${attempt} navigating to ${url} (domcontentloaded)...`);
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
-      // aguardar brevemente por conteúdo principal (fallbacks)
       try {
         await page.waitForSelector('article, main, #content, body', { timeout: 5000 });
-      } catch (e) {
-        // não fatal — seguimos
-      }
+      } catch (e) {}
       const content = await page.content();
       fs.writeFileSync(outPath, content, { encoding: 'utf-8' });
       console.log(`Rendered ${url} -> ${outPath}`);
@@ -68,7 +57,6 @@ async function render(url, outPath) {
     } catch (err) {
       console.error('Render error:', err.message || err);
       lastError = err;
-      // tentar novamente após pequeno delay
       await new Promise(r => setTimeout(r, 1200 * attempt));
     }
   }
