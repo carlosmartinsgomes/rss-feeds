@@ -1,141 +1,18 @@
-name: Generate RSS feeds (playwright fixed)
+name: SMOKE - Generate Feeds (quick restore)
 
 on:
+  workflow_dispatch:
   push:
     branches: [ main ]
-  workflow_dispatch:
 
 jobs:
-  build:
+  smoke:
     runs-on: ubuntu-latest
-    env:
-      PYTHON_VERSION: '3.11'
-      NODE_VERSION: '18'
-
     steps:
-      - name: Checkout repo
+      - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Show repo root (debug)
+      - name: Echo test
         run: |
-          echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
-          pwd
+          echo "SMOKE OK"
+          date
           ls -la
-
-      - name: Detect scripts dir and show sites.json
-        id: detect
-        run: |
-          if [ -d "./scripts" ]; then sd="scripts"; elif [ -d "./rss-feeds/scripts" ]; then sd="rss-feeds/scripts"; else sd=$(find . -type d -name scripts | head -n 1); sd="${sd#./}"; fi
-          echo "scripts_dir=$sd" >> $GITHUB_OUTPUT
-          echo "Detected scripts_dir: $sd"
-          if [ -n "$sd" ] && [ -f "$sd/sites.json" ]; then
-            echo "----- sites.json head -----"
-            sed -n '1,200p' "$sd/sites.json" || true
-            echo "----- end sites.json -----"
-          else
-            echo "sites.json not found at $sd/sites.json"
-          fi
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-
-      - name: Install playwright into scripts/ (npm --prefix) and install chromium
-        if: steps.detect.outputs.scripts_dir != ''
-        run: |
-          SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
-          echo "Installing playwright into $SCRIPTS (npm --prefix)..."
-          # install playwright package into scripts/node_modules
-          npm install --prefix "$SCRIPTS" playwright --no-audit --no-fund --silent || { echo "npm install failed"; exit 1; }
-          echo "Installing chromium browser (playwright) into $SCRIPTS (npx --prefix)..."
-          npx --yes --prefix "$SCRIPTS" playwright install chromium || { echo "playwright browser install failed"; exit 1; }
-          echo "Done playwright install."
-
-      - name: Verify playwright is importable (sanity)
-        if: steps.detect.outputs.scripts_dir != ''
-        run: |
-          SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
-          echo "Node version: $(node --version)"
-          echo "NPM version: $(npm --version)"
-          echo "Listing $SCRIPTS/node_modules (first 200 lines):"
-          ls -la "$SCRIPTS/node_modules" | sed -n '1,200p' || true
-          echo "Verifying require('playwright') from repo root referencing scripts node_modules..."
-          node -e "try { require('./$SCRIPTS/node_modules/playwright'); console.log('playwright ok'); } catch(e) { console.error('playwright require failed:', e.message); process.exit(2); }"
-
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Install Python deps
-        run: |
-          python -m pip install --upgrade pip
-          if [ -f "requirements.txt" ]; then
-            pip install -r requirements.txt
-          else
-            pip install requests beautifulsoup4 feedgen lxml
-          fi
-
-      - name: Render pages that need JS (Node)
-        run: |
-          SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
-          if [ -z "$SCRIPTS" ]; then
-            echo "No scripts dir detected -> skip rendering"
-            exit 0
-          fi
-          mkdir -p "$SCRIPTS/rendered"
-          echo "Rendering step using scripts dir: $SCRIPTS"
-          python3 - <<PY
-import json, os, subprocess, sys
-sdir = "${{ steps.detect.outputs.scripts_dir }}"
-p = os.path.join(sdir, 'sites.json')
-if not os.path.exists(p):
-    print('sites.json not found at', p)
-    sys.exit(0)
-data = json.load(open(p,'r',encoding='utf-8'))
-for s in data.get('sites', []):
-    rf = s.get('render_file')
-    url = s.get('url')
-    name = s.get('name')
-    if rf and url:
-        cand = rf
-        if not os.path.isabs(cand) and not cand.startswith(sdir):
-            cand = os.path.join(sdir, cand)
-        print('Render target for', name, '->', cand)
-        os.makedirs(os.path.dirname(cand), exist_ok=True)
-        cmd = ['node', os.path.join(sdir,'render_page.js'), url, cand]
-        print('Running:', ' '.join(cmd))
-        proc = subprocess.run(cmd, capture_output=True, text=True)
-        print('Return code:', proc.returncode)
-        print('STDOUT (first 2000 chars):')
-        print(proc.stdout[:2000])
-        print('STDERR (first 2000 chars):')
-        print(proc.stderr[:2000])
-PY
-
-      - name: List rendered files & run generator
-        run: |
-          SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
-          echo "Rendered files listing for $SCRIPTS:"
-          ls -la "$SCRIPTS/rendered" || true
-          echo "Now running Python generator..."
-          if [ -f "${SCRIPTS}/generate_feeds.py" ]; then
-            python3 "${SCRIPTS}/generate_feeds.py"
-          elif [ -f "scripts/generate_feeds.py" ]; then
-            python3 scripts/generate_feeds.py
-          else
-            echo "generate_feeds.py not found -> abort"
-            exit 1
-          fi
-
-      - name: Show produced feeds
-        run: |
-          echo "Feeds dir listing:"
-          ls -la feeds || true
-          for f in feeds/*.xml; do
-            echo "---- $f ----"
-            head -n 40 "$f" || true
-          done
