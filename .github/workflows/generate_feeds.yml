@@ -1,4 +1,4 @@
-name: RENDER CALL TEST
+name: NPM INSTALL TEST
 
 on:
   workflow_dispatch:
@@ -6,17 +6,18 @@ on:
     branches: [ main ]
 
 jobs:
-  rendercall:
+  npmcheck:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Node version
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: '18'
-      - name: Run render_page.js against example.com
+      - name: Try npm install (playwright only)
         run: |
-          SCRIPTS="scripts"
-          if [ ! -f "$SCRIPTS/render_page.js" ]; then echo "render_page.js not found at $SCRIPTS/render_page.js"; ls -la $SCRIPTS || true; exit 1; fi
-          node "$SCRIPTS/render_page.js" https://example.com "$SCRIPTS/rendered/example.html" || true
-          ls -la "$SCRIPTS/rendered" || true
+          mkdir -p tmp-npm-test
+          cd tmp-npm-test
+          npm init -y
+          npm install playwright --no-audit --no-fund --silent || true
+          ls -la node_modules | sed -n '1,120p' || true
