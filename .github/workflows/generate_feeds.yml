@@ -1,4 +1,4 @@
-name: NPM INSTALL TEST
+name: NODE TEST
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
     branches: [ main ]
 
 jobs:
-  npmcheck:
+  nodecheck:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -14,10 +14,11 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '18'
-      - name: Try npm install (playwright only)
+      - name: Node and NPM versions
         run: |
-          mkdir -p tmp-npm-test
-          cd tmp-npm-test
-          npm init -y
-          npm install playwright --no-audit --no-fund --silent || true
-          ls -la node_modules | sed -n '1,120p' || true
+          node --version
+          npm --version
+      - name: Check scripts dir
+        run: |
+          if [ -d "./scripts" ]; then sd="scripts"; elif [ -d "./rss-feeds/scripts" ]; then sd="rss-feeds/scripts"; else sd=$(find . -type d -name scripts | head -n 1); sd="${sd#./}"; fi
+          echo "SCRIPTS=$sd"
