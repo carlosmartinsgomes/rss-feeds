@@ -5,7 +5,7 @@ on:
     branches: [ main ]
   workflow_dispatch:
   schedule:
-    - cron: '*/30 * * * *'   # opcional: roda a cada 30 minutos
+    - cron: '0 */2 * * *'   # opcional: roda a cada 2 horas
 
 jobs:
   build:
@@ -23,11 +23,16 @@ jobs:
           node-version: '18'
 
       - name: Install Playwright (Node) and deps
-        working-directory: ${{ github.workspace }}/rss-feeds
         run: |
-          npm install playwright --no-audit --no-fund
-          # instala browsers necessários
-          npx playwright install --with-deps
+          # entra na pasta onde está o render_page.js / package.json se existir
+          if [ -d "./scripts" ]; then
+            cd ./scripts
+            npm install playwright --no-audit --no-fund
+            npx playwright install --with-deps
+            cd ..
+          else
+            echo "Folder ./scripts not found - skipping Node install"
+          fi
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -37,38 +42,45 @@ jobs:
       - name: Install Python deps
         run: |
           python -m pip install --upgrade pip
-          pip install -r rss-feeds/requirements.txt
+          if [ -f "requirements.txt" ]; then
+            pip install -r requirements.txt
+          elif [ -f "rss-feeds/requirements.txt" ]; then
+            pip install -r rss-feeds/requirements.txt
+          else
+            echo "No requirements.txt found - assuming minimal dependencies present"
+          fi
 
       - name: Render pages that need JS (Node)
-        # Executa o script render_page.js para as páginas que precisam
         run: |
-          mkdir -p rss-feeds/scripts/rendered
+          mkdir -p scripts/rendered
 
           echo "Rendering darkreading..."
-          node rss-feeds/scripts/render_page.js https://www.darkreading.com/ rss-feeds/scripts/rendered/darkreading.html || echo "darkreading render failed"
+          node scripts/render_page.js https://www.darkreading.com/ scripts/rendered/darkreading.html || echo "darkreading render failed"
 
           echo "Rendering iotworldtoday..."
-          node rss-feeds/scripts/render_page.js https://www.iotworldtoday.com/ rss-feeds/scripts/rendered/iotworldtoday.html || echo "iotworldtoday render failed"
+          node scripts/render_page.js https://www.iotworldtoday.com/ scripts/rendered/iotworldtoday.html || echo "iotworldtoday render failed"
 
-          echo "List rendered dir:"
-          ls -la rss-feeds/scripts/rendered || true
+          echo "Rendered files listing:"
+          ls -la scripts/rendered || true
 
-      - name: Debug - show some files (opcional)
+      - name: Debug - show some files (optional)
         run: |
-          echo "sites.json:"
-          sed -n '1,200p' rss-feeds/scripts/sites.json || true
-          echo "rendered files sample head:"
-          head -n 5 rss-feeds/scripts/rendered/darkreading.html || true
-          head -n 5 rss-feeds/scripts/rendered/iotworldtoday.html || true
+          echo "Listing scripts folder:"
+          ls -la scripts || true
+          echo "sites.json preview:"
+          sed -n '1,200p' scripts/sites.json || true
+          echo "rendered file heads (if any):"
+          head -n 5 scripts/rendered/darkreading.html || true
+          head -n 5 scripts/rendered/iotworldtoday.html || true
 
       - name: Run feed generator (Python)
         run: |
-          python3 rss-feeds/scripts/generate_feeds.py
+          python3 scripts/generate_feeds.py
 
       - name: Commit feeds
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add rss-feeds/feeds/*.xml || true
+          git add feeds/*.xml || true
           git commit -m "Update feeds" || echo "no changes to commit"
           git push origin HEAD:main || echo "push failed"
