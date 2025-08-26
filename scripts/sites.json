@@ -1,14 +1,114 @@
-[
-  {
-    "id": "inmode-press",
-    "url": "https://inmodeinvestors.com/press-release/",
-    "item_selector": "article",
-    "title": "InMode press releases"
-  },
-  {
-    "id": "pubmatic-press",
-    "url": "https://pubmatic.com/press-releases/",
-    "item_selector": "article",
-    "title": "PubMatic press releases"
-  }
-]
+{
+  "sites": [
+    {
+      "name": "iotworldtoday",
+      "url": "https://www.iotworldtoday.com/",
+      "item_container": "article",
+      "title": "article h2 a",
+      "link": "article h2 a@href",
+      "date": "article time",
+      "description": "article p",
+      "render_file": "scripts/rendered/iotworldtoday.html",
+      "filters": {
+        "keywords": ["iot", "samsara"]
+      }
+    },
+    {
+      "name": "darkreading",
+      "url": "https://www.darkreading.com/",
+      "item_container": "article",
+      "title": "article h2 a",
+      "link": "article h2 a@href",
+      "date": "article time",
+      "description": "article p",
+      "render_file": "scripts/rendered/darkreading.html",
+      "filters": {
+        "keywords": ["rbrl", "rubrik", "crwd", "crowdstrike"]
+      }
+    },
+    {
+      "name": "edsurge",
+      "url": "https://www.edsurge.com",
+      "item_container": "article",
+      "title": "article h2 a",
+      "link": "article h2 a@href",
+      "date": "article time",
+      "description": "article p",
+      "filters": {
+        "keywords": []
+      }
+    },
+    {
+      "name": "datacenterknowledge",
+      "url": "https://www.datacenterknowledge.com/",
+      "item_container": "article",
+      "title": "article h2 a",
+      "link": "article h2 a@href",
+      "date": "article time",
+      "description": "article p",
+      "filters": {
+        "keywords": ["anet", "arista"]
+      }
+    },
+    {
+      "name": "lightreading",
+      "url": "https://www.lightreading.com/",
+      "item_container": "article",
+      "title": "article h3 a",
+      "link": "article h3 a@href",
+      "date": "article time",
+      "description": "article p",
+      "filters": {
+        "keywords": ["anet", "arista"]
+      }
+    },
+    {
+      "name": "networkworld",
+      "url": "https://www.networkworld.com/",
+      "item_container": "article",
+      "title": "article h2 a",
+      "link": "article h2 a@href",
+      "date": "article time",
+      "description": "article p",
+      "filters": {
+        "keywords": ["anet", "arista"]
+      }
+    },
+    {
+      "name": "mobihealthnews",
+      "url": "https://www.mobihealthnews.com/",
+      "item_container": "article",
+      "title": "article h2 a",
+      "link": "article h2 a@href",
+      "date": "article time",
+      "description": "article p",
+      "filters": {
+        "keywords": ["hims", "hers", "him&hers"]
+      }
+    },
+    {
+      "name": "medcitynews",
+      "url": "https://medcitynews.com/",
+      "item_container": "article",
+      "title": "article h2 a",
+      "link": "article h2 a@href",
+      "date": "article time",
+      "description": "article p",
+      "filters": {
+        "keywords": ["hims", "hers", "him&hers"]
+      }
+    },
+    {
+      "name": "theverge",
+      "url": "https://www.theverge.com/",
+      "item_container": "div.c-compact-river__entry",
+      "title": ".c-entry-box--compact__title a",
+      "link": ".c-entry-box--compact__title a@href",
+      "date": ".c-byline__item time",
+      "description": ".c-entry-summary p",
+      "filters": {
+        "keywords": ["duol", "duolingo"]
+      }
+    }
+  ]
+}
