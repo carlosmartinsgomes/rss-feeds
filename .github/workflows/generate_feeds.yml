@@ -1,4 +1,4 @@
-name: NPM INSTALL TEST
+name: DETECT TEST
 
 on:
   workflow_dispatch:
@@ -6,18 +6,19 @@ on:
     branches: [ main ]
 
 jobs:
-  npmcheck:
+  detect:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18'
-      - name: Try npm install (playwright only)
+      - name: Detect scripts dir and show sites.json
         run: |
-          mkdir -p tmp-npm-test
-          cd tmp-npm-test
-          npm init -y
-          npm install playwright --no-audit --no-fund --silent || true
-          ls -la node_modules | sed -n '1,120p' || true
+          if [ -d "./scripts" ]; then sd="scripts"; elif [ -d "./rss-feeds/scripts" ]; then sd="rss-feeds/scripts"; else sd=$(find . -type d -name scripts | head -n 1); sd="${sd#./}"; fi
+          echo "SCRIPTS=$sd"
+          echo "PWD=$(pwd)"
+          if [ -n "$sd" ] && [ -f "$sd/sites.json" ]; then
+            echo "---- sites.json head ----"
+            sed -n '1,80p' "$sd/sites.json"
+            echo "---- end ----"
+          else
+            echo "sites.json not found at $sd/sites.json"
+          fi
