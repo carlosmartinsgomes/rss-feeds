@@ -1,27 +1,192 @@
-name: TEST - Generate Feeds (smoke test)
+name: Generate RSS feeds (Node renderer + Python)
 
 on:
-  workflow_dispatch:
   push:
     branches: [ main ]
+  workflow_dispatch:
+  schedule:
+    - cron: '0 */2 * * *'
 
 jobs:
-  smoke:
+  build:
     runs-on: ubuntu-latest
+    env:
+      PYTHON_VERSION: '3.11'
+      NODE_VERSION: '18'
+
     steps:
-      - name: Checkout
+      - name: Checkout repo
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Show repo path
+      - name: Find scripts dir and check for render_file usage
+        id: detect
         run: |
-          echo "Current working dir:"
-          pwd
-          echo "Root files:"
-          ls -la
+          # find scripts dir
+          if [ -d "./scripts" ]; then
+            sd="scripts"
+          elif [ -d "./rss-feeds/scripts" ]; then
+            sd="rss-feeds/scripts"
+          else
+            sd=$(find . -type d -name scripts | head -n 1)
+            sd="${sd#./}"
+          fi
+          echo "scripts_dir=$sd" >> $GITHUB_OUTPUT
 
-      - name: Simple echo test
+          # check if any site has a render_file in sites.json (if exists)
+          has_render="false"
+          if [ -f "${sd}/sites.json" ]; then
+            python3 - <<PY
+import json,sys,os
+sd = os.environ.get('GITHUB_WORKSPACE')
+sroot = "${sd}"
+p = os.path.join(sroot,'sites.json')
+try:
+    data = json.load(open(p, 'r', encoding='utf-8'))
+    sites = data.get('sites', [])
+    for s in sites:
+        if s.get('render_file'):
+            print("has_render=true")
+            sys.exit(0)
+except Exception:
+    pass
+print("has_render=false")
+PY
+            # capture printed output if any
+            # fallback: parse with grep
+            if [ "$(python3 - <<PY
+import json,sys,os
+sd = "${sd}"
+p = os.path.join(sd,'sites.json')
+try:
+    data = json.load(open(p,'r',encoding='utf-8'))
+    for s in data.get('sites',[]):
+        if s.get('render_file'):
+            print('yes')
+            sys.exit(0)
+except Exception:
+    pass
+print('no')
+PY
+)" = "yes" ]; then
+              echo "has_render=true" >> $GITHUB_OUTPUT
+            else
+              echo "has_render=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "has_render=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Cache Playwright browsers & node_modules
+        if: steps.detect.outputs.has_render == 'true'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/ms-playwright
+            ${{ steps.detect.outputs.scripts_dir }}/node_modules
+            ~/.npm
+          key: ${{ runner.os }}-playwright-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
+      - name: Install Playwright + browsers (only if needed)
+        if: steps.detect.outputs.has_render == 'true'
         run: |
-          echo "SMOKE TEST: workflow_dispatch works"
-          date
-          echo "List workflows dir:"
-          ls -la .github/workflows || true
+          SCRIPTS_DIR="${{ steps.detect.outputs.scripts_dir }}"
+          echo "Installing Playwright in $SCRIPTS_DIR"
+          cd "$SCRIPTS_DIR"
+          export NPM_CONFIG_LOGLEVEL=error
+          npm install playwright --no-audit --no-fund --silent --no-progress || true
+          npx playwright install --with-deps
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f "requirements.txt" ]; then
+            pip install -r requirements.txt
+          elif [ -f "${{ steps.detect.outputs.scripts_dir }}/requirements.txt" ]; then
+            pip install -r "${{ steps.detect.outputs.scripts_dir }}/requirements.txt"
+          else
+            pip install requests beautifulsoup4 feedgen lxml
+          fi
+
+      - name: Render pages that need JS (Node)
+        run: |
+          SCRIPTS_DIR="${{ steps.detect.outputs.scripts_dir }}"
+          if [ "${{ steps.detect.outputs.has_render }}" != "true" ] || [ -z "$SCRIPTS_DIR" ]; then
+            echo "No render_file entries or scripts dir not found - skipping rendering step"
+            exit 0
+          fi
+          mkdir -p "$SCRIPTS_DIR/rendered"
+          # iterate sites.json and render each render_file entry
+          python3 - <<PY
+import json,os,subprocess,sys
+sd = os.environ.get('GITHUB_WORKSPACE')
+scripts_dir = "${{ steps.detect.outputs.scripts_dir }}"
+p = os.path.join(scripts_dir, 'sites.json')
+if not os.path.exists(p):
+    print('sites.json not found at', p)
+    sys.exit(0)
+data = json.load(open(p,'r',encoding='utf-8'))
+for s in data.get('sites',[]):
+    rf = s.get('render_file')
+    url = s.get('url')
+    name = s.get('name')
+    if rf and url:
+        # normalize rf path relative to repo root or scripts dir
+        if not os.path.isabs(rf):
+            candidate = os.path.join(scripts_dir, rf) if not rf.startswith('scripts') else rf
+        else:
+            candidate = rf
+        outdir = os.path.dirname(candidate)
+        os.makedirs(outdir, exist_ok=True)
+        cmd = ['node', os.path.join(scripts_dir,'render_page.js'), url, candidate]
+        print('Running:', ' '.join(cmd))
+        subprocess.run(cmd, check=False)
+PY
+
+      - name: Debug - list rendered and scripts
+        run: |
+          echo "Scripts dir: ${{ steps.detect.outputs.scripts_dir }}"
+          ls -la "${{ steps.detect.outputs.scripts_dir }}" || true
+          ls -la "${{ steps.detect.outputs.scripts_dir }}/rendered" || true
+          sed -n '1,200p' "${{ steps.detect.outputs.scripts_dir }}/sites.json" || true
+
+      - name: Run feed generator (Python)
+        run: |
+          SCRIPTS_DIR="${{ steps.detect.outputs.scripts_dir }}"
+          if [ -f "${SCRIPTS_DIR}/generate_feeds.py" ]; then
+            python3 "${SCRIPTS_DIR}/generate_feeds.py"
+          elif [ -f "scripts/generate_feeds.py" ]; then
+            python3 scripts/generate_feeds.py
+          else
+            echo "generate_feeds.py not found - aborting"
+            exit 1
+          fi
+
+      - name: Commit feeds
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add feeds/*.xml || true
+          git commit -m "Update feeds" || echo "no changes to commit"
+          git push origin HEAD:main || echo "push failed"
