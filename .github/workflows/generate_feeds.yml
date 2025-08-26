@@ -1,4 +1,4 @@
-name: SMOKE - Generate Feeds (quick)
+name: DETECT TEST
 
 on:
   workflow_dispatch:
@@ -6,13 +6,19 @@ on:
     branches: [ main ]
 
 jobs:
-  smoke:
+  detect:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Echo test
+      - uses: actions/checkout@v4
+      - name: Detect scripts dir and show sites.json
         run: |
-          echo "SMOKE OK"
-          date
-          ls -la
+          if [ -d "./scripts" ]; then sd="scripts"; elif [ -d "./rss-feeds/scripts" ]; then sd="rss-feeds/scripts"; else sd=$(find . -type d -name scripts | head -n 1); sd="${sd#./}"; fi
+          echo "SCRIPTS=$sd"
+          echo "PWD=$(pwd)"
+          if [ -n "$sd" ] && [ -f "$sd/sites.json" ]; then
+            echo "---- sites.json head ----"
+            sed -n '1,80p' "$sd/sites.json"
+            echo "---- end ----"
+          else
+            echo "sites.json not found at $sd/sites.json"
+          fi
