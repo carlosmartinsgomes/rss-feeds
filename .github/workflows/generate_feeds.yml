@@ -1,11 +1,9 @@
-name: Generate RSS feeds (Node renderer + Python)
+name: Generate RSS feeds (final debug-friendly)
 
 on:
   push:
     branches: [ main ]
   workflow_dispatch:
-  schedule:
-    - cron: '0 */2 * * *'
 
 jobs:
   build:
@@ -20,10 +18,16 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Find scripts dir and check for render_file usage
+      - name: Show repo root and branches (debug)
+        run: |
+          echo "WORKSPACE: $GITHUB_WORKSPACE"
+          echo "Branch: $GITHUB_REF"
+          pwd
+          ls -la || true
+
+      - name: Detect scripts dir and show sites.json (debug)
         id: detect
         run: |
-          # find scripts dir
           if [ -d "./scripts" ]; then
             sd="scripts"
           elif [ -d "./rss-feeds/scripts" ]; then
@@ -33,49 +37,13 @@ jobs:
             sd="${sd#./}"
           fi
           echo "scripts_dir=$sd" >> $GITHUB_OUTPUT
-
-          # check if any site has a render_file in sites.json (if exists)
-          has_render="false"
-          if [ -f "${sd}/sites.json" ]; then
-            python3 - <<PY
-import json,sys,os
-sd = os.environ.get('GITHUB_WORKSPACE')
-sroot = "${sd}"
-p = os.path.join(sroot,'sites.json')
-try:
-    data = json.load(open(p, 'r', encoding='utf-8'))
-    sites = data.get('sites', [])
-    for s in sites:
-        if s.get('render_file'):
-            print("has_render=true")
-            sys.exit(0)
-except Exception:
-    pass
-print("has_render=false")
-PY
-            # capture printed output if any
-            # fallback: parse with grep
-            if [ "$(python3 - <<PY
-import json,sys,os
-sd = "${sd}"
-p = os.path.join(sd,'sites.json')
-try:
-    data = json.load(open(p,'r',encoding='utf-8'))
-    for s in data.get('sites',[]):
-        if s.get('render_file'):
-            print('yes')
-            sys.exit(0)
-except Exception:
-    pass
-print('no')
-PY
-)" = "yes" ]; then
-              echo "has_render=true" >> $GITHUB_OUTPUT
-            else
-              echo "has_render=false" >> $GITHUB_OUTPUT
-            fi
+          echo "detected scripts_dir: $sd"
+          if [ -n "$sd" ] && [ -f "$sd/sites.json" ]; then
+            echo "----- sites.json (first 200 lines) -----"
+            sed -n '1,200p' "$sd/sites.json" || true
+            echo "----- end sites.json -----"
           else
-            echo "has_render=false" >> $GITHUB_OUTPUT
+            echo "sites.json not found at $sd/sites.json"
           fi
 
       - name: Set up Node.js
@@ -83,110 +51,122 @@ PY
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      - name: Cache Playwright browsers & node_modules
-        if: steps.detect.outputs.has_render == 'true'
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/ms-playwright
-            ${{ steps.detect.outputs.scripts_dir }}/node_modules
-            ~/.npm
-          key: ${{ runner.os }}-playwright-${{ hashFiles('**/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-playwright-
-
-      - name: Install Playwright + browsers (only if needed)
-        if: steps.detect.outputs.has_render == 'true'
+      - name: Install Playwright + browsers (only if render files exist)
+        if: steps.detect.outputs.scripts_dir != ''
         run: |
-          SCRIPTS_DIR="${{ steps.detect.outputs.scripts_dir }}"
-          echo "Installing Playwright in $SCRIPTS_DIR"
-          cd "$SCRIPTS_DIR"
-          export NPM_CONFIG_LOGLEVEL=error
-          npm install playwright --no-audit --no-fund --silent --no-progress || true
-          npx playwright install --with-deps
+          SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
+          echo "SCRIPTS dir: $SCRIPTS"
+          # check if any render_file is present in sites.json
+          has_render=$(python3 - <<PY
+import json,os
+sd = os.environ.get('GITHUB_WORKSPACE')
+s = "${{ steps.detect.outputs.scripts_dir }}"
+p = os.path.join(s, 'sites.json')
+try:
+    data = json.load(open(p,'r',encoding='utf-8'))
+    for site in data.get('sites', []):
+        if site.get('render_file'):
+            print('yes'); sys.exit(0)
+except Exception:
+    pass
+print('no')
+PY
+)
+          echo "Has render files? $has_render"
+          if [ "$has_render" = "yes" ]; then
+            cd "$SCRIPTS"
+            export NPM_CONFIG_LOGLEVEL=error
+            echo "Installing playwright (npm)..."
+            npm install --silent playwright || true
+            echo "Installing playwright browsers..."
+            npx playwright install --with-deps
+            echo "Playwright install done"
+            cd -
+          else
+            echo "No render_file entries found - skipping Playwright install"
+          fi
 
-      - name: Set up Python
+      - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Cache pip
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
 
       - name: Install Python deps
         run: |
           python -m pip install --upgrade pip
           if [ -f "requirements.txt" ]; then
+            echo "Installing from requirements.txt"
             pip install -r requirements.txt
-          elif [ -f "${{ steps.detect.outputs.scripts_dir }}/requirements.txt" ]; then
-            pip install -r "${{ steps.detect.outputs.scripts_dir }}/requirements.txt"
           else
             pip install requests beautifulsoup4 feedgen lxml
           fi
 
-      - name: Render pages that need JS (Node)
+      - name: Render pages that need JS (debug)
         run: |
-          SCRIPTS_DIR="${{ steps.detect.outputs.scripts_dir }}"
-          if [ "${{ steps.detect.outputs.has_render }}" != "true" ] || [ -z "$SCRIPTS_DIR" ]; then
-            echo "No render_file entries or scripts dir not found - skipping rendering step"
+          SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
+          if [ -z "$SCRIPTS" ]; then
+            echo "No scripts dir detected -> skip rendering"
             exit 0
           fi
-          mkdir -p "$SCRIPTS_DIR/rendered"
+          echo "Rendering step using scripts dir: $SCRIPTS"
+          mkdir -p "$SCRIPTS/rendered"
           # iterate sites.json and render each render_file entry
           python3 - <<PY
-import json,os,subprocess,sys
-sd = os.environ.get('GITHUB_WORKSPACE')
-scripts_dir = "${{ steps.detect.outputs.scripts_dir }}"
-p = os.path.join(scripts_dir, 'sites.json')
+import json, os, subprocess, sys
+sdir = "${{ steps.detect.outputs.scripts_dir }}"
+p = os.path.join(sdir, 'sites.json')
 if not os.path.exists(p):
     print('sites.json not found at', p)
     sys.exit(0)
 data = json.load(open(p,'r',encoding='utf-8'))
-for s in data.get('sites',[]):
+for s in data.get('sites', []):
     rf = s.get('render_file')
     url = s.get('url')
     name = s.get('name')
     if rf and url:
-        # normalize rf path relative to repo root or scripts dir
-        if not os.path.isabs(rf):
-            candidate = os.path.join(scripts_dir, rf) if not rf.startswith('scripts') else rf
-        else:
-            candidate = rf
-        outdir = os.path.dirname(candidate)
-        os.makedirs(outdir, exist_ok=True)
-        cmd = ['node', os.path.join(scripts_dir,'render_page.js'), url, candidate]
+        cand = rf
+        if not os.path.isabs(cand) and not cand.startswith(sdir):
+            cand = os.path.join(sdir, cand)
+        print('Render target for', name, '->', cand)
+        os.makedirs(os.path.dirname(cand), exist_ok=True)
+        cmd = ['node', os.path.join(sdir,'render_page.js'), url, cand]
         print('Running:', ' '.join(cmd))
-        subprocess.run(cmd, check=False)
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        print('Return code:', proc.returncode)
+        print('STDOUT:')
+        print(proc.stdout[:8000])
+        print('STDERR:')
+        print(proc.stderr[:8000])
 PY
 
-      - name: Debug - list rendered and scripts
+      - name: List rendered files (debug)
         run: |
-          echo "Scripts dir: ${{ steps.detect.outputs.scripts_dir }}"
-          ls -la "${{ steps.detect.outputs.scripts_dir }}" || true
-          ls -la "${{ steps.detect.outputs.scripts_dir }}/rendered" || true
-          sed -n '1,200p' "${{ steps.detect.outputs.scripts_dir }}/sites.json" || true
+          SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
+          echo "Rendered dir listing for $SCRIPTS:"
+          ls -la "$SCRIPTS/rendered" || true
+          echo "Feeds dir listing:"
+          ls -la feeds || true
 
-      - name: Run feed generator (Python)
+      - name: Run feed generator (debug)
         run: |
-          SCRIPTS_DIR="${{ steps.detect.outputs.scripts_dir }}"
-          if [ -f "${SCRIPTS_DIR}/generate_feeds.py" ]; then
-            python3 "${SCRIPTS_DIR}/generate_feeds.py"
+          SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
+          if [ -f "${SCRIPTS}/generate_feeds.py" ]; then
+            echo "Running ${SCRIPTS}/generate_feeds.py"
+            python3 "${SCRIPTS}/generate_feeds.py"
           elif [ -f "scripts/generate_feeds.py" ]; then
+            echo "Running scripts/generate_feeds.py"
             python3 scripts/generate_feeds.py
           else
-            echo "generate_feeds.py not found - aborting"
+            echo "generate_feeds.py not found -> abort"
             exit 1
           fi
 
-      - name: Commit feeds
+      - name: Show produced feeds (debug)
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add feeds/*.xml || true
-          git commit -m "Update feeds" || echo "no changes to commit"
-          git push origin HEAD:main || echo "push failed"
+          echo "Listing feeds directory:"
+          ls -la feeds || true
+          echo "Show first 50 lines of each feed:"
+          for f in feeds/*.xml; do
+            echo "---- $f ----"
+            head -n 50 "$f" || true
+          done
