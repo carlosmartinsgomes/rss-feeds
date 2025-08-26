@@ -1,1 +1,18 @@
+name: SMOKE - Generate Feeds (quick restore)
 
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Echo test
+        run: |
+          echo "SMOKE OK"
+          date
+          ls -la
