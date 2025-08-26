@@ -21,34 +21,55 @@ async function render(url, outPath) {
 
   const page = await context.newPage();
 
+  // define blocked resource types; adjust for BusinessWire
+  let blockedResourceTypes = ['image', 'media'];
+  const lower = url.toLowerCase();
+  if (lower.includes('businesswire.com')) {
+    // BusinessWire often needs CSS/fonts to render the list — allow stylesheet/font
+    blockedResourceTypes = ['image', 'media'];
+  }
+
   await page.route('**/*', (route) => {
     const req = route.request();
-    const url = req.url().toLowerCase();
-    const blockedResourceTypes = ['image', 'stylesheet', 'font', 'media'];
-    if (blockedResourceTypes.includes(req.resourceType())) {
-      return route.abort();
-    }
+    const resourceType = req.resourceType();
+    const reqUrl = req.url().toLowerCase();
+
+    // small list of tracking/ad domains to block always
     const blockedDomains = [
       'googlesyndication', 'doubleclick', 'google-analytics', 'ads', 'adsystem',
       'akamaihd', 'scorecardresearch', 'adsafeprotected', 'quantserve',
       'facebook.net', 'facebook.com', 'ads-twitter'
     ];
     for (const d of blockedDomains) {
-      if (url.includes(d)) return route.abort();
+      if (reqUrl.includes(d)) return route.abort();
+    }
+
+    if (blockedResourceTypes.includes(resourceType)) {
+      return route.abort();
     }
     return route.continue();
   });
 
-  page.setDefaultNavigationTimeout(60000);
+  // timeouts
+  page.setDefaultNavigationTimeout(90000);
 
   let lastError = null;
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
-      console.log(`Attempt ${attempt} navigating to ${url} (domcontentloaded)...`);
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
+      if (lower.includes('businesswire.com')) {
+        console.log(`Attempt ${attempt} navigating to ${url} (networkidle) for BusinessWire...`);
+        await page.goto(url, { waitUntil: 'networkidle', timeout: 70000 });
+      } else {
+        console.log(`Attempt ${attempt} navigating to ${url} (domcontentloaded)...`);
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
+      }
+
       try {
-        await page.waitForSelector('article, main, #content, body', { timeout: 5000 });
-      } catch (e) {}
+        await page.waitForSelector('article, main, #content, body', { timeout: 7000 });
+      } catch (e) {
+        // não fatal
+      }
+
       const content = await page.content();
       fs.writeFileSync(outPath, content, { encoding: 'utf-8' });
       console.log(`Rendered ${url} -> ${outPath}`);
@@ -57,7 +78,7 @@ async function render(url, outPath) {
     } catch (err) {
       console.error('Render error:', err.message || err);
       lastError = err;
-      await new Promise(r => setTimeout(r, 1200 * attempt));
+      await new Promise(r => setTimeout(r, 1500 * attempt));
     }
   }
 
