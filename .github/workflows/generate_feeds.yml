@@ -5,7 +5,7 @@ on:
     branches: [ main ]
   workflow_dispatch:
   schedule:
-    - cron: '0 */2 * * *'   # opcional: roda a cada 2 horas
+    - cron: '0 */2 * * *'
 
 jobs:
   build:
@@ -24,7 +24,6 @@ jobs:
 
       - name: Install Playwright (Node) and deps
         run: |
-          # entra na pasta onde está o render_page.js / package.json se existir
           if [ -d "./scripts" ]; then
             cd ./scripts
             npm install playwright --no-audit --no-fund
@@ -39,15 +38,16 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install Python deps
+      - name: Install Python deps (explicit)
         run: |
           python -m pip install --upgrade pip
+          # tenta instalar a partir de requirements.txt se existir; senão instala explicitamente
           if [ -f "requirements.txt" ]; then
             pip install -r requirements.txt
           elif [ -f "rss-feeds/requirements.txt" ]; then
             pip install -r rss-feeds/requirements.txt
           else
-            echo "No requirements.txt found - assuming minimal dependencies present"
+            pip install requests beautifulsoup4 feedgen lxml
           fi
 
       - name: Render pages that need JS (Node)
