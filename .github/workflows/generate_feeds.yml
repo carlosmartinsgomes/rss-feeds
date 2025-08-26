@@ -10,6 +10,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      PYTHON_VERSION: '3.11'
+      NODE_VERSION: '18'
 
     steps:
       - name: Checkout repo
@@ -17,31 +20,51 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Determine scripts directory
+        id: find_scripts
+        run: |
+          # procura scripts/ em dois lugares comuns
+          if [ -d "./scripts" ]; then
+            echo "scripts_dir=scripts" >> $GITHUB_OUTPUT
+          elif [ -d "./rss-feeds/scripts" ]; then
+            echo "scripts_dir=rss-feeds/scripts" >> $GITHUB_OUTPUT
+          else
+            # fallback: procura recursivamente
+            found=$(find . -type d -name scripts | head -n 1)
+            if [ -n "$found" ]; then
+              # remove leading './'
+              found="${found#./}"
+              echo "scripts_dir=$found" >> $GITHUB_OUTPUT
+            else
+              echo "scripts_dir=" >> $GITHUB_OUTPUT
+            fi
+          fi
+          echo "Detected scripts_dir=${{ steps.find_scripts.outputs.scripts_dir || '' }}"
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: ${{ env.NODE_VERSION }}
 
-      - name: Install Playwright (Node) and deps
+      - name: Install Playwright (Node) and browsers (if scripts dir exists)
+        if: steps.find_scripts.outputs.scripts_dir != ''
         run: |
-          if [ -d "./scripts" ]; then
-            cd ./scripts
-            npm install playwright --no-audit --no-fund
-            npx playwright install --with-deps
-            cd ..
-          else
-            echo "Folder ./scripts not found - skipping Node install"
-          fi
+          SCRIPTS_DIR="${{ steps.find_scripts.outputs.scripts_dir }}"
+          echo "Using scripts dir: $SCRIPTS_DIR"
+          cd "$SCRIPTS_DIR"
+          # reduzir logs do npm install
+          export NPM_CONFIG_LOGLEVEL=error
+          npm install playwright --no-audit --no-fund --silent --no-progress || true
+          # instalar browsers (pode demorar; saída reduzida)
+          npx playwright install --with-deps
 
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.11'
+          python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install Python deps (explicit)
         run: |
           python -m pip install --upgrade pip
-          # tenta instalar a partir de requirements.txt se existir; senão instala explicitamente
           if [ -f "requirements.txt" ]; then
             pip install -r requirements.txt
           elif [ -f "rss-feeds/requirements.txt" ]; then
@@ -52,30 +75,44 @@ jobs:
 
       - name: Render pages that need JS (Node)
         run: |
-          mkdir -p scripts/rendered
-
+          SCRIPTS_DIR="${{ steps.find_scripts.outputs.scripts_dir }}"
+          if [ -z "$SCRIPTS_DIR" ]; then
+            echo "No scripts dir found; skipping Node renders"
+            exit 0
+          fi
+          mkdir -p "$SCRIPTS_DIR/rendered"
           echo "Rendering darkreading..."
-          node scripts/render_page.js https://www.darkreading.com/ scripts/rendered/darkreading.html || echo "darkreading render failed"
-
+          node "$SCRIPTS_DIR/render_page.js" https://www.darkreading.com/ "$SCRIPTS_DIR/rendered/darkreading.html" || echo "darkreading render failed"
           echo "Rendering iotworldtoday..."
-          node scripts/render_page.js https://www.iotworldtoday.com/ scripts/rendered/iotworldtoday.html || echo "iotworldtoday render failed"
-
+          node "$SCRIPTS_DIR/render_page.js" https://www.iotworldtoday.com/ "$SCRIPTS_DIR/rendered/iotworldtoday.html" || echo "iotworldtoday render failed"
           echo "Rendered files listing:"
-          ls -la scripts/rendered || true
+          ls -la "$SCRIPTS_DIR/rendered" || true
 
       - name: Debug - show some files (optional)
         run: |
-          echo "Listing scripts folder:"
-          ls -la scripts || true
+          echo "Detected scripts dir: ${{ steps.find_scripts.outputs.scripts_dir }}"
+          echo "Listing root:"
+          ls -la
+          echo "Listing scripts dir:"
+          ls -la "${{ steps.find_scripts.outputs.scripts_dir }}" || true
           echo "sites.json preview:"
-          sed -n '1,200p' scripts/sites.json || true
+          sed -n '1,200p' "${{ steps.find_scripts.outputs.scripts_dir }}/sites.json" || true
           echo "rendered file heads (if any):"
-          head -n 5 scripts/rendered/darkreading.html || true
-          head -n 5 scripts/rendered/iotworldtoday.html || true
+          head -n 5 "${{ steps.find_scripts.outputs.scripts_dir }}/rendered/darkreading.html" || true
+          head -n 5 "${{ steps.find_scripts.outputs.scripts_dir }}/rendered/iotworldtoday.html" || true
 
       - name: Run feed generator (Python)
         run: |
-          python3 scripts/generate_feeds.py
+          SCRIPTS_DIR="${{ steps.find_scripts.outputs.scripts_dir }}"
+          # se o generate_feeds.py estiver na root scripts/ ou em rss-feeds/scripts/ detectado
+          if [ -f "${SCRIPTS_DIR}/generate_feeds.py" ]; then
+            python3 "${SCRIPTS_DIR}/generate_feeds.py"
+          elif [ -f "scripts/generate_feeds.py" ]; then
+            python3 scripts/generate_feeds.py
+          else
+            echo "generate_feeds.py not found in detected scripts dir nor in scripts/ - aborting"
+            exit 1
+          fi
 
       - name: Commit feeds
         run: |
