@@ -1,172 +1,18 @@
-name: Generate RSS feeds (final debug-friendly)
+name: SMOKE - Generate Feeds (quick)
 
 on:
+  workflow_dispatch:
   push:
     branches: [ main ]
-  workflow_dispatch:
 
 jobs:
-  build:
+  smoke:
     runs-on: ubuntu-latest
-    env:
-      PYTHON_VERSION: '3.11'
-      NODE_VERSION: '18'
-
     steps:
-      - name: Checkout repo
+      - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Show repo root and branches (debug)
+      - name: Echo test
         run: |
-          echo "WORKSPACE: $GITHUB_WORKSPACE"
-          echo "Branch: $GITHUB_REF"
-          pwd
-          ls -la || true
-
-      - name: Detect scripts dir and show sites.json (debug)
-        id: detect
-        run: |
-          if [ -d "./scripts" ]; then
-            sd="scripts"
-          elif [ -d "./rss-feeds/scripts" ]; then
-            sd="rss-feeds/scripts"
-          else
-            sd=$(find . -type d -name scripts | head -n 1)
-            sd="${sd#./}"
-          fi
-          echo "scripts_dir=$sd" >> $GITHUB_OUTPUT
-          echo "detected scripts_dir: $sd"
-          if [ -n "$sd" ] && [ -f "$sd/sites.json" ]; then
-            echo "----- sites.json (first 200 lines) -----"
-            sed -n '1,200p' "$sd/sites.json" || true
-            echo "----- end sites.json -----"
-          else
-            echo "sites.json not found at $sd/sites.json"
-          fi
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-
-      - name: Install Playwright + browsers (only if render files exist)
-        if: steps.detect.outputs.scripts_dir != ''
-        run: |
-          SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
-          echo "SCRIPTS dir: $SCRIPTS"
-          # check if any render_file is present in sites.json
-          has_render=$(python3 - <<PY
-import json,os
-sd = os.environ.get('GITHUB_WORKSPACE')
-s = "${{ steps.detect.outputs.scripts_dir }}"
-p = os.path.join(s, 'sites.json')
-try:
-    data = json.load(open(p,'r',encoding='utf-8'))
-    for site in data.get('sites', []):
-        if site.get('render_file'):
-            print('yes'); sys.exit(0)
-except Exception:
-    pass
-print('no')
-PY
-)
-          echo "Has render files? $has_render"
-          if [ "$has_render" = "yes" ]; then
-            cd "$SCRIPTS"
-            export NPM_CONFIG_LOGLEVEL=error
-            echo "Installing playwright (npm)..."
-            npm install --silent playwright || true
-            echo "Installing playwright browsers..."
-            npx playwright install --with-deps
-            echo "Playwright install done"
-            cd -
-          else
-            echo "No render_file entries found - skipping Playwright install"
-          fi
-
-      - name: Setup Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Install Python deps
-        run: |
-          python -m pip install --upgrade pip
-          if [ -f "requirements.txt" ]; then
-            echo "Installing from requirements.txt"
-            pip install -r requirements.txt
-          else
-            pip install requests beautifulsoup4 feedgen lxml
-          fi
-
-      - name: Render pages that need JS (debug)
-        run: |
-          SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
-          if [ -z "$SCRIPTS" ]; then
-            echo "No scripts dir detected -> skip rendering"
-            exit 0
-          fi
-          echo "Rendering step using scripts dir: $SCRIPTS"
-          mkdir -p "$SCRIPTS/rendered"
-          # iterate sites.json and render each render_file entry
-          python3 - <<PY
-import json, os, subprocess, sys
-sdir = "${{ steps.detect.outputs.scripts_dir }}"
-p = os.path.join(sdir, 'sites.json')
-if not os.path.exists(p):
-    print('sites.json not found at', p)
-    sys.exit(0)
-data = json.load(open(p,'r',encoding='utf-8'))
-for s in data.get('sites', []):
-    rf = s.get('render_file')
-    url = s.get('url')
-    name = s.get('name')
-    if rf and url:
-        cand = rf
-        if not os.path.isabs(cand) and not cand.startswith(sdir):
-            cand = os.path.join(sdir, cand)
-        print('Render target for', name, '->', cand)
-        os.makedirs(os.path.dirname(cand), exist_ok=True)
-        cmd = ['node', os.path.join(sdir,'render_page.js'), url, cand]
-        print('Running:', ' '.join(cmd))
-        proc = subprocess.run(cmd, capture_output=True, text=True)
-        print('Return code:', proc.returncode)
-        print('STDOUT:')
-        print(proc.stdout[:8000])
-        print('STDERR:')
-        print(proc.stderr[:8000])
-PY
-
-      - name: List rendered files (debug)
-        run: |
-          SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
-          echo "Rendered dir listing for $SCRIPTS:"
-          ls -la "$SCRIPTS/rendered" || true
-          echo "Feeds dir listing:"
-          ls -la feeds || true
-
-      - name: Run feed generator (debug)
-        run: |
-          SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
-          if [ -f "${SCRIPTS}/generate_feeds.py" ]; then
-            echo "Running ${SCRIPTS}/generate_feeds.py"
-            python3 "${SCRIPTS}/generate_feeds.py"
-          elif [ -f "scripts/generate_feeds.py" ]; then
-            echo "Running scripts/generate_feeds.py"
-            python3 scripts/generate_feeds.py
-          else
-            echo "generate_feeds.py not found -> abort"
-            exit 1
-          fi
-
-      - name: Show produced feeds (debug)
-        run: |
-          echo "Listing feeds directory:"
-          ls -la feeds || true
-          echo "Show first 50 lines of each feed:"
-          for f in feeds/*.xml; do
-            echo "---- $f ----"
-            head -n 50 "$f" || true
-          done
+          echo "SMOKE OK"
+          date
+          ls -la
