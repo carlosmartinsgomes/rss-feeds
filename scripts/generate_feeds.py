@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# rss-feeds/scripts/generate_feeds.py
-# Gera feeds RSS a partir de sites descritos em sites.json
+# scripts/generate_feeds.py
+# Gera feeds RSS a partir de sites descritos em scripts/sites.json
 # Usa render_file (HTML local) se presente; caso contrário faz HTTP GET.
 # Aplica filtros por keywords (case-insensitive) no title+description.
 
@@ -11,19 +11,18 @@ from bs4 import BeautifulSoup
 import xml.etree.ElementTree as ET
 from datetime import datetime
 
-# ------- Config simples (mude se quiser) -------
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))         # .../rss-feeds/scripts
-REPO_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, '..'))      # .../rss-feeds
+# Paths
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))  # scripts/
+REPO_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, '..'))  # repo root (quando scripts/ está na raiz)
+SITES_JSON = os.path.join(SCRIPT_DIR, 'sites.json')
 FEEDS_DIR = os.path.join(REPO_ROOT, 'feeds')
-SITES_JSON = os.path.join(REPO_ROOT, 'scripts', 'sites.json')   # onde espera o sites.json
 
-# Headers "B" para tentar evitar 403 (approach B)
+# HTTP headers to avoid some 403
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0 Safari/537.36",
     "Accept-Language": "en-US,en;q=0.9"
 }
 
-# garante pasta feeds
 os.makedirs(FEEDS_DIR, exist_ok=True)
 
 def load_sites(path):
@@ -32,21 +31,26 @@ def load_sites(path):
     return data.get('sites', [])
 
 def read_html_from_render_file(render_file):
-    # render_file pode ser caminho relativo ao repo root
     if not render_file:
         return None
-    if not os.path.isabs(render_file):
-        render_path = os.path.join(REPO_ROOT, render_file)
-    else:
-        render_path = render_file
-    if os.path.exists(render_path):
-        with open(render_path, 'r', encoding='utf-8') as f:
-            return f.read()
+    # render_file path may be relative to repo root or scripts dir
+    candidate_paths = [
+        os.path.join(REPO_ROOT, render_file),
+        os.path.join(SCRIPT_DIR, render_file),
+        render_file
+    ]
+    for rp in candidate_paths:
+        if os.path.exists(rp):
+            try:
+                with open(rp, 'r', encoding='utf-8') as f:
+                    return f.read()
+            except Exception:
+                continue
     return None
 
 def fetch_html_via_requests(url):
     try:
-        r = requests.get(url, headers=HEADERS, timeout=15)
+        r = requests.get(url, headers=HEADERS, timeout=20)
         r.raise_for_status()
         return r.text
     except Exception as e:
@@ -54,7 +58,7 @@ def fetch_html_via_requests(url):
         return None
 
 def select_text(item, selector):
-    """selector pode ter o formato 'sel' ou 'sel@attr'"""
+    """selector can be 'sel' or 'sel@attr'"""
     if not selector:
         return ''
     if '@' in selector:
@@ -63,7 +67,6 @@ def select_text(item, selector):
         if el and el.has_attr(attr):
             return el[attr].strip()
         elif el:
-            # fallback: texto do elemento
             return el.get_text(" ", strip=True)
         else:
             return ''
@@ -83,7 +86,7 @@ def extract_items_from_html(html, site_cfg):
         link = select_text(node, site_cfg.get('link'))
         date = select_text(node, site_cfg.get('date'))
         desc = select_text(node, site_cfg.get('description'))
-        # se link for relativo, tente tornar absoluto usando site url:
+        # normalize relative links
         if link and link.startswith('/') and site_cfg.get('url'):
             link = site_cfg.get('url').rstrip('/') + link
         if title or link:
@@ -105,7 +108,6 @@ def matches_keywords(item, keywords):
     return False
 
 def write_rss(site_name, site_url, items):
-    # RSS minimalista
     rss = ET.Element('rss', version='2.0')
     channel = ET.SubElement(rss, 'channel')
     ET.SubElement(channel, 'title').text = site_name
@@ -116,11 +118,9 @@ def write_rss(site_name, site_url, items):
         item = ET.SubElement(channel, 'item')
         ET.SubElement(item, 'title').text = it.get('title') or ''
         ET.SubElement(item, 'link').text = it.get('link') or ''
-        # descrição em CDATA-like (simples)
         desc = ET.SubElement(item, 'description')
         desc.text = it.get('description') or ''
         if it.get('date'):
-            # tenta formatar data legível; se não, coloca raw
             ET.SubElement(item, 'pubDate').text = it.get('date')
 
     tree = ET.ElementTree(rss)
@@ -132,13 +132,13 @@ def process_site(site_cfg):
     name = site_cfg.get('name') or 'site'
     url = site_cfg.get('url') or ''
     render_file = site_cfg.get('render_file')
-    # 1) tenta ler ficheiro renderizado (se especificado)
+
     html = None
     if render_file:
         html = read_html_from_render_file(render_file)
         if html:
             print(f"Using rendered file: {render_file} for {name}")
-    # 2) se não houver render file ou não existe, faz request
+
     if not html:
         html = fetch_html_via_requests(url)
         if not html:
@@ -149,7 +149,9 @@ def process_site(site_cfg):
     keywords = site_cfg.get('filters', {}).get('keywords', [])
     filtered = [it for it in items if matches_keywords(it, keywords)]
 
-    # se preferir guardar sem filtro quando filtered vazio, substitua por items
+    # If you want fallback to all items when filtered is empty, uncomment next line:
+    # if not filtered: filtered = items
+
     write_rss(name, url, filtered)
 
 def main():
@@ -162,4 +164,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
