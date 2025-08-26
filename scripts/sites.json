@@ -13,6 +13,7 @@
         "keywords": ["iot", "samsara"]
       }
     },
+
     {
       "name": "darkreading",
       "url": "https://www.darkreading.com/",
@@ -23,9 +24,10 @@
       "description": "article p",
       "render_file": "scripts/rendered/darkreading.html",
       "filters": {
-        "keywords": ["rbrl", "rubrik", "crwd", "crowdstrike"]
+        "keywords": ["rbrk", "rubrik", "crwd", "crowdstrike"]
       }
     },
+
     {
       "name": "edsurge",
       "url": "https://www.edsurge.com",
@@ -38,6 +40,7 @@
         "keywords": []
       }
     },
+
     {
       "name": "datacenterknowledge",
       "url": "https://www.datacenterknowledge.com/",
@@ -50,6 +53,7 @@
         "keywords": ["anet", "arista"]
       }
     },
+
     {
       "name": "lightreading",
       "url": "https://www.lightreading.com/",
@@ -62,6 +66,7 @@
         "keywords": ["anet", "arista"]
       }
     },
+
     {
       "name": "networkworld",
       "url": "https://www.networkworld.com/",
@@ -74,6 +79,7 @@
         "keywords": ["anet", "arista"]
       }
     },
+
     {
       "name": "mobihealthnews",
       "url": "https://www.mobihealthnews.com/",
@@ -83,9 +89,10 @@
       "date": "article time",
       "description": "article p",
       "filters": {
-        "keywords": ["hims", "hers", "him&hers"]
+        "keywords": ["hims", "hers", "hims&hers"]
       }
     },
+
     {
       "name": "medcitynews",
       "url": "https://medcitynews.com/",
@@ -95,9 +102,10 @@
       "date": "article time",
       "description": "article p",
       "filters": {
-        "keywords": ["hims", "hers", "him&hers"]
+        "keywords": ["hims", "hers", "hims&hers"]
       }
     },
+
     {
       "name": "theverge",
       "url": "https://www.theverge.com/",
@@ -108,6 +116,137 @@
       "description": ".c-entry-summary p",
       "filters": {
         "keywords": ["duol", "duolingo"]
+      }
+    },
+
+    {
+      "name": "inmode-press",
+      "url": "https://inmodeinvestors.com/press-release/",
+      "item_container": ".investors_events_content_boxes .investors_events_bodybox",
+      "title": "article h2 a",
+      "link": "article h2 a@href",
+      "date": "article time",
+      "description": "article p",
+      "render_file": "scripts/rendered/inmode-press.html",
+      "filters": {
+        "keywords": []
+      }
+    },
+
+    {
+      "name": "globenewswire",
+      "url": "https://www.globenewswire.com/newsroom?page=1&pageSize=50",
+      "item_container": "article, li",
+      "title": "a",
+      "link": "a@href",
+      "date": "time",
+      "description": "p",
+      "filters": {
+        "keywords": ["rbrk","rubrik","alab","astera","anet","arista","duol","duolingo","axon","crwd","crowdstrike","ddog","datadog","ftnt","fortinet","hims","hers","hims&hers","iot","samsara","mndy","monday.com","onon","on holdings","on holding","on running","ttd","trade desk"]
+      }
+    },
+
+    {
+      "name": "prnewswire",
+      "url": "https://www.prnewswire.com/news-releases/news-releases-list/?page=1&pagesize=100",
+      "item_container": "article, li",
+      "title": "a",
+      "link": "a@href",
+      "date": "time",
+      "description": "p",
+      "filters": {
+        "keywords": ["rbrk","rubrik","alab","astera","anet","arista","duol","duolingo","axon","crwd","crowdstrike","ddog","datadog","ftnt","fortinet","hims","hers","hims&hers","iot","samsara","mndy","monday.com","onon","on holdings","on holding","on running","ttd","trade desk"]
+      }
+    },
+
+    {
+      "name": "businesswire-page1",
+      "url": "https://www.businesswire.com/newsroom",
+      "item_container": "article, li",
+      "title": "a",
+      "link": "a@href",
+      "date": "time",
+      "description": "p",
+      "filters": {
+        "keywords": ["rbrk","rubrik","alab","astera","anet","arista","duol","duolingo","axon","crwd","crowdstrike","ddog","datadog","ftnt","fortinet","hims","hers","hims&hers","iot","samsara","mndy","monday.com","onon","on holdings","on holding","on running","ttd","trade desk"]
+      }
+    },
+
+    {
+      "name": "businesswire-page2",
+      "url": "https://www.businesswire.com/newsroom?page=2",
+      "item_container": "article, li",
+      "title": "a",
+      "link": "a@href",
+      "date": "time",
+      "description": "p",
+      "filters": {
+        "keywords": ["rbrk","rubrik","alab","astera","anet","arista","duol","duolingo","axon","crwd","crowdstrike","ddog","datadog","ftnt","fortinet","hims","hers","hims&hers","iot","samsara","mndy","monday.com","onon","on holdings","on holding","on running","ttd","trade desk"]
+      }
+    },
+
+    {
+      "name": "businesswire-page3",
+      "url": "https://www.businesswire.com/newsroom?page=3",
+      "item_container": "article, li",
+      "title": "a",
+      "link": "a@href",
+      "date": "time",
+      "description": "p",
+      "filters": {
+        "keywords": ["rbrk","rubrik","alab","astera","anet","arista","duol","duolingo","axon","crwd","crowdstrike","ddog","datadog","ftnt","fortinet","hims","hers","hims&hers","iot","samsara","mndy","monday.com","onon","on holdings","on holding","on running","ttd","trade desk"]
+      }
+    },
+
+    {
+      "name": "businesswire-page4",
+      "url": "https://www.businesswire.com/newsroom?page=4",
+      "item_container": "article, li",
+      "title": "a",
+      "link": "a@href",
+      "date": "time",
+      "description": "p",
+      "filters": {
+        "keywords": ["rbrk","rubrik","alab","astera","anet","arista","duol","duolingo","axon","crwd","crowdstrike","ddog","datadog","ftnt","fortinet","hims","hers","hims&hers","iot","samsara","mndy","monday.com","onon","on holdings","on holding","on running","ttd","trade desk"]
+      }
+    },
+
+    {
+      "name": "businesswire-page5",
+      "url": "https://www.businesswire.com/newsroom?page=5",
+      "item_container": "article, li",
+      "title": "a",
+      "link": "a@href",
+      "date": "time",
+      "description": "p",
+      "filters": {
+        "keywords": ["rbrk","rubrik","alab","astera","anet","arista","duol","duolingo","axon","crwd","crowdstrike","ddog","datadog","ftnt","fortinet","hims","hers","hims&hers","iot","samsara","mndy","monday.com","onon","on holdings","on holding","on running","ttd","trade desk"]
+      }
+    },
+
+    {
+      "name": "financewire",
+      "url": "https://financewire.com/newsroom/",
+      "item_container": "article, li",
+      "title": "a",
+      "link": "a@href",
+      "date": "time",
+      "description": "p",
+      "filters": {
+        "keywords": ["rbrk","rubrik","alab","astera","anet","arista","duol","duolingo","axon","crwd","crowdstrike","ddog","datadog","ftnt","fortinet","hims","hers","hims&hers","iot","samsara","mndy","monday.com","onon","on holdings","on holding","on running","ttd","trade desk"]
+      }
+    },
+
+    {
+      "name": "yahoo-latest",
+      "url": "https://finance.yahoo.com/topic/latest-news/",
+      "item_container": "article, li",
+      "title": "a",
+      "link": "a@href",
+      "date": "time",
+      "description": "p",
+      "filters": {
+        "keywords": ["rbrk","rubrik","alab","astera","anet","arista","duol","duolingo","axon","crwd","crowdstrike","ddog","datadog","ftnt","fortinet","hims","hers","hims&hers","iot","samsara","mndy","monday.com","onon","on holdings","on holding","on running","ttd","trade desk"]
       }
     }
   ]
