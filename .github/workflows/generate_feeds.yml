@@ -1,4 +1,4 @@
-name: DETECT TEST
+name: NODE TEST
 
 on:
   workflow_dispatch:
@@ -6,19 +6,19 @@ on:
     branches: [ main ]
 
 jobs:
-  detect:
+  nodecheck:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Detect scripts dir and show sites.json
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      - name: Node and NPM versions
+        run: |
+          node --version
+          npm --version
+      - name: Check scripts dir
         run: |
           if [ -d "./scripts" ]; then sd="scripts"; elif [ -d "./rss-feeds/scripts" ]; then sd="rss-feeds/scripts"; else sd=$(find . -type d -name scripts | head -n 1); sd="${sd#./}"; fi
           echo "SCRIPTS=$sd"
-          echo "PWD=$(pwd)"
-          if [ -n "$sd" ] && [ -f "$sd/sites.json" ]; then
-            echo "---- sites.json head ----"
-            sed -n '1,80p' "$sd/sites.json"
-            echo "---- end ----"
-          else
-            echo "sites.json not found at $sd/sites.json"
-          fi
