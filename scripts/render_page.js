@@ -1,111 +1,173 @@
 // scripts/render_page.js
 // Uso: node scripts/render_page.js <url> <output_path>
-// Versão melhorada: stealth-like, melhor logging, tenta 3x, mostra status HTTP.
+// Versão combinada: stealth + multi-strategy + host-specific strategy order + logs
 
 const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
 
-async function delay(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
+function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-async function render(url, outPath) {
-  const outDir = path.dirname(outPath);
-  fs.mkdirSync(outDir, { recursive: true });
-
+async function launchAndPrepare(options) {
   const browser = await chromium.launch({
     args: ['--no-sandbox', '--disable-setuid-sandbox'],
     headless: true
   });
-
-  // context-level headers & options
   const context = await browser.newContext({
-    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36',
-    locale: 'en-US',
-    viewport: { width: 1280, height: 800 },
-    // extra http headers
-    extraHTTPHeaders: {
-      'accept-language': 'en-US,en;q=0.9',
-      'sec-ch-ua': '"Chromium";v="120", "Google Chrome";v="120"',
-      'sec-ch-ua-platform': '"Windows"'
-    }
+    userAgent: options.userAgent,
+    locale: options.locale || 'en-US',
+    viewport: options.viewport || { width: 1280, height: 800 },
+    extraHTTPHeaders: options.extraHTTPHeaders || {}
   });
 
-  const page = await context.newPage();
-
-  // stealth-ish: hide webdriver, provide plugins/languages
-  await page.addInitScript(() => {
-    // navigator.webdriver
+  // stealth-ish init
+  await context.addInitScript(() => {
     Object.defineProperty(navigator, 'webdriver', { get: () => false });
-    // basic plugins/langs
     Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
-    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
+    Object.defineProperty(navigator, 'plugins', { get: () => [1,2,3,4] });
+    // small rand to appear less botlike
+    Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 4 });
   });
 
-  // resource routing: block heavy/tracking by domain/type but allow css/fonts
-  await page.route('**/*', (route) => {
-    const req = route.request();
-    const url = req.url();
-    const resourceType = req.resourceType();
+  return { browser, context };
+}
 
-    // block some known ad/tracker domains
-    const blocked = ['googlesyndication', 'doubleclick', 'google-analytics', 'adsystem', 'adservice', 'scorecardresearch', 'facebook.net', 'facebook.com', 'ads-twitter'];
-    for (const b of blocked) {
-      if (url.includes(b)) return route.abort();
+async function tryNavigateWithOptions(url, outPath, strat) {
+  const { browser, context } = await launchAndPrepare(strat);
+  let page = null;
+  try {
+    page = await context.newPage();
+
+    await page.route('**/*', (route) => {
+      const req = route.request();
+      const rurl = req.url();
+      const type = req.resourceType();
+
+      const blockedDomains = ['googlesyndication','doubleclick','google-analytics','adsystem','adservice','scorecardresearch','facebook.net','facebook.com','ads-twitter'];
+      for (const d of blockedDomains) if (rurl.includes(d)) return route.abort();
+
+      if (strat.blockImages && (type === 'image' || type === 'media')) return route.abort();
+      if (strat.blockStyles && (type === 'stylesheet' || type === 'font')) return route.abort();
+
+      return route.continue();
+    });
+
+    page.setDefaultNavigationTimeout(strat.timeout || 90000);
+
+    console.log(`  -> Navigating with waitUntil="${strat.waitUntil}" (timeout ${strat.timeout || 90000})`);
+    const resp = await page.goto(url, { waitUntil: strat.waitUntil, timeout: strat.timeout || 90000, referer: strat.referer || undefined });
+    const status = resp ? resp.status() : null;
+    return { ok: true, status, browser, context, page };
+  } catch (err) {
+    if (page) try { await page.close(); } catch(e){}
+    await browser.close();
+    return { ok: false, error: err };
+  }
+}
+
+async function render(url, outPath) {
+  fs.mkdirSync(path.dirname(outPath), { recursive: true });
+
+  // default strategies
+  const commonHeaders = { 'accept-language': 'en-US,en;q=0.9' };
+
+  const strategies = [
+    {
+      name: 'A - fast, block images & styles (default fast)',
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0 Safari/537.36',
+      extraHTTPHeaders: commonHeaders,
+      blockImages: true,
+      blockStyles: true,
+      waitUntil: 'domcontentloaded',
+      timeout: 70000,
+      referer: undefined
+    },
+    {
+      name: 'B - allow styles/fonts, referer, Chrome UA (recommended for sites sensitive to CSS)',
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36',
+      extraHTTPHeaders: Object.assign({}, commonHeaders, { 'sec-ch-ua': '"Chromium";v="120", "Google Chrome";v="120"' }),
+      blockImages: true,
+      blockStyles: false,
+      waitUntil: 'networkidle',
+      timeout: 90000,
+      referer: url
+    },
+    {
+      name: 'C - human-like, allow everything, longer wait',
+      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.1 Safari/605.1.15',
+      extraHTTPHeaders: commonHeaders,
+      blockImages: false,
+      blockStyles: false,
+      waitUntil: 'networkidle',
+      timeout: 110000,
+      referer: url
     }
+  ];
 
-    // block images/media to speed up, but allow stylesheet & font
-    if (resourceType === 'image' || resourceType === 'media') {
-      return route.abort();
-    }
-    return route.continue();
-  });
+  // host-specific preferred strategy order (names correspond to strategies array indexes)
+  const hostPreferences = {
+    'darkreading.com': [1, 0, 2],       // try B then A then C
+    'iotworldtoday.com': [1, 2, 0],     // try B then C then A
+    'businesswire.com': [1, 2, 0],      // allow styles/fonts for BusinessWire
+    'inmodeinvestors.com': [1, 0, 2]    // allow styles for inmode
+  };
 
-  page.setDefaultNavigationTimeout(90000); // 90s
+  const hostKey = Object.keys(hostPreferences).find(h => url.includes(h));
+  let order = hostKey ? hostPreferences[hostKey] : [0,1,2];
 
   let lastErr = null;
-  for (let attempt = 1; attempt <= 3; attempt++) {
+  for (let idx = 0; idx < order.length; idx++) {
+    const sIndex = order[idx];
+    const strat = strategies[sIndex];
+    console.log(`Strategy attempt ${idx+1}/${order.length}: ${strat.name} for ${url}`);
+    const result = await tryNavigateWithOptions(url, outPath, strat);
+
+    if (!result.ok) {
+      console.warn(`  Strategy ${strat.name} failed to navigate: ${result.error && result.error.message ? result.error.message : result.error}`);
+      lastErr = result.error;
+      // small backoff
+      await delay(1000 * (idx+1));
+      continue;
+    }
+
+    // got a page/browser handle
+    const { page, browser, status } = result;
+    console.log(`  Main response status: ${status}`);
+
+    if (status === 403) {
+      console.warn(`  Got 403 on ${url} with strategy ${strat.name}`);
+      await browser.close();
+      lastErr = new Error('403 Forbidden');
+      await delay(1500);
+      continue;
+    }
+
+    // wait a bit more for dynamic content to settle
+    await delay(1200 + idx * 500);
+
+    // try to wait for common content selectors, non-fatal
     try {
-      console.log(`Render attempt ${attempt} -> ${url}`);
-      // set a referrer to appear more human-like
-      const resp = await page.goto(url, { waitUntil: 'networkidle', timeout: 70000 });
-      const status = resp ? resp.status() : null;
-      console.log(`Main response status: ${status}`);
+      await page.waitForSelector('article, main, #content, .post, .press, .news, .investors_events_bodybox', { timeout: 7000 });
+    } catch (e) {
+      // non-fatal
+    }
 
-      // if we got a 403 at the main request, bail early but try again
-      if (status === 403) {
-        console.warn(`Got 403 on ${url} (attempt ${attempt})`);
-        lastErr = new Error('403 Forbidden');
-        await delay(2000 * attempt);
-        continue;
-      }
-
-      // give it a little time for dynamic content to populate
-      await delay(1200 + attempt * 300);
-
-      // try to wait for a common content container (non-fatal)
-      try {
-        await page.waitForSelector('article, main, #content, .investors_events_bodybox, .investors_events_content_boxes', { timeout: 7000 });
-      } catch (e) {
-        // não fatal, continuamos
-      }
-
+    try {
       const content = await page.content();
       fs.writeFileSync(outPath, content, { encoding: 'utf-8' });
-      console.log(`Rendered ${url} -> ${outPath} (status: ${status})`);
+      console.log(`Rendered ${url} -> ${outPath} (status: ${status}) using strategy: ${strat.name}`);
       await browser.close();
       return;
     } catch (err) {
-      console.error(`Render error (attempt ${attempt}) for ${url}:`, err && err.message ? err.message : err);
+      console.error(`  Error writing content after strategy ${strat.name}: ${err && err.message ? err.message : err}`);
       lastErr = err;
-      // small backoff
-      await delay(2000 * attempt);
+      try { await browser.close(); } catch(e){}
+      await delay(500);
+      continue;
     }
   }
 
-  await browser.close();
-  throw lastErr || new Error('Unknown render error');
+  throw lastErr || new Error('All strategies failed');
 }
 
 (async () => {
@@ -119,7 +181,7 @@ async function render(url, outPath) {
     await render(url, outPath);
     process.exit(0);
   } catch (err) {
-    console.error('Render failed:', err && err.stack ? err.stack : err);
+    console.error('Render failed:', err && (err.stack || err.message) ? (err.stack || err.message) : err);
     process.exit(1);
   }
 })();
