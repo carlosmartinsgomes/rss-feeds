@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 # scripts/generate_feeds.py
-# Gera feeds RSS a partir de sites descritos em scripts/sites.json
-# Usa render_file (HTML local) se presente; caso contrário faz HTTP GET.
-# Aplica filtros por keywords (case-insensitive) no title+description.
+# Versão melhorada: logging, seletores alternativos e fallback para evitar feeds vazios.
 
 import os
 import json
@@ -10,14 +8,13 @@ import requests
 from bs4 import BeautifulSoup
 import xml.etree.ElementTree as ET
 from datetime import datetime
+import sys
 
-# Paths
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))  # scripts/
-REPO_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, '..'))  # repo root (quando scripts/ está na raiz)
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, '..'))
 SITES_JSON = os.path.join(SCRIPT_DIR, 'sites.json')
 FEEDS_DIR = os.path.join(REPO_ROOT, 'feeds')
 
-# HTTP headers to avoid some 403
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0 Safari/537.36",
     "Accept-Language": "en-US,en;q=0.9"
@@ -26,14 +23,17 @@ HEADERS = {
 os.makedirs(FEEDS_DIR, exist_ok=True)
 
 def load_sites(path):
-    with open(path, 'r', encoding='utf-8') as f:
-        data = json.load(f)
-    return data.get('sites', [])
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        return data.get('sites', [])
+    except Exception as e:
+        print(f"ERROR: cannot load sites.json at {path}: {e}")
+        return []
 
 def read_html_from_render_file(render_file):
     if not render_file:
         return None
-    # render_file path may be relative to repo root or scripts dir
     candidate_paths = [
         os.path.join(REPO_ROOT, render_file),
         os.path.join(SCRIPT_DIR, render_file),
@@ -44,7 +44,8 @@ def read_html_from_render_file(render_file):
             try:
                 with open(rp, 'r', encoding='utf-8') as f:
                     return f.read()
-            except Exception:
+            except Exception as e:
+                print(f"Warning: cannot read rendered file {rp}: {e}")
                 continue
     return None
 
@@ -58,7 +59,6 @@ def fetch_html_via_requests(url):
         return None
 
 def select_text(item, selector):
-    """selector can be 'sel' or 'sel@attr'"""
     if not selector:
         return ''
     if '@' in selector:
@@ -77,10 +77,22 @@ def select_text(item, selector):
 def extract_items_from_html(html, site_cfg):
     soup = BeautifulSoup(html, 'html.parser')
     container_sel = site_cfg.get('item_container')
-    if not container_sel:
-        return []
-    nodes = soup.select(container_sel)
     items = []
+
+    if container_sel:
+        nodes = soup.select(container_sel)
+    else:
+        nodes = []
+
+    # try fallback selectors if none found
+    if not nodes or len(nodes) == 0:
+        fallback_containers = ['article', 'li', 'div.c-compact-river__entry', '.c-compact-river__entry', 'div.story', '.story']
+        for fsel in fallback_containers:
+            nodes = soup.select(fsel)
+            if nodes:
+                print(f"Fallback: found {len(nodes)} nodes with selector '{fsel}'")
+                break
+
     for node in nodes:
         title = select_text(node, site_cfg.get('title'))
         link = select_text(node, site_cfg.get('link'))
@@ -89,12 +101,12 @@ def extract_items_from_html(html, site_cfg):
         # normalize relative links
         if link and link.startswith('/') and site_cfg.get('url'):
             link = site_cfg.get('url').rstrip('/') + link
-        if title or link:
+        if title or link or desc:
             items.append({
-                'title': title,
-                'link': link,
-                'date': date,
-                'description': desc
+                'title': title.strip() if title else '',
+                'link': link.strip() if link else '',
+                'date': date.strip() if date else '',
+                'description': desc.strip() if desc else ''
             })
     return items
 
@@ -132,30 +144,44 @@ def process_site(site_cfg):
     name = site_cfg.get('name') or 'site'
     url = site_cfg.get('url') or ''
     render_file = site_cfg.get('render_file')
+    print(f"\n--- Processing {name} ({url}) ---")
 
     html = None
     if render_file:
         html = read_html_from_render_file(render_file)
         if html:
             print(f"Using rendered file: {render_file} for {name}")
+        else:
+            print(f"No rendered file found at {render_file} for {name}")
 
     if not html:
+        print(f"Fetching {url} via requests...")
         html = fetch_html_via_requests(url)
         if not html:
             print(f"Failed to fetch {url}")
+            # write empty feed (or skip) — keep minimal valid RSS
+            write_rss(name, url, [])
             return
 
     items = extract_items_from_html(html, site_cfg)
-    keywords = site_cfg.get('filters', {}).get('keywords', [])
-    filtered = [it for it in items if matches_keywords(it, keywords)]
+    print(f"Found {len(items)} items for {name} (raw)")
 
-    # If you want fallback to all items when filtered is empty, uncomment next line:
-    # if not filtered: filtered = items
+    keywords = site_cfg.get('filters', {}).get('keywords', [])
+    if keywords:
+        print(f"Applying {len(keywords)} keyword filters for {name}: {keywords}")
+    filtered = [it for it in items if matches_keywords(it, keywords)]
+    print(f"{len(filtered)} items matched filters for {name}")
+
+    # fallback: if filter removed everything, use all items (prevent empty feeds)
+    if not filtered and items:
+        print(f"No items matched filters for {name} — falling back to all {len(items)} items")
+        filtered = items
 
     write_rss(name, url, filtered)
 
 def main():
     sites = load_sites(SITES_JSON)
+    print(f"Loaded {len(sites)} site configurations from {SITES_JSON}")
     for s in sites:
         try:
             process_site(s)
