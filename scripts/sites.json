@@ -9,9 +9,7 @@
       "date": "article time",
       "description": "article p",
       "render_file": "scripts/rendered/iotworldtoday.html",
-      "filters": {
-        "keywords": ["iot", "samsara"]
-      }
+      "filters": { "keywords": ["iot","samsara"] }
     },
 
     {
@@ -23,9 +21,7 @@
       "date": "article time",
       "description": "article p",
       "render_file": "scripts/rendered/darkreading.html",
-      "filters": {
-        "keywords": ["rbrk", "rubrik", "crwd", "crowdstrike"]
-      }
+      "filters": { "keywords": ["rbrk","rubrik","crwd","crowdstrike"] }
     },
 
     {
@@ -36,9 +32,7 @@
       "link": "article h2 a@href",
       "date": "article time",
       "description": "article p",
-      "filters": {
-        "keywords": []
-      }
+      "filters": { "keywords": [] }
     },
 
     {
@@ -49,9 +43,7 @@
       "link": "article h2 a@href",
       "date": "article time",
       "description": "article p",
-      "filters": {
-        "keywords": ["anet", "arista"]
-      }
+      "filters": { "keywords": ["anet","arista"] }
     },
 
     {
@@ -62,9 +54,7 @@
       "link": "article h3 a@href",
       "date": "article time",
       "description": "article p",
-      "filters": {
-        "keywords": ["anet", "arista"]
-      }
+      "filters": { "keywords": ["anet","arista"] }
     },
 
     {
@@ -75,9 +65,7 @@
       "link": "article h2 a@href",
       "date": "article time",
       "description": "article p",
-      "filters": {
-        "keywords": ["anet", "arista"]
-      }
+      "filters": { "keywords": ["anet","arista"] }
     },
 
     {
@@ -88,9 +76,7 @@
       "link": "article h2 a@href",
       "date": "article time",
       "description": "article p",
-      "filters": {
-        "keywords": ["hims", "hers", "hims&hers"]
-      }
+      "filters": { "keywords": ["hims","hers","hims&hers"] }
     },
 
     {
@@ -102,44 +88,45 @@
       "date": "article time",
       "description": "article p",
       "filters": {
-        "keywords": ["hims", "hers", "hims&hers"]
+        "keywords": ["inmode","device","acquisition","partnership","fda","clinical trial"],
+        "exclude": ["opinion","review"]
       }
     },
 
     {
       "name": "theverge",
       "url": "https://www.theverge.com/",
-      "item_container": "div.c-compact-river__entry",
-      "title": ".c-entry-box--compact__title a",
-      "link": ".c-entry-box--compact__title a@href",
-      "date": ".c-byline__item time",
-      "description": ".c-entry-summary p",
+      "item_container": "div.c-compact-river__entry, article, .news-item",
+      "title": ".c-entry-box--compact__title a, a, h2 a",
+      "link": ".c-entry-box--compact__title a@href, a@href",
+      "date": ".c-byline__item time, time",
+      "description": ".c-entry-summary p, p",
       "filters": {
-        "keywords": ["duol", "duolingo"]
-      }
+        "keywords": ["duol","duolingo","inmode","device","acquisition","partnership","fda","clinical trial"],
+        "exclude": ["opinion","review"]
+      },
+      "render_file": "scripts/rendered/theverge.html"
     },
 
     {
       "name": "inmode-press",
       "url": "https://inmodeinvestors.com/press-release/",
-      "item_container": ".investors_events_content_boxes .investors_events_bodybox",
-      "title": "article h2 a",
-      "link": "article h2 a@href",
-      "date": "article time",
-      "description": "article p",
+      "item_container": ".investors_events_content_boxes .investors_events_bodybox, article",
+      "title": "article h2 a, a",
+      "link": "article h2 a@href, a@href",
+      "date": "article time, time",
+      "description": "article p, p",
       "render_file": "scripts/rendered/inmode-press.html",
-      "filters": {
-        "keywords": []
-      }
+      "filters": { "keywords": ["inmode","inmd"] }
     },
 
     {
       "name": "globenewswire",
       "url": "https://www.globenewswire.com/newsroom?page=1&pageSize=50",
-      "item_container": "article, li",
-      "title": "a",
+      "item_container": "li, .news, article",
+      "title": "a, h3 a",
       "link": "a@href",
-      "date": "time",
+      "date": ".date, time, span",
       "description": "p",
       "filters": {
         "keywords": ["rbrk","rubrik","alab","astera","anet","arista","duol","duolingo","axon","crwd","crowdstrike","ddog","datadog","ftnt","fortinet","hims","hers","hims&hers","iot","samsara","mndy","monday.com","onon","on holdings","on holding","on running","ttd","trade desk"]
@@ -149,11 +136,11 @@
     {
       "name": "prnewswire",
       "url": "https://www.prnewswire.com/news-releases/news-releases-list/?page=1&pagesize=100",
-      "item_container": "article, li",
-      "title": "a",
-      "link": "a@href",
-      "date": "time",
-      "description": "p",
+      "item_container": "li, article, item",
+      "title": "a, h3 a, title",
+      "link": "a@href, link@href",
+      "date": "time, pubDate",
+      "description": "p, description",
       "filters": {
         "keywords": ["rbrk","rubrik","alab","astera","anet","arista","duol","duolingo","axon","crwd","crowdstrike","ddog","datadog","ftnt","fortinet","hims","hers","hims&hers","iot","samsara","mndy","monday.com","onon","on holdings","on holding","on running","ttd","trade desk"]
       }
@@ -162,66 +149,62 @@
     {
       "name": "businesswire-page1",
       "url": "https://www.businesswire.com/newsroom",
-      "item_container": "article, li",
-      "title": "a",
+      "item_container": "li, article, .news-item",
+      "title": "a, h3 a",
       "link": "a@href",
-      "date": "time",
+      "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/businesswire-page1.html",
       "filters": {
         "keywords": ["rbrk","rubrik","alab","astera","anet","arista","duol","duolingo","axon","crwd","crowdstrike","ddog","datadog","ftnt","fortinet","hims","hers","hims&hers","iot","samsara","mndy","monday.com","onon","on holdings","on holding","on running","ttd","trade desk"]
       }
     },
-
     {
       "name": "businesswire-page2",
       "url": "https://www.businesswire.com/newsroom?page=2",
-      "item_container": "article, li",
-      "title": "a",
+      "item_container": "li, article, .news-item",
+      "title": "a, h3 a",
       "link": "a@href",
-      "date": "time",
+      "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/businesswire-page2.html",
       "filters": {
         "keywords": ["rbrk","rubrik","alab","astera","anet","arista","duol","duolingo","axon","crwd","crowdstrike","ddog","datadog","ftnt","fortinet","hims","hers","hims&hers","iot","samsara","mndy","monday.com","onon","on holdings","on holding","on running","ttd","trade desk"]
       }
     },
-
     {
       "name": "businesswire-page3",
       "url": "https://www.businesswire.com/newsroom?page=3",
-      "item_container": "article, li",
-      "title": "a",
+      "item_container": "li, article, .news-item",
+      "title": "a, h3 a",
       "link": "a@href",
-      "date": "time",
+      "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/businesswire-page3.html",
       "filters": {
         "keywords": ["rbrk","rubrik","alab","astera","anet","arista","duol","duolingo","axon","crwd","crowdstrike","ddog","datadog","ftnt","fortinet","hims","hers","hims&hers","iot","samsara","mndy","monday.com","onon","on holdings","on holding","on running","ttd","trade desk"]
       }
     },
-
     {
       "name": "businesswire-page4",
       "url": "https://www.businesswire.com/newsroom?page=4",
-      "item_container": "article, li",
-      "title": "a",
+      "item_container": "li, article, .news-item",
+      "title": "a, h3 a",
       "link": "a@href",
-      "date": "time",
+      "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/businesswire-page4.html",
       "filters": {
         "keywords": ["rbrk","rubrik","alab","astera","anet","arista","duol","duolingo","axon","crwd","crowdstrike","ddog","datadog","ftnt","fortinet","hims","hers","hims&hers","iot","samsara","mndy","monday.com","onon","on holdings","on holding","on running","ttd","trade desk"]
       }
     },
-
     {
       "name": "businesswire-page5",
       "url": "https://www.businesswire.com/newsroom?page=5",
-      "item_container": "article, li",
-      "title": "a",
+      "item_container": "li, article, .news-item",
+      "title": "a, h3 a",
       "link": "a@href",
-      "date": "time",
+      "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/businesswire-page5.html",
       "filters": {
@@ -232,10 +215,10 @@
     {
       "name": "financewire",
       "url": "https://financewire.com/newsroom/",
-      "item_container": "article, li",
-      "title": "a",
+      "item_container": "li, article",
+      "title": "a, h3 a",
       "link": "a@href",
-      "date": "time",
+      "date": "time, .date",
       "description": "p",
       "filters": {
         "keywords": ["rbrk","rubrik","alab","astera","anet","arista","duol","duolingo","axon","crwd","crowdstrike","ddog","datadog","ftnt","fortinet","hims","hers","hims&hers","iot","samsara","mndy","monday.com","onon","on holdings","on holding","on running","ttd","trade desk"]
@@ -245,10 +228,10 @@
     {
       "name": "yahoo-latest",
       "url": "https://finance.yahoo.com/topic/latest-news/",
-      "item_container": "article, li",
-      "title": "a",
+      "item_container": "li, div",
+      "title": "a, h3 a",
       "link": "a@href",
-      "date": "time",
+      "date": "time, .Fz\\(12px\\)",
       "description": "p",
       "filters": {
         "keywords": ["rbrk","rubrik","alab","astera","anet","arista","duol","duolingo","axon","crwd","crowdstrike","ddog","datadog","ftnt","fortinet","hims","hers","hims&hers","iot","samsara","mndy","monday.com","onon","on holdings","on holding","on running","ttd","trade desk"]
@@ -265,28 +248,10 @@
       "description": "p",
       "render_file": "scripts/rendered/adage.html",
       "filters": {
-        "keywords": [
-          "supply path optimization",
-          "supply-path",
-          "connected tv",
-          "ctv",
-          "connected-tv",
-          "connectedtv",
-          "programmatic",
-          "publisher",
-          "ssp",
-          "openwrap",
-          "pubmatic.com",
-          "the trade desk",
-          "trade desk",
-          "ttd",
-          "thetradedesk",
-          "dsp",
-          "identity",
-          "unified id"
-        ]
+        "keywords": ["supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic.com","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"]
       }
     },
+
     {
       "name": "adweek-feed",
       "url": "https://www.adweek.com/feed/",
@@ -296,28 +261,10 @@
       "date": "pubDate",
       "description": "description",
       "filters": {
-        "keywords": [
-          "supply path optimization",
-          "supply-path",
-          "connected tv",
-          "ctv",
-          "connected-tv",
-          "connectedtv",
-          "programmatic",
-          "publisher",
-          "ssp",
-          "openwrap",
-          "pubmatic.com",
-          "the trade desk",
-          "trade desk",
-          "ttd",
-          "thetradedesk",
-          "dsp",
-          "identity",
-          "unified id"
-        ]
+        "keywords": ["supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic.com","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"]
       }
     },
+
     {
       "name": "adexchanger-feed",
       "url": "https://www.adexchanger.com/feed/",
@@ -327,28 +274,10 @@
       "date": "pubDate",
       "description": "description",
       "filters": {
-        "keywords": [
-          "supply path optimization",
-          "supply-path",
-          "connected tv",
-          "ctv",
-          "connected-tv",
-          "connectedtv",
-          "programmatic",
-          "publisher",
-          "ssp",
-          "openwrap",
-          "pubmatic.com",
-          "the trade desk",
-          "trade desk",
-          "ttd",
-          "thetradedesk",
-          "dsp",
-          "identity",
-          "unified id"
-        ]
+        "keywords": ["supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic.com","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"]
       }
     },
+
     {
       "name": "thedrum-adtech",
       "url": "https://www.thedrum.com/topics/ad-tech",
@@ -359,28 +288,10 @@
       "description": "p",
       "render_file": "scripts/rendered/thedrum-adtech.html",
       "filters": {
-        "keywords": [
-          "supply path optimization",
-          "supply-path",
-          "connected tv",
-          "ctv",
-          "connected-tv",
-          "connectedtv",
-          "programmatic",
-          "publisher",
-          "ssp",
-          "openwrap",
-          "pubmatic.com",
-          "the trade desk",
-          "trade desk",
-          "ttd",
-          "thetradedesk",
-          "dsp",
-          "identity",
-          "unified id"
-        ]
+        "keywords": ["supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic.com","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"]
       }
     },
+
     {
       "name": "digiday",
       "url": "https://digiday.com/",
@@ -391,28 +302,10 @@
       "description": "p",
       "render_file": "scripts/rendered/digiday.html",
       "filters": {
-        "keywords": [
-          "supply path optimization",
-          "supply-path",
-          "connected tv",
-          "ctv",
-          "connected-tv",
-          "connectedtv",
-          "programmatic",
-          "publisher",
-          "ssp",
-          "openwrap",
-          "pubmatic.com",
-          "the trade desk",
-          "trade desk",
-          "ttd",
-          "thetradedesk",
-          "dsp",
-          "identity",
-          "unified id"
-        ]
+        "keywords": ["supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic.com","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"]
       }
     },
+
     {
       "name": "martech-feed",
       "url": "https://martech.org/feed/",
@@ -422,28 +315,10 @@
       "date": "pubDate",
       "description": "description",
       "filters": {
-        "keywords": [
-          "supply path optimization",
-          "supply-path",
-          "connected tv",
-          "ctv",
-          "connected-tv",
-          "connectedtv",
-          "programmatic",
-          "publisher",
-          "ssp",
-          "openwrap",
-          "pubmatic.com",
-          "the trade desk",
-          "trade desk",
-          "ttd",
-          "thetradedesk",
-          "dsp",
-          "identity",
-          "unified id"
-        ]
+        "keywords": ["supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic.com","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"]
       }
     },
+
     {
       "name": "mediapost",
       "url": "https://www.mediapost.com/",
@@ -454,28 +329,10 @@
       "description": "p",
       "render_file": "scripts/rendered/mediapost.html",
       "filters": {
-        "keywords": [
-          "supply path optimization",
-          "supply-path",
-          "connected tv",
-          "ctv",
-          "connected-tv",
-          "connectedtv",
-          "programmatic",
-          "publisher",
-          "ssp",
-          "openwrap",
-          "pubmatic.com",
-          "the trade desk",
-          "trade desk",
-          "ttd",
-          "thetradedesk",
-          "dsp",
-          "identity",
-          "unified id"
-        ]
+        "keywords": ["supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic.com","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"]
       }
     },
+
     {
       "name": "exchangewire",
       "url": "https://www.exchangewire.com/",
@@ -486,28 +343,10 @@
       "description": "p",
       "render_file": "scripts/rendered/exchangewire.html",
       "filters": {
-        "keywords": [
-          "supply path optimization",
-          "supply-path",
-          "connected tv",
-          "ctv",
-          "connected-tv",
-          "connectedtv",
-          "programmatic",
-          "publisher",
-          "ssp",
-          "openwrap",
-          "pubmatic.com",
-          "the trade desk",
-          "trade desk",
-          "ttd",
-          "thetradedesk",
-          "dsp",
-          "identity",
-          "unified id"
-        ]
+        "keywords": ["supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic.com","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"]
       }
     },
+
     {
       "name": "admonsters",
       "url": "https://admonsters.com/",
@@ -518,28 +357,10 @@
       "description": "p",
       "render_file": "scripts/rendered/admonsters.html",
       "filters": {
-        "keywords": [
-          "supply path optimization",
-          "supply-path",
-          "connected tv",
-          "ctv",
-          "connected-tv",
-          "connectedtv",
-          "programmatic",
-          "publisher",
-          "ssp",
-          "openwrap",
-          "pubmatic.com",
-          "the trade desk",
-          "trade desk",
-          "ttd",
-          "thetradedesk",
-          "dsp",
-          "identity",
-          "unified id"
-        ]
+        "keywords": ["supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic.com","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"]
       }
     },
+
     {
       "name": "videoweek",
       "url": "https://videoweek.com/",
@@ -550,26 +371,7 @@
       "description": "p",
       "render_file": "scripts/rendered/videoweek.html",
       "filters": {
-        "keywords": [
-          "supply path optimization",
-          "supply-path",
-          "connected tv",
-          "ctv",
-          "connected-tv",
-          "connectedtv",
-          "programmatic",
-          "publisher",
-          "ssp",
-          "openwrap",
-          "pubmatic.com",
-          "the trade desk",
-          "trade desk",
-          "ttd",
-          "thetradedesk",
-          "dsp",
-          "identity",
-          "unified id"
-        ]
+        "keywords": ["supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic.com","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"]
       }
     },
 
@@ -582,10 +384,9 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/marketingdive-tradedesk.html",
-      "filters": {
-        "keywords": []
-      }
+      "filters": { "keywords": [] }
     },
+
     {
       "name": "marketingdive-search-pubmatic",
       "url": "https://www.marketingdive.com/search/?q=pubmatic",
@@ -595,22 +396,19 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/marketingdive-pubmatic.html",
-      "filters": {
-        "keywords": []
-      }
+      "filters": { "keywords": [] }
     },
+
     {
       "name": "stocktwits-pubm",
       "url": "https://stocktwits.com/symbol/PUBM",
-      "item_container": "article, li, div",
-      "title": "a, .message, h2 a",
+      "item_container": ".stream .message, .stream-item, article",
+      "title": ".message, .stream-item .body, a",
       "link": "a@href",
-      "date": ".time, time",
+      "date": "time, .timestamp",
       "description": ".message, p",
       "render_file": "scripts/rendered/stocktwits-pubm.html",
-      "filters": {
-        "keywords": []
-      }
+      "filters": { "keywords": [] }
     },
 
     {
@@ -622,13 +420,9 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/semiengineering.html",
-      "filters": {
-        "keywords": [
-          "astera",
-          "alab"
-        ]
-      }
+      "filters": { "keywords": ["astera","alab"] }
     },
+
     {
       "name": "eetimes",
       "url": "https://www.eetimes.com/",
@@ -638,13 +432,9 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/eetimes.html",
-      "filters": {
-        "keywords": [
-          "astera",
-          "alab"
-        ]
-      }
+      "filters": { "keywords": ["astera","alab"] }
     },
+
     {
       "name": "techcrunch-feed",
       "url": "https://techcrunch.com/feed/",
@@ -653,15 +443,9 @@
       "link": "link",
       "date": "pubDate",
       "description": "description",
-      "filters": {
-        "keywords": [
-          "duol",
-          "duolingo",
-          "mndy",
-          "monday.com"
-        ]
-      }
+      "filters": { "keywords": ["duol","duolingo","mndy","monday.com"] }
     },
+
     {
       "name": "thehackersnews",
       "url": "https://feeds.feedburner.com/TheHackersNews",
@@ -670,10 +454,9 @@
       "link": "link",
       "date": "pubDate",
       "description": "description",
-      "filters": {
-        "keywords": []
-      }
+      "filters": { "keywords": [] }
     },
+
     {
       "name": "cyberscoop",
       "url": "https://cyberscoop.com/",
@@ -683,12 +466,7 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/cyberscoop.html",
-      "filters": {
-        "keywords": [
-          "crwd",
-          "crowdstrike"
-        ]
-      }
+      "filters": { "keywords": ["crwd","crowdstrike"] }
     },
 
     {
@@ -700,13 +478,9 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/dzone.html",
-      "filters": {
-        "keywords": [
-          "ddog",
-          "datadog"
-        ]
-      }
+      "filters": { "keywords": ["ddog","datadog"] }
     },
+
     {
       "name": "infoq-feed",
       "url": "https://feed.infoq.com/",
@@ -715,13 +489,9 @@
       "link": "link",
       "date": "pubDate",
       "description": "description",
-      "filters": {
-        "keywords": [
-          "ddog",
-          "datadog"
-        ]
-      }
+      "filters": { "keywords": ["ddog","datadog"] }
     },
+
     {
       "name": "thenewstack-feed",
       "url": "https://thenewstack.io/blog/feed/",
@@ -730,12 +500,7 @@
       "link": "link",
       "date": "pubDate",
       "description": "description",
-      "filters": {
-        "keywords": [
-          "ddog",
-          "datadog"
-        ]
-      }
+      "filters": { "keywords": ["ddog","datadog"] }
     },
 
     {
@@ -747,13 +512,9 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/scworld.html",
-      "filters": {
-        "keywords": [
-          "ftnt",
-          "fortinet"
-        ]
-      }
+      "filters": { "keywords": ["ftnt","fortinet"] }
     },
+
     {
       "name": "fiercehealthcare",
       "url": "https://www.fiercehealthcare.com/rss/xml",
@@ -762,14 +523,9 @@
       "link": "link",
       "date": "pubDate",
       "description": "description",
-      "filters": {
-        "keywords": [
-          "hims",
-          "hers",
-          "hims&hers"
-        ]
-      }
+      "filters": { "keywords": ["hims","hers","hims&hers"] }
     },
+
     {
       "name": "venturebeat",
       "url": "https://venturebeat.com/",
@@ -779,15 +535,9 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/venturebeat.html",
-      "filters": {
-        "keywords": [
-          "iot",
-          "samsara",
-          "mndy",
-          "monday.com"
-        ]
-      }
+      "filters": { "keywords": ["iot","samsara","mndy","monday.com"] }
     },
+
     {
       "name": "theinformation",
       "url": "https://www.theinformation.com/",
@@ -797,12 +547,7 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/theinformation.html",
-      "filters": {
-        "keywords": [
-          "mndy",
-          "monday.com"
-        ]
-      }
+      "filters": { "keywords": ["mndy","monday.com"] }
     },
 
     {
@@ -814,15 +559,9 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/wwd-footwear.html",
-      "filters": {
-        "keywords": [
-          "onon",
-          "on holding",
-          "on holdings",
-          "running"
-        ]
-      }
+      "filters": { "keywords": ["onon","on holding","on holdings","running"] }
     },
+
     {
       "name": "retaildive",
       "url": "https://www.retaildive.com/",
@@ -832,15 +571,184 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/retaildive.html",
-      "filters": {
-        "keywords": [
-          "onon",
-          "on holding",
-          "on holdings",
-          "running"
-        ]
-      }
+      "filters": { "keywords": ["onon","on holding","on holdings","running"] }
+    },
+
+    {
+      "name": "mdpi-jaestheticmed",
+      "url": "https://www.mdpi.com/rss/journal/jaestheticmed",
+      "item_container": "item",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
+      "filters": { "keywords": ["inmode","inmd"] }
+    },
+
+    {
+      "name": "medtechdive",
+      "url": "https://www.medtechdive.com/",
+      "item_container": "article, li, div",
+      "title": "a, h2 a, h3 a",
+      "link": "a@href",
+      "date": "time, .date",
+      "description": "p",
+      "render_file": "scripts/rendered/medtechdive.html",
+      "filters": { "keywords": ["inmode","inmd"] }
+    },
+
+    {
+      "name": "medtechdive-devices",
+      "url": "https://www.medtechdive.com/topic/medical-devices/",
+      "item_container": "article, li, div",
+      "title": "a, h2 a, h3 a",
+      "link": "a@href",
+      "date": "time, .date",
+      "description": "p",
+      "render_file": "scripts/rendered/medtechdive-devices.html",
+      "filters": { "keywords": ["inmode","inmd"] }
+    },
+
+    {
+      "name": "fiercebiotech",
+      "url": "https://www.fiercebiotech.com/rss/xml",
+      "item_container": "item",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
+      "filters": { "keywords": ["inmode","inmd"] }
+    },
+
+    {
+      "name": "medscape-derm",
+      "url": "https://www.medscape.com/",
+      "item_container": "article, li, div",
+      "title": "a, h2 a, h3 a",
+      "link": "a@href",
+      "date": "time, .date",
+      "description": "p",
+      "render_file": "scripts/rendered/medscape.html",
+      "filters": { "keywords": ["inmode","inmd"] }
+    },
+
+    {
+      "name": "modernhealthcare",
+      "url": "https://www.modernhealthcare.com/",
+      "item_container": "article, li, div",
+      "title": "a, h2 a, h3 a",
+      "link": "a@href",
+      "date": "time, .date",
+      "description": "p",
+      "render_file": "scripts/rendered/modernhealthcare.html",
+      "filters": { "keywords": ["inmode","inmd"] }
+    },
+
+    {
+      "name": "healio-derm",
+      "url": "https://www.healio.com/dermatology",
+      "item_container": "article, .card, .listing-item, .article",
+      "title": "a, h2 a",
+      "link": "a@href",
+      "date": "time, .date",
+      "description": "p",
+      "render_file": "scripts/rendered/healio-derm.html",
+      "filters": { "keywords": ["inmode","inmd"] }
+    },
+
+    {
+      "name": "plasticsurgery-latest",
+      "url": "https://journals.lww.com/plasreconsurg/_layouts/15/OAKS.Journals/feed.aspx?FeedType=LatestArticles",
+      "item_container": "item",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
+      "filters": { "keywords": ["inmode","morpheus8","facetite","bodytite","accutite","rfal","clinical study","trial","abstract","presentation","podium"] }
+    },
+
+    {
+      "name": "plasticsurgery-currentissue",
+      "url": "https://journals.lww.com/plasreconsurg/_layouts/15/OAKS.Journals/feed.aspx?FeedType=CurrentIssue",
+      "item_container": "item",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
+      "filters": { "keywords": ["inmode","morpheus8","facetite","bodytite","accutite","rfal","clinical study","trial","abstract","presentation","podium"] }
+    },
+
+    {
+      "name": "plasticsurgerymeeting",
+      "url": "https://www.plasticsurgerythemeeting.com/",
+      "item_container": "article, .abstract, .programme-item, .paper",
+      "title": "a, h2 a",
+      "link": "a@href",
+      "date": "time, .date",
+      "description": "p, .abstract",
+      "render_file": "scripts/rendered/plasticsurgerymeeting.html",
+      "filters": { "keywords": ["inmode","morpheus8","facetite","bodytite","rfal","abstract","clinical study","trial","presentation","podium"] }
+    },
+
+    {
+      "name": "linkedin-group-5146549",
+      "url": "https://www.linkedin.com/groups/5146549/",
+      "item_container": ".feed-shared-update, .post, .pv-shared-update",
+      "title": ".feed-shared-actor__name, a, h3",
+      "link": "a@href",
+      "date": "time, .timestamp",
+      "description": ".feed-shared-update__description, .feed-shared-text",
+      "render_file": "scripts/rendered/linkedin-5146549.html",
+      "filters": { "keywords": ["inmode","morpheus8","facetite","bodytite","complication","adverse","review","case","experience"], "exclude": ["spam","promotion","course"] }
+    },
+
+    {
+      "name": "linkedin-group-4682610",
+      "url": "https://www.linkedin.com/groups/4682610/",
+      "item_container": ".feed-shared-update, .post",
+      "title": ".feed-shared-actor__name, a",
+      "link": "a@href",
+      "date": "time, .timestamp",
+      "description": ".feed-shared-update__description, .feed-shared-text",
+      "render_file": "scripts/rendered/linkedin-4682610.html",
+      "filters": { "keywords": ["inmode","morpheus8","facetite","bodytite","complication","adverse","review","case","experience"], "exclude": ["spam","promotion","course"] }
+    },
+
+    {
+      "name": "linkedin-group-3875737",
+      "url": "https://www.linkedin.com/groups/3875737/",
+      "item_container": ".feed-shared-update, .post",
+      "title": ".feed-shared-actor__name, a",
+      "link": "a@href",
+      "date": "time, .timestamp",
+      "description": ".feed-shared-update__description, .feed-shared-text",
+      "render_file": "scripts/rendered/linkedin-3875737.html",
+      "filters": { "keywords": ["inmode","morpheus8","facetite","bodytite","complication","adverse","review","case","experience"], "exclude": ["spam","promotion","course"] }
+    },
+
+    {
+      "name": "ttd-linkedin-group-sample",
+      "url": "https://www.linkedin.com/search/results/groups/?keywords=programmatic%20advertising",
+      "item_container": ".feed-shared-update, .post",
+      "title": ".feed-shared-actor__name, a",
+      "link": "a@href",
+      "date": "time, .timestamp",
+      "description": ".feed-shared-update__description, .feed-shared-text",
+      "render_file": "scripts/rendered/linkedin-ttd-search.html",
+      "filters": { "keywords": ["trade desk","ttd","thetradedesk","dsp","programmatic"], "exclude": ["spam","promotion"] }
+    },
+
+    {
+      "name": "pubmatic-linkedin-group-sample",
+      "url": "https://www.linkedin.com/search/results/groups/?keywords=adtech%20publishers",
+      "item_container": ".feed-shared-update, .post",
+      "title": ".feed-shared-actor__name, a",
+      "link": "a@href",
+      "date": "time, .timestamp",
+      "description": ".feed-shared-update__description, .feed-shared-text",
+      "render_file": "scripts/rendered/linkedin-pubmatic-search.html",
+      "filters": { "keywords": ["pubmatic","publisher","ssp","openwrap"], "exclude": ["spam","promotion"] }
     }
+
   ]
 }
-
