@@ -1,5 +1,5 @@
 // scripts/render_page.js
-// Optimized per-host strategies, larger fallback timeout for some hosts.
+// Optimized per-host strategies, do not write fallback 403 pages, host-specific order tweaks.
 
 const fs = require('fs');
 const path = require('path');
@@ -23,9 +23,14 @@ async function simpleHttpGet(url, outPath, headers = {}, timeout = 30000) {
       res.setEncoding('utf8');
       res.on('data', chunk => data += chunk);
       res.on('end', () => {
+        const status = res.statusCode || 0;
+        if (status >= 400) {
+          // do not write the error page to disk; return failure with status
+          return reject(new Error(`HTTP status ${status}`));
+        }
         try {
           fs.writeFileSync(outPath, data, { encoding: 'utf-8' });
-          resolve({ ok: true, status: res.statusCode });
+          resolve({ ok: true, status });
         } catch (e) {
           reject(e);
         }
@@ -116,7 +121,7 @@ async function render(url, outPath) {
 
   const hostPrefs = {
     'inmodeinvestors.com': ['B'],
-    'darkreading.com': ['B'],         // try B first for darkreading (avoids 403)
+    'darkreading.com': ['A','B'],    // try A first (changed)
     'iotworldtoday.com': ['A'],
     'businesswire.com': ['B','A']
   };
@@ -170,8 +175,8 @@ async function render(url, outPath) {
     }
   }
 
-  // fallback for businesswire or final attempt: HTTPS GET with larger timeout
-  console.warn('Playwright attempts exhausted — trying simple HTTPS GET fallback');
+  // fallback for hosts: try simple HTTPS GET but only accept status < 400
+  console.warn('Playwright attempts exhausted — trying simple HTTPS GET fallback (accept only HTTP < 400)');
   try {
     const r = await simpleHttpGet(url, outPath, {}, 45000);
     if (r && r.ok) {
@@ -179,7 +184,7 @@ async function render(url, outPath) {
       return;
     }
   } catch (e) {
-    console.warn('Fallback HTTPS GET failed:', e && e.message ? e.message : e);
+    console.warn('Fallback HTTPS GET failed / returned >=400:', e && e.message ? e.message : e);
     lastErr = e;
   }
 
