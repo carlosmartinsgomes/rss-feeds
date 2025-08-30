@@ -425,7 +425,7 @@
 
     {
       "name": "eetimes",
-      "url": "https://www.eetimes.com/",
+      "url": "https://www.eetimes.com/category/news-analysis/",
       "item_container": "article, li, div",
       "title": "a, h2 a, h3 a",
       "link": "a@href",
@@ -471,7 +471,7 @@
 
     {
       "name": "dzone",
-      "url": "https://dzone.com/",
+      "url": "https://dzone.com/list",
       "item_container": "article, li, div",
       "title": "a, h2 a, h3 a",
       "link": "a@href",
@@ -536,18 +536,6 @@
       "description": "p",
       "render_file": "scripts/rendered/venturebeat.html",
       "filters": { "keywords": ["iot","samsara","mndy","monday.com"] }
-    },
-
-    {
-      "name": "theinformation",
-      "url": "https://www.theinformation.com/",
-      "item_container": "article, li, div",
-      "title": "a, h2 a, h3 a",
-      "link": "a@href",
-      "date": "time, .date",
-      "description": "p",
-      "render_file": "scripts/rendered/theinformation.html",
-      "filters": { "keywords": ["mndy","monday.com"] }
     },
 
     {
@@ -622,7 +610,7 @@
 
     {
       "name": "medscape-derm",
-      "url": "https://www.medscape.com/",
+      "url": "https://www.medscape.com/index/list_13470_0",
       "item_container": "article, li, div",
       "title": "a, h2 a, h3 a",
       "link": "a@href",
