@@ -183,16 +183,16 @@ async function render(url, outPath) {
     }
   };
 
-  // hosts que precisam de tratamento especial (ordem preferida)
+   // hosts que precisam de tratamento especial (ordem preferida)
   const hostPrefs = {
     'inmodeinvestors.com': ['B'],
-    'darkreading.com': ['B','A','C'],      // tentar B primeiro (menos provável 403), depois A/C
-    'iotworldtoday.com': ['B','A'],       // tentar B antes de marcar bloqueado
+    'darkreading.com': ['B','A','C'],
+    'iotworldtoday.com': ['B','A'],
     'businesswire.com': ['B','A'],
     'stocktwits.com': ['B','C','A'],
     'dzone.com': ['B','C','A'],
     'eetimes.com': ['B','C','A'],
-    // theinformation foi removido por pedido
+    // theinformation removido por pedido
     'medscape.com': ['C','B','A'],
     'mdpi.com': ['C','B','A'],
     'journals.lww.com': ['C','B','A']
