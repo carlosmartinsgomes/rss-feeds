@@ -1,11 +1,11 @@
 // scripts/render_page.js
-// Full-file replacement - improved per-host strategies, stricter fallback handling,
-// detect and reject "block pages" (403 / cloudflare / access denied content),
-// host-specific timeouts for sites known to block bots.
+// Full replacement with robust fallback handling, decompression, improved heuristics,
+// host-specific strategies, and lightweight stealth tweaks.
 
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
+const zlib = require('zlib');
 const { chromium } = require('playwright');
 
 function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
@@ -23,19 +23,42 @@ async function simpleHttpGet(url, outPath, headers = {}, timeout = 35000) {
 
     const req = https.get(opts, (res) => {
       const status = res.statusCode || 0;
-      // only accept successful responses for fallback
       if (status >= 400) {
         res.resume();
         return reject(new Error(`HTTP status ${status}`));
       }
+
+      const encoding = (res.headers['content-encoding'] || '').toLowerCase();
       const chunks = [];
+
       res.on('data', c => chunks.push(c));
       res.on('end', () => {
         try {
           const buf = Buffer.concat(chunks);
-          const data = buf.toString('utf8');
-          fs.writeFileSync(outPath, data, { encoding: 'utf-8' });
-          resolve({ ok: true, status });
+
+          // descomprime se necessário
+          if (encoding.includes('br')) {
+            zlib.brotliDecompress(buf, (err, out) => {
+              if (err) return reject(err);
+              fs.writeFileSync(outPath, out.toString('utf8'), { encoding: 'utf-8' });
+              resolve({ ok: true, status });
+            });
+          } else if (encoding.includes('gzip')) {
+            zlib.gunzip(buf, (err, out) => {
+              if (err) return reject(err);
+              fs.writeFileSync(outPath, out.toString('utf8'), { encoding: 'utf-8' });
+              resolve({ ok: true, status });
+            });
+          } else if (encoding.includes('deflate')) {
+            zlib.inflate(buf, (err, out) => {
+              if (err) return reject(err);
+              fs.writeFileSync(outPath, out.toString('utf8'), { encoding: 'utf-8' });
+              resolve({ ok: true, status });
+            });
+          } else {
+            fs.writeFileSync(outPath, buf.toString('utf8'), { encoding: 'utf-8' });
+            resolve({ ok: true, status });
+          }
         } catch (e) {
           reject(e);
         }
@@ -47,9 +70,11 @@ async function simpleHttpGet(url, outPath, headers = {}, timeout = 35000) {
 }
 
 async function launchContext(strat) {
+  const headlessMode = process.env.PW_HEADLESS === 'false' ? false : true;
+
   const browser = await chromium.launch({
     args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    headless: true
+    headless: headlessMode
   });
 
   const context = await browser.newContext({
@@ -76,7 +101,7 @@ async function tryNavigate(url, strat) {
     bc = { browser, context };
     const page = await context.newPage();
 
-    // route blocks to speed up
+    // route blocks to speed up and reduce noise
     await page.route('**/*', (route) => {
       const req = route.request();
       const rurl = req.url();
@@ -102,11 +127,17 @@ async function tryNavigate(url, strat) {
 }
 
 function looksLikeBlockPage(html) {
-  if (!html || html.length < 200) return true;
+  if (!html || html.length < 120) return true;
   const lowered = html.toLowerCase();
-  const blockers = ['access denied','forbidden','blocked','cloudflare','bot detected','captcha','please enable javascript','are you human','request blocked','you don\'t have permission'];
-  for (const b of blockers) if (lowered.includes(b)) return true;
-  return false;
+  const blockers = [
+    'access denied','forbidden','blocked','bot detected','captcha',
+    'please enable javascript','are you human','request blocked',
+    "you don't have permission",'site blocked','you have been blocked'
+  ];
+  let matches = 0;
+  for (const b of blockers) if (lowered.includes(b)) matches++;
+  // require 2+ indicators to reduce falsos positivos
+  return matches >= 2;
 }
 
 async function render(url, outPath) {
@@ -146,7 +177,7 @@ async function render(url, outPath) {
     }
   };
 
-  // hosts that have historically needed special treatment: prefer human-like or longer timeouts
+  // hosts that have historically needed special treatment.
   const hostPrefs = {
     'inmodeinvestors.com': ['B'],
     'darkreading.com': ['A','B'],
@@ -156,7 +187,7 @@ async function render(url, outPath) {
     'stocktwits.com': ['B','C','A'],
     'dzone.com': ['B','C','A'],
     'eetimes.com': ['B','C','A'],
-    'theinformation.com': ['C','B','A'],
+    // removed theinformation per request
     'medscape.com': ['C','B','A'],
     'mdpi.com': ['C','B','A'],
     'journals.lww.com': ['C','B','A']
@@ -164,6 +195,8 @@ async function render(url, outPath) {
 
   const hostKey = Object.keys(hostPrefs).find(h => url.includes(h));
   const order = hostKey ? hostPrefs[hostKey] : ['A','B','C'];
+
+  console.log(`Host key matched: ${hostKey || '(none)'}; strategy order: ${order.join(',')}`);
 
   let lastErr = null;
   for (let idx = 0; idx < order.length; idx++) {
@@ -190,16 +223,17 @@ async function render(url, outPath) {
       continue;
     }
 
-    // allow some JS settle time
+    // allow some JS settle time (longer for later strategies)
     await delay(800 + idx * 400);
 
     try {
       // non-fatal wait for some common selectors
-      await page.waitForSelector('article, main, #content, .post, .news, .press, .investors_events_bodybox', { timeout: 1500 });
+      await page.waitForSelector('article, main, #content, .post, .news, .press, .investors_events_bodybox', { timeout: 1500 }).catch(()=>{});
     } catch(e){ /* ignore */ }
 
     try {
       const content = await page.content();
+
       // if looks like a block page, treat as failure (don't write)
       if (looksLikeBlockPage(content)) {
         console.warn(`  Render looks like block page (detected) for ${url} using ${strat.name}`);
@@ -208,18 +242,26 @@ async function render(url, outPath) {
         await delay(300);
         continue;
       }
+
       fs.writeFileSync(outPath, content, { encoding: 'utf-8' });
-      const stats = fs.statSync(outPath);
-      if (stats.size < 5120) { // too small -> suspicious (5 KB)
-        const sample = fs.readFileSync(outPath, 'utf8');
-        if (looksLikeBlockPage(sample)) {
-          fs.unlinkSync(outPath);
-          console.warn(`  Rendered file too small and looks like a block page -> removed: ${outPath}`);
-          lastErr = new Error('Rendered file small / block page');
-          try { await browser.close(); } catch(e){}
-          continue;
+
+      // checagem de tamanho conservadora: só valida <600 bytes como suspeito
+      try {
+        const stats = fs.statSync(outPath);
+        if (stats.size < 600) {
+          const sample = fs.readFileSync(outPath, 'utf8');
+          if (looksLikeBlockPage(sample)) {
+            fs.unlinkSync(outPath);
+            console.warn(`  Rendered file muito pequeno e parece bloqueado -> removed: ${outPath}`);
+            lastErr = new Error('Rendered file small / block page');
+            try { await browser.close(); } catch(e){}
+            continue;
+          }
         }
+      } catch(e) {
+        // ignore stat errors
       }
+
       console.log(`Rendered ${url} -> ${outPath} (status: ${status}) using strategy: ${strat.name}`);
       try { await browser.close(); } catch(e){}
       return;
@@ -235,14 +277,13 @@ async function render(url, outPath) {
   console.warn('Playwright attempts exhausted — trying simple HTTPS GET fallback (only accept HTTP < 400)');
   try {
     await simpleHttpGet(url, outPath, {}, 50000);
-    // check content
     const html = fs.readFileSync(outPath, 'utf8');
     if (looksLikeBlockPage(html)) {
       fs.unlinkSync(outPath);
       throw new Error('Fallback HTTP returned block page');
     }
     const stats = fs.statSync(outPath);
-    if (stats.size < 5120) {
+    if (stats.size < 600) {
       fs.unlinkSync(outPath);
       throw new Error('Fallback HTTP returned very small page');
     }
@@ -264,6 +305,7 @@ async function render(url, outPath) {
       process.exit(2);
     }
     const [url, outPath] = args;
+    console.log(`Starting render for: ${url}`);
     await render(url, outPath);
     process.exit(0);
   } catch (err) {
