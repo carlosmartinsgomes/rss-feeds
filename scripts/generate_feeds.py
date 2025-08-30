@@ -1,192 +1,239 @@
 #!/usr/bin/env python3
 # scripts/generate_feeds.py
-# Versão melhorada: logging, seletores alternativos e fallback para evitar feeds vazios.
-
-import os
-import json
-import requests
+import os, json, re, sys
 from bs4 import BeautifulSoup
-import xml.etree.ElementTree as ET
+import requests
+from feedgen.feed import FeedGenerator
 from datetime import datetime
-import sys
+from urllib.parse import urljoin
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-REPO_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, '..'))
-SITES_JSON = os.path.join(SCRIPT_DIR, 'sites.json')
-FEEDS_DIR = os.path.join(REPO_ROOT, 'feeds')
+ROOT = os.path.dirname(__file__)
+SITES_JSON = os.path.join(ROOT, 'sites.json')
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0 Safari/537.36",
-    "Accept-Language": "en-US,en;q=0.9"
-}
+def load_sites():
+    j = json.load(open(SITES_JSON, 'r', encoding='utf-8'))
+    return j.get('sites', [])
 
-os.makedirs(FEEDS_DIR, exist_ok=True)
+def fetch_html(url, timeout=20):
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9'
+    }
+    r = requests.get(url, headers=headers, timeout=timeout)
+    r.raise_for_status()
+    return r.text
 
-def load_sites(path):
-    try:
-        with open(path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        return data.get('sites', [])
-    except Exception as e:
-        print(f"ERROR: cannot load sites.json at {path}: {e}")
-        return []
-
-def read_html_from_render_file(render_file):
-    if not render_file:
-        return None
-    candidate_paths = [
-        os.path.join(REPO_ROOT, render_file),
-        os.path.join(SCRIPT_DIR, render_file),
-        render_file
-    ]
-    for rp in candidate_paths:
-        if os.path.exists(rp):
-            try:
-                with open(rp, 'r', encoding='utf-8') as f:
-                    return f.read()
-            except Exception as e:
-                print(f"Warning: cannot read rendered file {rp}: {e}")
-                continue
-    return None
-
-def fetch_html_via_requests(url):
-    try:
-        r = requests.get(url, headers=HEADERS, timeout=20)
-        r.raise_for_status()
-        return r.text
-    except Exception as e:
-        print(f"Request error for {url}: {e}")
-        return None
-
-def select_text(item, selector):
-    if not selector:
+def text_of_node(node):
+    if node is None:
         return ''
-    if '@' in selector:
-        sel, attr = selector.split('@', 1)
-        el = item.select_one(sel)
-        if el and el.has_attr(attr):
-            return el[attr].strip()
-        elif el:
-            return el.get_text(" ", strip=True)
-        else:
-            return ''
-    else:
-        el = item.select_one(selector)
-        return el.get_text(" ", strip=True) if el else ''
+    return ' '.join(node.stripped_strings)
 
-def extract_items_from_html(html, site_cfg):
+def extract_items_from_html(html, cfg):
     soup = BeautifulSoup(html, 'html.parser')
-    container_sel = site_cfg.get('item_container')
+    container_sel = cfg.get('item_container') or 'article'
+    nodes = []
+    for sel in [s.strip() for s in container_sel.split(',')]:
+        nodes.extend(soup.select(sel))
     items = []
-
-    if container_sel:
-        nodes = soup.select(container_sel)
-    else:
-        nodes = []
-
-    # try fallback selectors if none found
-    if not nodes or len(nodes) == 0:
-        fallback_containers = ['article', 'li', 'div.c-compact-river__entry', '.c-compact-river__entry', 'div.story', '.story']
-        for fsel in fallback_containers:
-            nodes = soup.select(fsel)
-            if nodes:
-                print(f"Fallback: found {len(nodes)} nodes with selector '{fsel}'")
-                break
-
     for node in nodes:
-        title = select_text(node, site_cfg.get('title'))
-        link = select_text(node, site_cfg.get('link'))
-        date = select_text(node, site_cfg.get('date'))
-        desc = select_text(node, site_cfg.get('description'))
-        # normalize relative links
-        if link and link.startswith('/') and site_cfg.get('url'):
-            link = site_cfg.get('url').rstrip('/') + link
-        if title or link or desc:
-            items.append({
-                'title': title.strip() if title else '',
-                'link': link.strip() if link else '',
-                'date': date.strip() if date else '',
-                'description': desc.strip() if desc else ''
-            })
+        title = ''
+        link = ''
+        date = ''
+        desc = ''
+        title_sel = cfg.get('title')
+        link_sel = cfg.get('link')
+        desc_sel = cfg.get('description')
+
+        # Title
+        if title_sel:
+            for s in [t.strip() for t in title_sel.split(',')]:
+                el = node.select_one(s)
+                if el:
+                    title = el.get_text(strip=True)
+                    break
+        else:
+            t = node.find(['h1','h2','h3','a'])
+            if t:
+                title = t.get_text(strip=True)
+
+        # Link
+        if link_sel:
+            # link selector like "a@href" or ".c-title a@href"
+            parts = [p.strip() for p in link_sel.split(',')]
+            for ps in parts:
+                if '@' in ps:
+                    sel, attr = ps.split('@',1)
+                    el = node.select_one(sel.strip())
+                    if el and el.has_attr(attr):
+                        link = urljoin(cfg.get('url',''), el.get(attr))
+                        break
+                else:
+                    el = node.select_one(ps)
+                    if el:
+                        link = urljoin(cfg.get('url',''), el.get('href') or '')
+                        if link:
+                            break
+        else:
+            a = node.find('a')
+            if a and a.has_attr('href'):
+                link = urljoin(cfg.get('url',''), a.get('href'))
+
+        # Description
+        if desc_sel:
+            for s in [t.strip() for t in desc_sel.split(',')]:
+                el = node.select_one(s)
+                if el:
+                    desc = el.get_text(" ", strip=True)
+                    break
+        else:
+            p = node.find('p')
+            if p:
+                desc = p.get_text(" ", strip=True)
+
+        # Date (best effort)
+        for dsel in [cfg.get('date',''), 'time', '.date', 'span.date']:
+            if not dsel:
+                continue
+            try:
+                el = node.select_one(dsel)
+                if el:
+                    date = el.get_text(strip=True)
+                    break
+            except Exception:
+                continue
+
+        # fallback: full text
+        full_text = (title or '') + ' ' + (desc or '') + ' ' + text_of_node(node)
+
+        items.append({
+            'title': title,
+            'link': link,
+            'description': desc,
+            'date': date,
+            'full_text': full_text
+        })
     return items
 
-def matches_keywords(item, keywords):
-    if not keywords:
+def parse_feed(items):
+    # items expected as dicts with keys title, link, description, date, full_text
+    return items
+
+def matches_filters(item, cfg):
+    kw = cfg.get('filters', {}).get('keywords', [])
+    exclude = cfg.get('filters', {}).get('exclude', [])
+    if not kw and not exclude:
         return True
-    text = " ".join([ (item.get('title') or ''), (item.get('description') or '') ]).lower()
-    for kw in keywords:
-        if kw.lower() in text:
-            return True
-    return False
+    text = ' '.join([item.get('title','') or '', item.get('description','') or '', item.get('full_text','') or '', item.get('link','') or '']).lower()
+    # include — at least one keyword must appear if keywords not empty
+    if kw:
+        matched = False
+        for k in kw:
+            if k.lower() in text:
+                matched = True
+                break
+        if not matched:
+            return False
+    # exclude — if any exclude present in text, skip
+    for ex in exclude:
+        if ex.lower() in text:
+            return False
+    return True
 
-def write_rss(site_name, site_url, items):
-    rss = ET.Element('rss', version='2.0')
-    channel = ET.SubElement(rss, 'channel')
-    ET.SubElement(channel, 'title').text = site_name
-    ET.SubElement(channel, 'link').text = site_url or ''
-    ET.SubElement(channel, 'description').text = f'Feed gerado para {site_name}'
-
+def build_feed(name, cfg, items):
+    fg = FeedGenerator()
+    fg.title(name)
+    fg.link(href=cfg.get('url',''), rel='alternate')
+    fg.description(f'Feed gerado para {name}')
+    count = 0
     for it in items:
-        item = ET.SubElement(channel, 'item')
-        ET.SubElement(item, 'title').text = it.get('title') or ''
-        ET.SubElement(item, 'link').text = it.get('link') or ''
-        desc = ET.SubElement(item, 'description')
-        desc.text = it.get('description') or ''
+        fe = fg.add_entry()
+        fe.title(it.get('title') or 'No title')
+        if it.get('link'):
+            fe.link(href=it.get('link'))
+        fe.description(it.get('description') or it.get('full_text') or '')
+        # pubDate: try to leave raw string
         if it.get('date'):
-            ET.SubElement(item, 'pubDate').text = it.get('date')
-
-    tree = ET.ElementTree(rss)
-    out_path = os.path.join(FEEDS_DIR, f"{site_name}.xml")
-    tree.write(out_path, encoding='utf-8', xml_declaration=True)
-    print(f"Wrote {out_path}")
-
-def process_site(site_cfg):
-    name = site_cfg.get('name') or 'site'
-    url = site_cfg.get('url') or ''
-    render_file = site_cfg.get('render_file')
-    print(f"\n--- Processing {name} ({url}) ---")
-
-    html = None
-    if render_file:
-        html = read_html_from_render_file(render_file)
-        if html:
-            print(f"Using rendered file: {render_file} for {name}")
-        else:
-            print(f"No rendered file found at {render_file} for {name}")
-
-    if not html:
-        print(f"Fetching {url} via requests...")
-        html = fetch_html_via_requests(url)
-        if not html:
-            print(f"Failed to fetch {url}")
-            # write empty feed (or skip) — keep minimal valid RSS
-            write_rss(name, url, [])
-            return
-
-    items = extract_items_from_html(html, site_cfg)
-    print(f"Found {len(items)} items for {name} (raw)")
-
-    keywords = site_cfg.get('filters', {}).get('keywords', [])
-    if keywords:
-        print(f"Applying {len(keywords)} keyword filters for {name}: {keywords}")
-    filtered = [it for it in items if matches_keywords(it, keywords)]
-    print(f"{len(filtered)} items matched filters for {name}")
-
-    # fallback: if filter removed everything, use all items (prevent empty feeds)
-    if not filtered and items:
-        print(f"No items matched filters for {name} — falling back to all {len(items)} items")
-        filtered = items
-
-    write_rss(name, url, filtered)
+            try:
+                fe.pubDate(it.get('date'))
+            except Exception:
+                pass
+        count += 1
+    outdir = os.path.join(ROOT, '..', 'feeds') if os.path.exists(os.path.join(ROOT,'..','feeds')) else os.path.join(ROOT, '..', 'feeds')
+    os.makedirs(outdir, exist_ok=True)
+    outpath = os.path.join(outdir, f'{name}.xml')
+    fg.rss_file(outpath)
+    print(f'Wrote {outpath}')
 
 def main():
-    sites = load_sites(SITES_JSON)
-    print(f"Loaded {len(sites)} site configurations from {SITES_JSON}")
-    for s in sites:
-        try:
-            process_site(s)
-        except Exception as e:
-            print(f"Error processing site {s.get('name')}: {e}")
+    sites = load_sites()
+    print(f'Loaded {len(sites)} site configurations from {SITES_JSON}')
+    for cfg in sites:
+        name = cfg.get('name')
+        url = cfg.get('url')
+        print(f'--- Processing {name} ({url}) ---')
+        html = None
+        # prefer rendered file if exists
+        rf = cfg.get('render_file')
+        if rf:
+            if not os.path.isabs(rf) and not rf.startswith('scripts'):
+                rf = os.path.join('scripts', rf)
+            if os.path.exists(rf):
+                try:
+                    html = open(rf, 'r', encoding='utf-8').read()
+                    print(f'Using rendered file: {rf} for {name}')
+                except Exception as e:
+                    print('Failed reading rendered file:', e)
+                    html = None
+            else:
+                print(f'No rendered file found at {rf} for {name}')
+        if html is None:
+            # fallback to requests
+            try:
+                print(f'Fetching {url} via requests...')
+                html = fetch_html(url)
+            except Exception as e:
+                print(f'Request error for {url}: {e}')
+                html = ''
+        items = []
+        if html:
+            try:
+                items = extract_items_from_html(html, cfg)
+                if not items:
+                    # fallback generic li selector
+                    soup = BeautifulSoup(html, 'html.parser')
+                    nodes = soup.select('li')
+                    if nodes:
+                        print(f'Fallback: found {len(nodes)} nodes with selector \'li\'')
+                        for n in nodes[:200]:
+                            title = n.get_text(" ", strip=True)[:200]
+                            link = ''
+                            a = n.find('a')
+                            if a and a.has_attr('href'):
+                                link = a.get('href')
+                            items.append({'title': title, 'link': link, 'description': '', 'date': '', 'full_text': title})
+            except Exception as e:
+                print('Error parsing HTML:', e)
+                items = []
+        else:
+            items = []
+
+        print(f'Found {len(items)} items for {name} (raw)')
+
+        # apply filters
+        matched = []
+        kw = cfg.get('filters', {}).get('keywords', [])
+        print(f'Applying {len(kw)} keyword filters for {name}: {kw}')
+        for it in items:
+            if matches_filters(it, cfg):
+                matched.append(it)
+
+        print(f'{len(matched)} items matched filters for {name}')
+        if not matched and items:
+            print(f'No items matched filters for {name} — falling back to all {len(items)} items')
+            matched = items
+
+        # write feed
+        build_feed(name, cfg, matched)
 
 if __name__ == '__main__':
     main()
