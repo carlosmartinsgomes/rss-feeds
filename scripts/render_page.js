@@ -1,39 +1,34 @@
 // scripts/render_page.js
-// Full-file replacement - improved per-host strategies, stricter fallback handling,
-// detect and reject "block pages" (403 / cloudflare / access denied content),
-// host-specific timeouts for sites known to block bots.
+// Optimized per-host strategies, do not write fallback 403 pages, host-specific order tweaks.
 
 const fs = require('fs');
 const path = require('path');
-const https = require('https');
 const { chromium } = require('playwright');
+const https = require('https');
 
 function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-async function simpleHttpGet(url, outPath, headers = {}, timeout = 35000) {
+async function simpleHttpGet(url, outPath, headers = {}, timeout = 30000) {
   return new Promise((resolve, reject) => {
     const opts = new URL(url);
     opts.headers = Object.assign({
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36',
       'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
       'Accept-Language': 'en-US,en;q=0.9',
-      'Accept-Encoding': 'gzip, deflate, br',
       'Referer': url
     }, headers);
 
     const req = https.get(opts, (res) => {
-      const status = res.statusCode || 0;
-      // only accept successful responses for fallback
-      if (status >= 400) {
-        res.resume();
-        return reject(new Error(`HTTP status ${status}`));
-      }
-      const chunks = [];
-      res.on('data', c => chunks.push(c));
+      let data = '';
+      res.setEncoding('utf8');
+      res.on('data', chunk => data += chunk);
       res.on('end', () => {
+        const status = res.statusCode || 0;
+        if (status >= 400) {
+          // do not write the error page to disk; return failure with status
+          return reject(new Error(`HTTP status ${status}`));
+        }
         try {
-          const buf = Buffer.concat(chunks);
-          const data = buf.toString('utf8');
           fs.writeFileSync(outPath, data, { encoding: 'utf-8' });
           resolve({ ok: true, status });
         } catch (e) {
@@ -59,11 +54,8 @@ async function launchContext(strat) {
     extraHTTPHeaders: strat.extraHTTPHeaders || {}
   });
 
-  // small stealth tweaks
   await context.addInitScript(() => {
     Object.defineProperty(navigator, 'webdriver', { get: () => false });
-    Object.defineProperty(navigator, 'languages', { get: () => ['en-US','en'] });
-    Object.defineProperty(navigator, 'plugins', { get: () => [1,2,3,4] });
   });
 
   return { browser, context };
@@ -76,15 +68,14 @@ async function tryNavigate(url, strat) {
     bc = { browser, context };
     const page = await context.newPage();
 
-    // route blocks to speed up
     await page.route('**/*', (route) => {
       const req = route.request();
       const rurl = req.url();
-      const type = req.resourceType();
-      const blockedDomains = ['googlesyndication','doubleclick','google-analytics','adsystem','adservice','scorecardresearch','facebook.net','facebook.com','ads-twitter','amazon-adsystem'];
-      for (const d of blockedDomains) if (rurl.includes(d)) return route.abort();
-      if (strat.blockImages && (type === 'image' || type === 'media')) return route.abort();
-      if (strat.blockStyles && (type === 'stylesheet' || type === 'font')) return route.abort();
+      const resource = req.resourceType();
+      const blocked = ['googlesyndication','doubleclick','google-analytics','adsystem','adservice','scorecardresearch','facebook.net','facebook.com','ads-twitter'];
+      for (const d of blocked) if (rurl.includes(d)) return route.abort();
+      if (strat.blockImages && (resource === 'image' || resource === 'media')) return route.abort();
+      if (strat.blockStyles && (resource === 'stylesheet' || resource === 'font')) return route.abort();
       return route.continue();
     });
 
@@ -99,14 +90,6 @@ async function tryNavigate(url, strat) {
     }
     return { ok: false, error: err };
   }
-}
-
-function looksLikeBlockPage(html) {
-  if (!html || html.length < 200) return true;
-  const lowered = html.toLowerCase();
-  const blockers = ['access denied','forbidden','blocked','cloudflare','bot detected','captcha','please enable javascript','are you human','request blocked','you don\'t have permission'];
-  for (const b of blockers) if (lowered.includes(b)) return true;
-  return false;
 }
 
 async function render(url, outPath) {
@@ -133,53 +116,34 @@ async function render(url, outPath) {
       waitUntil: 'networkidle',
       timeout: 50000,
       referer: url
-    },
-    C: {
-      name: 'C - human-like (allow everything, longer)',
-      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Safari/605.1.15',
-      extraHTTPHeaders: commonHeaders,
-      blockImages: false,
-      blockStyles: false,
-      waitUntil: 'networkidle',
-      timeout: 90000,
-      referer: url
     }
   };
 
-  // hosts that have historically needed special treatment: prefer human-like or longer timeouts
   const hostPrefs = {
     'inmodeinvestors.com': ['B'],
-    'darkreading.com': ['A','B'],
+    'darkreading.com': ['A','B'],    // try A first (changed)
     'iotworldtoday.com': ['A'],
-    'businesswire.com': ['B','A'],
-    // problem sites: try B then C (longer) then A
-    'stocktwits.com': ['B','C','A'],
-    'dzone.com': ['B','C','A'],
-    'eetimes.com': ['B','C','A'],
-    'theinformation.com': ['C','B','A'],
-    'medscape.com': ['C','B','A'],
-    'mdpi.com': ['C','B','A'],
-    'journals.lww.com': ['C','B','A']
+    'businesswire.com': ['B','A']
   };
 
   const hostKey = Object.keys(hostPrefs).find(h => url.includes(h));
-  const order = hostKey ? hostPrefs[hostKey] : ['A','B','C'];
+  const order = hostKey ? hostPrefs[hostKey] : ['A','B'];
 
   let lastErr = null;
-  for (let idx = 0; idx < order.length; idx++) {
-    const key = order[idx];
+  for (let i = 0; i < order.length; i++) {
+    const key = order[i];
     const strat = strategies[key];
-    console.log(`Strategy attempt ${idx+1}/${order.length}: ${strat.name} for ${url}`);
-    const result = await tryNavigate(url, strat);
+    console.log(`Strategy attempt ${i+1}/${order.length}: ${strat.name} for ${url}`);
+    const res = await tryNavigate(url, strat);
 
-    if (!result.ok) {
-      console.warn(`  Strategy ${strat.name} failed to navigate: ${result.error && result.error.message ? result.error.message : result.error}`);
-      lastErr = result.error;
-      await delay(500 * (idx+1));
+    if (!res.ok) {
+      console.warn(`  Strategy ${strat.name} failed to navigate: ${res.error && res.error.message ? res.error.message : res.error}`);
+      lastErr = res.error;
+      await delay(500 * (i+1));
       continue;
     }
 
-    const { page, browser, status } = result;
+    const { page, browser, status } = res;
     console.log(`  Main response status: ${status}`);
 
     if (status === 403) {
@@ -190,37 +154,16 @@ async function render(url, outPath) {
       continue;
     }
 
-    // allow some JS settle time
-    await delay(800 + idx * 400);
+    await delay(700);
 
     try {
-      // non-fatal wait for some common selectors
-      await page.waitForSelector('article, main, #content, .post, .news, .press, .investors_events_bodybox', { timeout: 1500 });
-    } catch(e){ /* ignore */ }
+      await page.waitForSelector('article, main, #content, .post, .press, .news, .investors_events_bodybox', { timeout: 1500 });
+    } catch(e){}
 
     try {
       const content = await page.content();
-      // if looks like a block page, treat as failure (don't write)
-      if (looksLikeBlockPage(content)) {
-        console.warn(`  Render looks like block page (detected) for ${url} using ${strat.name}`);
-        try { await browser.close(); } catch(e){}
-        lastErr = new Error('Detected block page after render');
-        await delay(300);
-        continue;
-      }
       fs.writeFileSync(outPath, content, { encoding: 'utf-8' });
-      const stats = fs.statSync(outPath);
-      if (stats.size < 5120) { // too small -> suspicious (5 KB)
-        const sample = fs.readFileSync(outPath, 'utf8');
-        if (looksLikeBlockPage(sample)) {
-          fs.unlinkSync(outPath);
-          console.warn(`  Rendered file too small and looks like a block page -> removed: ${outPath}`);
-          lastErr = new Error('Rendered file small / block page');
-          try { await browser.close(); } catch(e){}
-          continue;
-        }
-      }
-      console.log(`Rendered ${url} -> ${outPath} (status: ${status}) using strategy: ${strat.name}`);
+      console.log(`Rendered ${url} -> ${outPath} (status: ${status}) using ${strat.name}`);
       try { await browser.close(); } catch(e){}
       return;
     } catch (err) {
@@ -232,24 +175,16 @@ async function render(url, outPath) {
     }
   }
 
-  console.warn('Playwright attempts exhausted — trying simple HTTPS GET fallback (only accept HTTP < 400)');
+  // fallback for hosts: try simple HTTPS GET but only accept status < 400
+  console.warn('Playwright attempts exhausted — trying simple HTTPS GET fallback (accept only HTTP < 400)');
   try {
-    await simpleHttpGet(url, outPath, {}, 50000);
-    // check content
-    const html = fs.readFileSync(outPath, 'utf8');
-    if (looksLikeBlockPage(html)) {
-      fs.unlinkSync(outPath);
-      throw new Error('Fallback HTTP returned block page');
+    const r = await simpleHttpGet(url, outPath, {}, 45000);
+    if (r && r.ok) {
+      console.log(`Fallback HTTPS GET succeeded: ${url} -> ${outPath} (status ${r.status})`);
+      return;
     }
-    const stats = fs.statSync(outPath);
-    if (stats.size < 5120) {
-      fs.unlinkSync(outPath);
-      throw new Error('Fallback HTTP returned very small page');
-    }
-    console.log(`Fallback HTTPS GET succeeded: ${url} -> ${outPath}`);
-    return;
   } catch (e) {
-    console.warn('Fallback HTTPS GET failed or returned block page:', e && e.message ? e.message : e);
+    console.warn('Fallback HTTPS GET failed / returned >=400:', e && e.message ? e.message : e);
     lastErr = e;
   }
 
