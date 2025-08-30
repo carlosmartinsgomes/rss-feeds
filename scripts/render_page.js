@@ -1,6 +1,7 @@
 // scripts/render_page.js
 // Full replacement with robust fallback handling, decompression, improved heuristics,
 // host-specific strategies, and lightweight stealth tweaks.
+// (Updated: print configured special hosts; relax block detection; per-host tweaks)
 
 const fs = require('fs');
 const path = require('path');
@@ -18,7 +19,8 @@ async function simpleHttpGet(url, outPath, headers = {}, timeout = 35000) {
       'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
       'Accept-Language': 'en-US,en;q=0.9',
       'Accept-Encoding': 'gzip, deflate, br',
-      'Referer': url
+      'Referer': url,
+      'Connection': 'keep-alive'
     }, headers);
 
     const req = https.get(opts, (res) => {
@@ -36,7 +38,7 @@ async function simpleHttpGet(url, outPath, headers = {}, timeout = 35000) {
         try {
           const buf = Buffer.concat(chunks);
 
-          // descomprime se necessário
+          // descompressão quando aplicável
           if (encoding.includes('br')) {
             zlib.brotliDecompress(buf, (err, out) => {
               if (err) return reject(err);
@@ -127,7 +129,7 @@ async function tryNavigate(url, strat) {
 }
 
 function looksLikeBlockPage(html) {
-  if (!html || html.length < 120) return true;
+  if (!html) return true;
   const lowered = html.toLowerCase();
   const blockers = [
     'access denied','forbidden','blocked','bot detected','captcha',
@@ -136,8 +138,12 @@ function looksLikeBlockPage(html) {
   ];
   let matches = 0;
   for (const b of blockers) if (lowered.includes(b)) matches++;
-  // require 2+ indicators to reduce falsos positivos
-  return matches >= 2;
+
+  // menos agressivo: requer 3+ indicadores OU 2 indicadores num HTML curto
+  if (matches >= 3) return true;
+  if (matches >= 2 && html.length < 2000) return true;
+
+  return false;
 }
 
 async function render(url, outPath) {
@@ -177,21 +183,23 @@ async function render(url, outPath) {
     }
   };
 
-  // hosts that have historically needed special treatment.
+  // hosts que precisam de tratamento especial (ordem preferida)
   const hostPrefs = {
     'inmodeinvestors.com': ['B'],
-    'darkreading.com': ['A','B'],
-    'iotworldtoday.com': ['A'],
+    'darkreading.com': ['B','A','C'],      // tentar B primeiro (menos provável 403), depois A/C
+    'iotworldtoday.com': ['B','A'],       // tentar B antes de marcar bloqueado
     'businesswire.com': ['B','A'],
-    // problem sites: try B then C (longer) then A
     'stocktwits.com': ['B','C','A'],
     'dzone.com': ['B','C','A'],
     'eetimes.com': ['B','C','A'],
-    // removed theinformation per request
+    // theinformation foi removido por pedido
     'medscape.com': ['C','B','A'],
     'mdpi.com': ['C','B','A'],
     'journals.lww.com': ['C','B','A']
   };
+
+  // Log inicial: lista de hosts com tratamento especial (para ver no log mesmo se não houver render desses hosts)
+  console.log('Configured special hosts:', Object.keys(hostPrefs).join(', '));
 
   const hostKey = Object.keys(hostPrefs).find(h => url.includes(h));
   const order = hostKey ? hostPrefs[hostKey] : ['A','B','C'];
@@ -223,18 +231,17 @@ async function render(url, outPath) {
       continue;
     }
 
-    // allow some JS settle time (longer for later strategies)
+    // JS settle time
     await delay(800 + idx * 400);
 
     try {
-      // non-fatal wait for some common selectors
       await page.waitForSelector('article, main, #content, .post, .news, .press, .investors_events_bodybox', { timeout: 1500 }).catch(()=>{});
-    } catch(e){ /* ignore */ }
+    } catch(e){}
 
     try {
       const content = await page.content();
 
-      // if looks like a block page, treat as failure (don't write)
+      // detecção menos agressiva de "block page"
       if (looksLikeBlockPage(content)) {
         console.warn(`  Render looks like block page (detected) for ${url} using ${strat.name}`);
         try { await browser.close(); } catch(e){}
@@ -245,7 +252,7 @@ async function render(url, outPath) {
 
       fs.writeFileSync(outPath, content, { encoding: 'utf-8' });
 
-      // checagem de tamanho conservadora: só valida <600 bytes como suspeito
+      // validação conservadora do tamanho do ficheiro
       try {
         const stats = fs.statSync(outPath);
         if (stats.size < 600) {
@@ -258,9 +265,7 @@ async function render(url, outPath) {
             continue;
           }
         }
-      } catch(e) {
-        // ignore stat errors
-      }
+      } catch(e){}
 
       console.log(`Rendered ${url} -> ${outPath} (status: ${status}) using strategy: ${strat.name}`);
       try { await browser.close(); } catch(e){}
@@ -274,6 +279,7 @@ async function render(url, outPath) {
     }
   }
 
+  // fallback HTTP
   console.warn('Playwright attempts exhausted — trying simple HTTPS GET fallback (only accept HTTP < 400)');
   try {
     await simpleHttpGet(url, outPath, {}, 50000);
