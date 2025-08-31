@@ -116,18 +116,49 @@ jobs:
 
       - name: Render configured pages (for sites with render_file)
         run: |
-          node -e "
+          SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
+          if [ -z "$SCRIPTS" ]; then
+            echo "No scripts dir detected -> skip rendering"
+            exit 0
+          fi
+          if [ ! -f "$SCRIPTS/sites.json" ]; then
+            echo "No sites.json at $SCRIPTS/sites.json -> skip"
+            exit 0
+          fi
+          if [ ! -f "$SCRIPTS/render_page.js" ]; then
+            echo "render_page.js not found at $SCRIPTS/render_page.js - skip"
+            exit 0
+          fi
+          # run Node code via heredoc to avoid shell expanding ${...}
+          node <<'NODE'
           const fs = require('fs');
-          const sites = require('./scripts/sites.json').sites || [];
-          sites.filter(s=>s.render_file).forEach(s=>{
-            // se ficheiro já existe e for recente podes saltar, aqui forçamos render
-            console.log('Rendering', s.url, '->', s.render_file);
-            const cp = require('child_process');
+          const cp = require('child_process');
+          const path = require('path');
+          const scriptsDir = process.env.SCRIPTS;
+          const sitesFile = path.join(scriptsDir, 'sites.json');
+          let sites = [];
+          try {
+            const raw = fs.readFileSync(sitesFile, 'utf8');
+            sites = JSON.parse(raw).sites || [];
+          } catch (e) {
+            console.error('Failed to read/parse sites.json:', e && e.message ? e.message : e);
+            process.exit(0);
+          }
+          const renderScript = path.join(scriptsDir, 'render_page.js');
+          for (const s of sites.filter(s => s.render_file)) {
+            const url = s.url;
+            const out = s.render_file;
+            console.log('Rendering', url, '->', out);
             try {
-              cp.execSync(`node scripts/render_page.js \"${s.url}\" \"${s.render_file}\"`, { stdio: 'inherit', timeout: 120000 });
-            } catch(e) { console.error('Render failed for', s.url, e && e.message ? e.message : e); process.exitCode = 0; }
-          });
-          "
+              // execSync usando o render script dentro do scriptsDir
+              cp.execSync(`node "${renderScript}" "${url.replace(/"/g,'\\"')}" "${out.replace(/"/g,'\\"')}"`, { stdio: 'inherit', timeout: 180000 });
+            } catch (err) {
+              console.error('Render failed for', url, '-', err && err.message ? err.message : err);
+              // não abortar o workflow: apenas segue para o próximo site
+            }
+          }
+          NODE
+
 
 
 
