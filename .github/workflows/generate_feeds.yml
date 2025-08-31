@@ -117,25 +117,47 @@ jobs:
       - name: Render configured pages (for sites with render_file)
         run: |
           SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
+          echo "Using SCRIPTS='$SCRIPTS'"
+
+          # sanity checks in shell first
           if [ -z "$SCRIPTS" ]; then
-            echo "No scripts dir detected -> skip rendering"
-            exit 0
+            echo "No scripts dir detected in step output -> will attempt autodetect inside repo"
           fi
-          if [ ! -f "$SCRIPTS/sites.json" ]; then
-            echo "No sites.json at $SCRIPTS/sites.json -> skip"
-            exit 0
-          fi
-          if [ ! -f "$SCRIPTS/render_page.js" ]; then
-            echo "render_page.js not found at $SCRIPTS/render_page.js - skip"
-            exit 0
-          fi
-          # run Node code via heredoc to avoid shell expanding ${...}
+
+          # Use heredoc but make Node script robust to missing env var
           node <<'NODE'
           const fs = require('fs');
           const cp = require('child_process');
           const path = require('path');
-          const scriptsDir = process.env.SCRIPTS;
+
+          // prefer env var SCRIPTS (set by the shell above), else auto-detect common locations
+          let scriptsDir = process.env.SCRIPTS;
+          const candidates = ['scripts', 'rss-feeds/scripts', './scripts', './rss-feeds/scripts'];
+          if (!scriptsDir || scriptsDir.trim() === '') {
+            for (const c of candidates) {
+              try {
+                if (fs.existsSync(path.join(c, 'sites.json')) && fs.existsSync(path.join(c, 'render_page.js'))) {
+                  scriptsDir = c;
+                  break;
+                }
+              } catch (e) { /* ignore */ }
+            }
+          }
+
+          if (!scriptsDir || scriptsDir.trim() === '') {
+            console.warn('Could not determine scripts directory. Searched candidates:', JSON.stringify(candidates));
+            console.warn('Skipping configured renders (no scripts dir).');
+            process.exit(0);
+          }
+
+          scriptsDir = scriptsDir.replace(/\/+$/,''); // trim trailing slash
           const sitesFile = path.join(scriptsDir, 'sites.json');
+          if (!fs.existsSync(sitesFile)) {
+            console.warn(`sites.json not found at ${sitesFile} -> skipping configured renders`);
+            process.exit(0);
+          }
+
+          // load sites.json
           let sites = [];
           try {
             const raw = fs.readFileSync(sitesFile, 'utf8');
@@ -144,17 +166,29 @@ jobs:
             console.error('Failed to read/parse sites.json:', e && e.message ? e.message : e);
             process.exit(0);
           }
+
           const renderScript = path.join(scriptsDir, 'render_page.js');
+          if (!fs.existsSync(renderScript)) {
+            console.warn(`render_page.js not found at ${renderScript} -> skipping`);
+            process.exit(0);
+          }
+
+          // ensure rendered dir exists
+          try { fs.mkdirSync(path.join(scriptsDir, 'rendered'), { recursive: true }); } catch(e){}
+
+          // iterate and render (do not abort whole job on single failure)
           for (const s of sites.filter(s => s.render_file)) {
             const url = s.url;
             const out = s.render_file;
             console.log('Rendering', url, '->', out);
             try {
-              // execSync usando o render script dentro do scriptsDir
-              cp.execSync(`node "${renderScript}" "${url.replace(/"/g,'\\"')}" "${out.replace(/"/g,'\\"')}"`, { stdio: 'inherit', timeout: 180000 });
+              // call render_page.js with node; escape quotes defensively
+              const cmd = `node "${renderScript}" "${String(url).replace(/"/g,'\\"')}" "${String(out).replace(/"/g,'\\"')}"`;
+              cp.execSync(cmd, { stdio: 'inherit', timeout: 180000 });
+              console.log('-> Done:', url);
             } catch (err) {
               console.error('Render failed for', url, '-', err && err.message ? err.message : err);
-              // não abortar o workflow: apenas segue para o próximo site
+              // continue to next site
             }
           }
           NODE
