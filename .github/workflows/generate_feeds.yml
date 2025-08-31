@@ -89,7 +89,7 @@ jobs:
             exit 0
           fi
           mkdir -p "$SCRIPTS/rendered"
-          # Explicit render targets (BusinessWire pages included)
+          # ONLY explicit render targets (reduce duplicates/timeouts)
           RENDER_TARGETS=(
             "https://inmodeinvestors.com/press-release|$SCRIPTS/rendered/inmode-press.html"
             "https://www.darkreading.com/|$SCRIPTS/rendered/darkreading.html"
@@ -108,10 +108,12 @@ jobs:
               echo "render_page.js not found at $SCRIPTS/render_page.js - skipping render for $url"
               continue
             fi
+            # run render; keep going on errors (we log)
             node "$SCRIPTS/render_page.js" "$url" "$out" || echo "render failed for $url"
           done
           echo "Rendered dir listing:"
           ls -la "$SCRIPTS/rendered" || true
+
 
 
       - name: Render configured pages (for sites with render_file)
@@ -134,10 +136,23 @@ jobs:
           const cp = require('child_process');
           const path = require('path');
 
-          // read env
+          function normalizeUrl(u) {
+            try {
+              const url = new URL(u);
+              const p = url.pathname.replace(/\/+$/, '');
+              return url.origin + (p || '/') + (url.search || '');
+            } catch (e) {
+              return String(u).trim().replace(/\/+$/, '');
+            }
+          }
+
+          function hostOf(u) {
+            try { return new URL(u).hostname.toLowerCase(); } catch(e){ return String(u).toLowerCase(); }
+          }
+
           let scriptsDir = process.env.SCRIPTS || '';
           const explicitRaw = process.env.EXPLICIT_URLS || '';
-          const explicit = explicitRaw.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+          const explicit = explicitRaw.split(/\r?\n/).map(s => s.trim()).filter(Boolean).map(normalizeUrl);
 
           const candidates = ['scripts', 'rss-feeds/scripts', './scripts', './rss-feeds/scripts'];
           if (!scriptsDir) {
@@ -147,7 +162,7 @@ jobs:
                   scriptsDir = c;
                   break;
                 }
-              } catch (e) { /* ignore */ }
+              } catch (e) {}
             }
           }
 
@@ -180,23 +195,43 @@ jobs:
 
           try { fs.mkdirSync(path.join(scriptsDir, 'rendered'), { recursive: true }); } catch(e){}
 
+          // WHITELIST: apenas estes hosts serão processados por este passo
+          const allowedHosts = new Set([
+            'dzone.com',
+            'eetimes.com',
+            'mdpi.com',
+            'medscape.com',
+            'stocktwits.com',
+            'journals.lww.com'
+          ]);
+
           for (const s of sites.filter(s => s.render_file)) {
-            if (explicit.includes((s.url || '').trim())) {
+            const urlRaw = (s.url || '').trim();
+            const urlNorm = normalizeUrl(urlRaw);
+            const host = hostOf(urlRaw);
+
+            if (!allowedHosts.has(host)) {
+              console.log('Skipping (not in configured whitelist):', urlRaw);
+              continue;
+            }
+
+            if (explicit.includes(urlNorm)) {
               console.log('Skipping configured render for (explicit handled):', s.url);
               continue;
             }
-            const url = s.url;
+
             const out = s.render_file;
-            console.log('Rendering', url, '->', out);
+            console.log('Rendering', urlRaw, '->', out);
             try {
-              const cmd = `node "${renderScript}" "${String(url).replace(/"/g,'\\"')}" "${String(out).replace(/"/g,'\\"')}"`;
+              const cmd = `node "${renderScript}" "${String(urlRaw).replace(/"/g,'\\"')}" "${String(out).replace(/"/g,'\\"')}"`;
               cp.execSync(cmd, { stdio: 'inherit', timeout: 180000 });
-              console.log('-> Done:', url);
+              console.log('-> Done:', urlRaw);
             } catch (err) {
-              console.error('Render failed for', url, '-', err && err.message ? err.message : err);
+              console.error('Render failed for', urlRaw, '-', err && err.message ? err.message : err);
             }
           }
           NODE
+
 
 
 
