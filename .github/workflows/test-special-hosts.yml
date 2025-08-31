@@ -1,0 +1,56 @@
+name: Test special hosts (render)
+
+on:
+  workflow_dispatch:   # permite disparar manualmente a partir do GitHub Actions UI
+
+jobs:
+  render-special-hosts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 18
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install dependencies (only playwright)
+        run: |
+          npm init -y
+          npm i --no-audit --no-fund playwright@1.48.0
+        # (se já tens package.json & package-lock no repo, substitui por: npm ci)
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps
+
+      - name: Ensure output dir exists
+        run: mkdir -p scripts/rendered tests || true
+
+      - name: Run renders for special hosts (sequential, verbose)
+        # este comando deve existir no teu repo: scripts/test_special_hosts.js
+        # se não existir, em baixo dou alternativa em shell que chama render_page.js para cada URL
+        run: |
+          set -o pipefail
+          mkdir -p scripts/rendered_tests
+          node scripts/test_special_hosts.js 2>&1 | tee render_special_hosts.log
+        env:
+          NODE_OPTIONS: "--max-old-space-size=1024"
+
+      - name: Upload rendered files (folder)
+        uses: actions/upload-artifact@v4
+        with:
+          name: rendered-html
+          path: |
+            scripts/rendered_tests/
+            scripts/rendered/
+
+      - name: Upload logs
+        uses: actions/upload-artifact@v4
+        with:
+          name: render-logs
+          path: |
+            render_special_hosts.log
+            scripts/*.log
