@@ -1,298 +1,191 @@
+#!/usr/bin/env node
 // scripts/render_page.js
-// Versão ajustada: para hosts prioritários aceita status<400 imediatamente (p/ velocidade),
-// host-specific strategy order, e logging mais claro.
+// Usage: node scripts/render_page.js "<url>" "<out_file>"
 
 const fs = require('fs');
-const path = require('path');
+const { chromium } = require('playwright'); // assume installed in scripts/ node_modules or repo root
+const http = require('http');
 const https = require('https');
-const { chromium } = require('playwright');
+const urlmod = require('url');
 
-function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+if (process.argv.length < 4) {
+  console.error('Usage: node scripts/render_page.js "<url>" "<out_file>"');
+  process.exit(2);
+}
+const TARGET = process.argv[2];
+const OUT = process.argv[3];
 
-async function simpleHttpGet(url, outPath, headers = {}, timeout = 35000) {
-  return new Promise((resolve, reject) => {
-    try {
-      const opts = new URL(url);
-      opts.headers = Object.assign({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9'
-      }, headers);
-
-      const req = https.get(opts, (res) => {
-        const status = res.statusCode || 0;
-        if (status >= 400) {
-          res.resume();
-          return reject(new Error(`HTTP status ${status}`));
-        }
-        const chunks = [];
-        res.on('data', c => chunks.push(c));
-        res.on('end', () => {
-          try {
-            const buf = Buffer.concat(chunks);
-            const data = buf.toString('utf8');
-            fs.writeFileSync(outPath, data, { encoding: 'utf-8' });
-            resolve({ ok: true, status });
-          } catch (e) { reject(e); }
-        });
-      });
-
-      req.on('error', (err) => reject(err));
-      req.setTimeout(timeout, () => { req.destroy(new Error('timeout')); });
-    } catch (e) { reject(e); }
-  });
+function shortHost(u){
+  try { return new URL(u).hostname.replace(/^www\./,'').toLowerCase(); } catch(e){ return String(u).toLowerCase(); }
 }
 
-async function launchContext(strat) {
-  const browser = await chromium.launch({
-    args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    headless: true
-  });
+// Hosts we want to prioritize: accept on first successful HTTP < 400 and disable block-detection for them.
+// You can tweak per-host strategy order here: each entry is an array with order e.g. ['B','A','C']
+const hostPrefs = {
+  'businesswire.com': ['B','A','C'],
+  'inmodeinvestors.com': ['B'],
+  'iotworldtoday.com': ['A','B'],
+  'darkreading.com': ['A','B','C'],
+  'dzone.com': ['B','C','A'],
+  'eetimes.com': ['B','C','A'],
+  'mdpi.com': ['C','B','A'],
+  'medscape.com': ['C','B','A'],
+  'stocktwits.com': ['A','B','C'],
+  'journals.lww.com': ['C','B','A']
+};
 
-  const context = await browser.newContext({
-    userAgent: strat.userAgent,
-    locale: strat.locale || 'en-US',
-    viewport: strat.viewport || { width: 1280, height: 800 },
-    extraHTTPHeaders: strat.extraHTTPHeaders || {}
-  });
+// hosts for which we accept any HTTP < 400 immediately and skip block detection
+const acceptOn200Hosts = new Set(Object.keys(hostPrefs));
 
-  await context.addInitScript(() => {
-    Object.defineProperty(navigator, 'webdriver', { get: () => false });
-    Object.defineProperty(navigator, 'languages', { get: () => ['en-US','en'] });
-    Object.defineProperty(navigator, 'plugins', { get: () => [1,2,3,4] });
-  });
-
-  return { browser, context };
-}
-
-async function tryNavigate(url, strat) {
-  let bc = null;
-  try {
-    const { browser, context } = await launchContext(strat);
-    bc = { browser, context };
-    const page = await context.newPage();
-
-    await page.route('**/*', (route) => {
-      const req = route.request();
-      const rurl = req.url();
-      const resource = req.resourceType();
-      const blockedDomains = ['googlesyndication','doubleclick','google-analytics','adsystem','adservice','scorecardresearch','facebook.net','facebook.com','ads-twitter','amazon-adsystem'];
-      for (const d of blockedDomains) if (rurl.includes(d)) return route.abort();
-      if (strat.blockImages && (resource === 'image' || resource === 'media')) return route.abort();
-      if (strat.blockStyles && (resource === 'stylesheet' || resource === 'font')) return route.abort();
-      return route.continue();
-    });
-
-    page.setDefaultNavigationTimeout(strat.timeout || 45000);
-    console.log(`  -> Navigating with waitUntil="${strat.waitUntil}" (timeout ${strat.timeout})`);
-    const resp = await page.goto(url, { waitUntil: strat.waitUntil, timeout: strat.timeout, referer: strat.referer || undefined });
-    const status = resp ? resp.status() : null;
-    return { ok: true, page, browser, context, status };
-  } catch (err) {
-    if (bc && bc.browser) {
-      try { await bc.browser.close(); } catch(e){ }
-    }
-    return { ok: false, error: err };
-  }
-}
-
+// block page detection function (returns true if page looks like a block page)
 function looksLikeBlockPage(html) {
-  if (!html || html.length < 200) return true;
-  const lowered = html.toLowerCase();
-  const blockers = ['access denied','forbidden','blocked','cloudflare','bot detected','captcha','please enable javascript','are you human','request blocked','you don\'t have permission'];
-  for (const b of blockers) if (lowered.includes(b)) return true;
+  if (!html) return true;
+  const lower = html.slice(0, 2000).toLowerCase();
+  // common block indicators
+  if (lower.includes('access denied') || lower.includes('blocked') || lower.includes('bot') ||
+      lower.includes('verify you are a human') || lower.includes('captcha') || lower.includes('cloudflare')) {
+    return true;
+  }
   return false;
 }
 
-async function render(url, outPath) {
-  fs.mkdirSync(path.dirname(outPath), { recursive: true });
-
-  const commonHeaders = { 'accept-language': 'en-US,en;q=0.9' };
-
-  const strategies = {
-    A: {
-      name: 'A - fast (block images & styles)',
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/114.0 Safari/537.36',
-      extraHTTPHeaders: commonHeaders,
-      blockImages: true,
-      blockStyles: true,
-      waitUntil: 'domcontentloaded',
-      timeout: 20000
-    },
-    B: {
-      name: 'B - allow styles/fonts (recommended)',
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36',
-      extraHTTPHeaders: Object.assign({}, commonHeaders, { 'sec-ch-ua': '"Chromium";v="120", "Google Chrome";v="120"' }),
-      blockImages: true,
-      blockStyles: false,
-      waitUntil: 'networkidle',
-      timeout: 50000,
-      referer: url
-    },
-    C: {
-      name: 'C - human-like (allow everything, longer)',
-      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Safari/605.1.15',
-      extraHTTPHeaders: commonHeaders,
-      blockImages: false,
-      blockStyles: false,
-      waitUntil: 'networkidle',
-      timeout: 90000,
-      referer: url
-    }
-  };
-
-  //HOST PREFERENCE: try the strategy that tends to work first for each host
-  const hostPrefs = {
-    'dzone.com': ['B','C','A'],
-    'eetimes.com': ['B','C','A'],
-    'mdpi.com': ['C','B','A'],
-    'medscape.com': ['C','B','A'],
-    'stocktwits.com': ['A','B','C'],
-    'journals.lww.com': ['C','B','A'],
-    // fallback default: A,B,C
-  };
-
-  // Hosts for which we will accept/save immediately when main response.status < 400
-  // (this is the speed optimization you asked for)
-  const acceptOn200Hosts = ['dzone.com','eetimes.com','mdpi.com','medscape.com','stocktwits.com','journals.lww.com'];
-
-  const hostKey = Object.keys(hostPrefs).find(h => url.includes(h));
-  const order = hostKey ? hostPrefs[hostKey] : ['A','B','C'];
-
-  let lastErr = null;
-
-  // Special-case: for eetimes try simple GET first (sometimes playwright/http2 fails in GH runners)
-  if (url.includes('eetimes.com')) {
-    console.warn('Host is eetimes.com — attempting simple HTTPS GET fallback first (special-case)');
-    try {
-      const tmpOut = outPath + '.httpget.tmp';
-      const r = await simpleHttpGet(url, tmpOut, {}, 45000);
-      if (r && r.ok) {
-        const html = fs.readFileSync(tmpOut, 'utf8');
-        if (!looksLikeBlockPage(html) && html.length > 2048) {
-          fs.renameSync(tmpOut, outPath);
-          console.log(`eetimes: simple HTTPS GET succeeded -> ${outPath} (status ${r.status})`);
-          return;
-        } else {
-          try { fs.unlinkSync(tmpOut); } catch(e){ }
-        }
-      }
-    } catch (e) {
-      console.warn('eetimes: simple HTTPS GET failed or returned small/block content:', e && e.message ? e.message : e);
-    }
-  }
-
-  for (let idx = 0; idx < order.length; idx++) {
-    const key = order[idx];
-    const strat = strategies[key];
-    console.log(`Strategy attempt ${idx+1}/${order.length}: ${strat.name} for ${url}`);
-    const result = await tryNavigate(url, strat);
-
-    if (!result.ok) {
-      console.warn(`  Strategy ${strat.name} failed to navigate: ${result.error && result.error.message ? result.error.message : result.error}`);
-      lastErr = result.error;
-      await delay(500 * (idx+1));
-      continue;
-    }
-
-    const { page, browser, status } = result;
-    console.log(`  Main response status: ${status}`);
-
-    // If host is in acceptOn200Hosts and status < 400 => accept immediately (speed)
-    if (status && status < 400 && acceptOn200Hosts.find(h=>url.includes(h))) {
-      try {
-        const content = await page.content();
-        fs.writeFileSync(outPath, content, { encoding: 'utf-8' });
-        console.log(`Quick-accepted ${url} -> ${outPath} (status: ${status}) for host in acceptOn200Hosts`);
-        try { await browser.close(); } catch(e){}
-        return;
-      } catch (e) {
-        console.warn('Quick-accept failed to write content:', e && e.message ? e.message : e);
-        try { await browser.close(); } catch(e){}
-        lastErr = e;
-        continue;
-      }
-    }
-
-    if (status === 403) {
-      console.warn(`  Got 403 on ${url} with strategy ${strat.name} — will try next or fallback`);
-      try { await browser.close(); } catch(e){}
-      lastErr = new Error('403 Forbidden');
-      await delay(400);
-      continue;
-    }
-
-    await delay(800 + idx * 400);
-
-    try {
-      await page.waitForSelector('article, main, #content, .post, .news, .press, .investors_events_bodybox', { timeout: 1500 }).catch(()=>{});
-      const content = await page.content();
-      if (looksLikeBlockPage(content)) {
-        console.warn(`  Render looks like block page (detected) for ${url} using ${strat.name}`);
-        try { await browser.close(); } catch(e){}
-        lastErr = new Error('Detected block page after render');
-        await delay(300);
-        continue;
-      }
-      fs.writeFileSync(outPath, content, { encoding: 'utf-8' });
-      const stats = fs.statSync(outPath);
-      if (stats.size < 5120) {
-        const sample = fs.readFileSync(outPath, 'utf8');
-        if (looksLikeBlockPage(sample)) {
-          fs.unlinkSync(outPath);
-          console.warn(`  Rendered file too small and looks like a block page -> removed: ${outPath}`);
-          lastErr = new Error('Rendered file small / block page');
-          try { await browser.close(); } catch(e){}
-          continue;
-        }
-      }
-      console.log(`Rendered ${url} -> ${outPath} (status: ${status}) using strategy: ${strat.name}`);
-      try { await browser.close(); } catch(e){}
-      return;
-    } catch (err) {
-      console.error(`  Error writing content after strategy ${strat.name}: ${err && err.message ? err.message : err}`);
-      lastErr = err;
-      try { await browser.close(); } catch(e){}
-      await delay(300);
-      continue;
-    }
-  }
-
-  console.warn('Playwright attempts exhausted — trying simple HTTPS GET fallback (only accept HTTP < 400)');
-  try {
-    await simpleHttpGet(url, outPath, {}, 50000);
-    const html = fs.readFileSync(outPath, 'utf8');
-    if (looksLikeBlockPage(html)) {
-      fs.unlinkSync(outPath);
-      throw new Error('Fallback HTTP returned block page');
-    }
-    const stats = fs.statSync(outPath);
-    if (stats.size < 5120) {
-      fs.unlinkSync(outPath);
-      throw new Error('Fallback HTTP returned very small page');
-    }
-    console.log(`Fallback HTTPS GET succeeded: ${url} -> ${outPath}`);
-    return;
-  } catch (e) {
-    console.warn('Fallback HTTPS GET failed or returned block page:', e && e.message ? e.message : e);
-    lastErr = e;
-  }
-
-  throw lastErr || new Error('All strategies failed');
+async function simpleGet(url, timeoutMs = 20000) {
+  return new Promise((resolve, reject) => {
+    const parsed = urlmod.parse(url);
+    const lib = parsed.protocol === 'http:' ? http : https;
+    const req = lib.get(url, { timeout: timeoutMs, headers: { 'user-agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36' } }, res => {
+      const status = res.statusCode;
+      let data = '';
+      res.setEncoding('utf8');
+      res.on('data', chunk => { if (data.length < 20000) data += chunk; });
+      res.on('end', () => resolve({ status, body: data }));
+    });
+    req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
+    req.on('error', err => reject(err));
+  });
 }
 
-(async () => {
-  try {
-    const args = process.argv.slice(2);
-    if (args.length < 2) {
-      console.error('Usage: node scripts/render_page.js <url> <output_path>');
-      process.exit(2);
-    }
-    const [url, outPath] = args;
-    await render(url, outPath);
-    process.exit(0);
-  } catch (err) {
-    console.error('Render failed:', err && (err.stack || err.message) ? (err.stack || err.message) : err);
-    process.exit(1);
+async function renderWithPlaywright(url, options) {
+  const browser = await chromium.launch({ args: ['--no-sandbox','--disable-setuid-sandbox'] });
+  const context = await browser.newContext({ userAgent: options.userAgent || undefined });
+  const page = await context.newPage();
+
+  if (options.blockResources) {
+    await page.route('**/*', (route) => {
+      const r = route.request();
+      const t = r.resourceType();
+      if (t === 'stylesheet' || t === 'image' || t === 'font' || t === 'media') {
+        route.abort();
+      } else {
+        route.continue();
+      }
+    });
   }
-})();
+
+  try {
+    const gotoOpts = { timeout: options.timeout || 50000, waitUntil: options.waitUntil || 'networkidle' };
+    const response = await page.goto(url, gotoOpts);
+    const status = response ? response.status() : null;
+    const html = await page.content();
+    await browser.close();
+    return { status, html };
+  } catch (e) {
+    try { await browser.close(); } catch(_) {}
+    throw e;
+  }
+}
+
+async function main(){
+  const host = shortHost(TARGET);
+  console.log('Starting render for:', TARGET);
+  console.log('Host key matched:', host, '; hostPrefs:', hostPrefs[host] ? hostPrefs[host].join(',') : '(none)');
+
+  // If host in acceptOn200Hosts we try a quick HTTP GET first (faster) and accept if status < 400.
+  if (acceptOn200Hosts.has(host)) {
+    try {
+      const res = await simpleGet(TARGET, 10000);
+      console.log('Quick GET status:', res.status);
+      if (res.status && res.status < 400) {
+        console.log('Quick GET succeeded for priority host -> writing output and exiting');
+        fs.writeFileSync(OUT, res.body, 'utf8');
+        console.log(`Rendered ${TARGET} -> ${OUT} (quick GET, status ${res.status})`);
+        return 0;
+      }
+      console.log('Quick GET did not produce acceptable HTML; falling back to Playwright');
+    } catch (e) {
+      console.log('Quick GET failed (will fallback to Playwright):', e.message);
+    }
+  }
+
+  // Determine preferred strategy order
+  const strategyOrder = hostPrefs[host] || ['A','B','C'];
+
+  // Strategy definitions:
+  // A - fast: block styles/fonts/images, waitUntil=domcontentloaded (short timeout)
+  // B - allow styles/fonts, waitUntil=networkidle (recommended)
+  // C - human-like: allow everything, longer timeout
+  const strategyMap = {
+    'A': { blockResources: true, waitUntil: 'domcontentloaded', timeout: 20000 },
+    'B': { blockResources: false, waitUntil: 'networkidle', timeout: 50000 },
+    'C': { blockResources: false, waitUntil: 'networkidle', timeout: 90000 }
+  };
+
+  // Try each strategy in order
+  for (let i=0;i<strategyOrder.length;i++){
+    const s = strategyOrder[i];
+    const opts = strategyMap[s];
+    console.log(`Strategy attempt ${i+1}/${strategyOrder.length}: ${s} - ${s === 'A' ? 'fast (block images & styles)' : s === 'B' ? 'allow styles/fonts (recommended)' : 'human-like (allow everything, longer)'} for ${TARGET}`);
+    try {
+      const { status, html } = await renderWithPlaywright(TARGET, opts);
+      console.log('  -> Navigating with waitUntil="' + opts.waitUntil + `" (timeout ${opts.timeout})`);
+      console.log('  Main response status:', status);
+      // if host is a priority host and we got status < 400, accept immediately (skip block detection)
+      if (acceptOn200Hosts.has(host) && status && status < 400) {
+        fs.writeFileSync(OUT, html, 'utf8');
+        console.log(`Rendered ${TARGET} -> ${OUT} (status: ${status}) using strategy: ${s} (priority accept)`);
+        return 0;
+      }
+      // for non-priority hosts we detect block pages
+      if (!acceptOn200Hosts.has(host)) {
+        if (status && status < 400 && !looksLikeBlockPage(html)) {
+          fs.writeFileSync(OUT, html, 'utf8');
+          console.log(`Rendered ${TARGET} -> ${OUT} (status: ${status}) using strategy: ${s}`);
+          return 0;
+        } else {
+          console.log(`  Render looks like block page (detected) for ${TARGET} using ${s}`);
+          // continue to next strategy
+        }
+      } else {
+        // priority host but status >=400 -> continue trying
+        console.log('  Priority host but not acceptable status -> continue');
+      }
+    } catch (err) {
+      console.log(`  Strategy ${s} failed:`, err && err.message ? err.message : err);
+    }
+  }
+
+  // Playwright attempts exhausted — try simple HTTPS GET fallback (only accept HTTP < 400)
+  console.log('Playwright attempts exhausted — trying simple HTTPS GET fallback (only accept HTTP < 400)');
+  try {
+    const res = await simpleGet(TARGET, 20000);
+    console.log('Fallback GET status:', res.status);
+    if (res.status && res.status < 400 && (!looksLikeBlockPage(res.body) || acceptOn200Hosts.has(host))) {
+      // write file
+      fs.writeFileSync(OUT, res.body, 'utf8');
+      console.log(`Rendered ${TARGET} -> ${OUT} (fallback HTTP GET, status ${res.status})`);
+      return 0;
+    } else {
+      console.log('Fallback HTTPS GET failed or returned block page:', res.status);
+      throw new Error('Fallback HTTP returned block page or bad status');
+    }
+  } catch (e) {
+    console.error('Render failed:', e && e.message ? e.message : e);
+    throw e;
+  }
+}
+
+main().then(() => process.exit(0)).catch(err => {
+  console.error('render failed for', TARGET);
+  console.error(err && err.stack ? err.stack : err);
+  process.exit(3);
+});
