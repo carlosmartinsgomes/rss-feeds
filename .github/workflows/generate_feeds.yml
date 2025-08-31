@@ -113,20 +113,21 @@ jobs:
           echo "Rendered dir listing:"
           ls -la "$SCRIPTS/rendered" || true
 
-          - name: Render configured pages (for sites with render_file)
-          run: |
-            node -e "
-            const fs = require('fs');
-            const sites = require('./scripts/sites.json').sites || [];
-            sites.filter(s=>s.render_file).forEach(s=>{
-              // se ficheiro já existe e for recente podes saltar, aqui forçamos render
-              console.log('Rendering', s.url, '->', s.render_file);
-              const cp = require('child_process');
-            try {
-              cp.execSync(`node scripts/render_page.js \"${s.url}\" \"${s.render_file}\"`, { stdio: 'inherit', timeout: 120000 });
-            } catch(e) { console.error('Render failed for', s.url, e && e.message ? e.message : e); process.exitCode = 0; }
-          });
-          "
+- name: Render configured pages (for sites with render_file)
+  run: |
+    node -e "
+    const fs = require('fs');
+    const sites = require('./scripts/sites.json').sites || [];
+    sites.filter(s=>s.render_file).forEach(s=>{
+      // se ficheiro já existe e for recente podes saltar, aqui forçamos render
+      console.log('Rendering', s.url, '->', s.render_file);
+      const cp = require('child_process');
+      try {
+        cp.execSync(`node scripts/render_page.js \"${s.url}\" \"${s.render_file}\"`, { stdio: 'inherit', timeout: 120000 });
+      } catch(e) { console.error('Render failed for', s.url, e && e.message ? e.message : e); process.exitCode = 0; }
+    });
+    "
+
 
 
       - name: Run feed generator (Python)
