@@ -113,6 +113,7 @@ jobs:
           echo "Rendered dir listing:"
           ls -la "$SCRIPTS/rendered" || true
 
+
 - name: Render configured pages (for sites with render_file)
   run: |
     node -e "
