@@ -195,30 +195,31 @@ jobs:
 
           try { fs.mkdirSync(path.join(scriptsDir, 'rendered'), { recursive: true }); } catch(e){}
 
-          // WHITELIST: apenas estes hosts serão processados por este passo
-          const allowedHosts = new Set([
+                   // WHITELIST: apenas estes hosts serão processados por este passo
+          const allowedHosts = [
             'dzone.com',
             'eetimes.com',
             'mdpi.com',
             'medscape.com',
             'stocktwits.com',
             'journals.lww.com'
-          ]);
+          ];
+
+          function hostMatchesAllowed(hostname) {
+            hostname = (hostname || '').toLowerCase().replace(/^www\./,'');
+            return allowedHosts.some(a => hostname === a || hostname.endsWith('.' + a));
+          }
 
           for (const s of sites.filter(s => s.render_file)) {
             const urlRaw = (s.url || '').trim();
             const urlNorm = normalizeUrl(urlRaw);
             const host = hostOf(urlRaw);
 
-            if (!allowedHosts.has(host)) {
+            if (!hostMatchesAllowed(host)) {
               console.log('Skipping (not in configured whitelist):', urlRaw);
               continue;
             }
 
-            if (explicit.includes(urlNorm)) {
-              console.log('Skipping configured render for (explicit handled):', s.url);
-              continue;
-            }
 
             const out = s.render_file;
             console.log('Rendering', urlRaw, '->', out);
