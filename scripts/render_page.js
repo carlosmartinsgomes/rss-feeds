@@ -189,7 +189,7 @@ async function render(url, outPath) {
     'darkreading.com': ['B','A','C'],
     'iotworldtoday.com': ['B','A'],
     'businesswire.com': ['B','A'],
-    'stocktwits.com': ['B','C','A'],
+    'stocktwits.com': ['A','B','C'],
     'dzone.com': ['B','C','A'],
     'eetimes.com': ['B','C','A'],
     // theinformation removido por pedido
