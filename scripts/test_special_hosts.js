@@ -1,57 +1,28 @@
-name: Test special hosts (render)
+// scripts/test_special_hosts.js
+// Simple runner to call render_page.js for a set of known-problematic URLs
+const { spawnSync } = require('child_process');
+const path = require('path');
+const fs = require('fs');
 
-on:
-  workflow_dispatch:   # permite disparar manualmente a partir do GitHub Actions UI
+const tests = [
+  { id: 'stocktwits', url: 'https://stocktwits.com/symbol/PUBM' },
+  { id: 'dzone', url: 'https://dzone.com/list' },
+  { id: 'eetimes', url: 'https://www.eetimes.com/category/news-analysis/' },
+  { id: 'medscape', url: 'https://www.medscape.com/index/list_13470_0' },
+  { id: 'mdpi', url: 'https://www.mdpi.com/rss/journal/jaestheticmed' },
+  { id: 'journals_lww', url: 'https://journals.lww.com/plasreconsurg/_layouts/15/OAKS.Journals/feed.aspx?FeedType=LatestArticles' }
+];
 
-jobs:
-  render-special-hosts:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+fs.mkdirSync(path.join('scripts','rendered_tests'), { recursive: true });
 
-    steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js 18
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18'
-
-      - name: Install dependencies (only playwright)
-        run: |
-          npm init -y
-          npm i --no-audit --no-fund playwright@1.48.0
-        # (se já tens package.json & package-lock no repo, substitui por: npm ci)
-
-      - name: Install Playwright browsers
-        run: npx playwright install --with-deps
-
-      - name: Ensure output dir exists
-        run: mkdir -p scripts/rendered tests || true
-
-      - name: Run renders for special hosts (sequential, verbose)
-        # este comando deve existir no teu repo: scripts/test_special_hosts.js
-        # se não existir, em baixo dou alternativa em shell que chama render_page.js para cada URL
-        run: |
-          set -o pipefail
-          mkdir -p scripts/rendered_tests
-          node scripts/test_special_hosts.js 2>&1 | tee render_special_hosts.log
-        env:
-          NODE_OPTIONS: "--max-old-space-size=1024"
-
-      - name: Upload rendered files (folder)
-        uses: actions/upload-artifact@v4
-        with:
-          name: rendered-html
-          path: |
-            scripts/rendered_tests/
-            scripts/rendered/
-
-      - name: Upload logs
-        uses: actions/upload-artifact@v4
-        with:
-          name: render-logs
-          path: |
-            render_special_hosts.log
-            scripts/*.log
-
+for (const t of tests) {
+  console.log('--- Running test for', t.id, t.url);
+  const out = path.join('scripts','rendered_tests', `${t.id}.html`);
+  const r = spawnSync('node', ['scripts/render_page.js', t.url, out], { stdio: 'inherit', env: process.env, timeout: 180000 });
+  if (r.error) {
+    console.error('Error spawning render_page.js', r.error);
+  } else {
+    console.log('Exit code:', r.status);
+  }
+  console.log('--- finished', t.id, '\n');
+}
