@@ -10,7 +10,8 @@ const tests = [
   { id: 'eetimes', url: 'https://www.eetimes.com/category/news-analysis/' },
   { id: 'medscape', url: 'https://www.medscape.com/index/list_13470_0' },
   { id: 'mdpi', url: 'https://www.mdpi.com/rss/journal/jaestheticmed' },
-  { id: 'journals_lww', url: 'https://journals.lww.com/plasreconsurg/_layouts/15/OAKS.Journals/feed.aspx?FeedType=LatestArticles' }
+  { id: 'journals_lww', url: 'https://journals.lww.com/plasreconsurg/_layouts/15/OAKS.Journals/feed.aspx?FeedType=LatestArticles' },
+  { id: 'journals_lww', url: 'https://journals.lww.com/plasreconsurg/_layouts/15/OAKS.Journals/feed.aspx?FeedType=CurrentIssue'   },
 ];
 
 fs.mkdirSync(path.join('scripts','rendered_tests'), { recursive: true });
