@@ -1,6 +1,6 @@
 // scripts/render_page.js
-// Full-file: improved per-host strategies, stricter fallback handling,
-// pre-fallback HTTP GET for problematic hosts (eetimes), host ordering tuned.
+// Versão ajustada: para hosts prioritários aceita status<400 imediatamente (p/ velocidade),
+// host-specific strategy order, e logging mais claro.
 
 const fs = require('fs');
 const path = require('path');
@@ -16,9 +16,7 @@ async function simpleHttpGet(url, outPath, headers = {}, timeout = 35000) {
       opts.headers = Object.assign({
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Referer': url
+        'Accept-Language': 'en-US,en;q=0.9'
       }, headers);
 
       const req = https.get(opts, (res) => {
@@ -58,7 +56,6 @@ async function launchContext(strat) {
     extraHTTPHeaders: strat.extraHTTPHeaders || {}
   });
 
-  // small stealth tweaks
   await context.addInitScript(() => {
     Object.defineProperty(navigator, 'webdriver', { get: () => false });
     Object.defineProperty(navigator, 'languages', { get: () => ['en-US','en'] });
@@ -144,24 +141,20 @@ async function render(url, outPath) {
     }
   };
 
+  //HOST PREFERENCE: try the strategy that tends to work first for each host
   const hostPrefs = {
-    'inmodeinvestors.com': ['B'],
-    // darkreading costuma falhar em networkidle -> tentar A primeiro
-    'darkreading.com': ['A','B','C'],
-    'iotworldtoday.com': ['A','B'],
-    'businesswire.com': ['B','A'],
-
-    // problem sites: try B then C (longer) then A — tuned per-site below
-    'stocktwits.com': ['A','B','C'],
     'dzone.com': ['B','C','A'],
-
-    // eetimes tem apresentado HTTP2 errors em runners; tenta GET antes do Playwright
     'eetimes.com': ['B','C','A'],
-
-    'medscape.com': ['C','B','A'],
     'mdpi.com': ['C','B','A'],
-    'journals.lww.com': ['C','B','A']
+    'medscape.com': ['C','B','A'],
+    'stocktwits.com': ['A','B','C'],
+    'journals.lww.com': ['C','B','A'],
+    // fallback default: A,B,C
   };
+
+  // Hosts for which we will accept/save immediately when main response.status < 400
+  // (this is the speed optimization you asked for)
+  const acceptOn200Hosts = ['dzone.com','eetimes.com','mdpi.com','medscape.com','stocktwits.com','journals.lww.com'];
 
   const hostKey = Object.keys(hostPrefs).find(h => url.includes(h));
   const order = hostKey ? hostPrefs[hostKey] : ['A','B','C'];
@@ -169,7 +162,7 @@ async function render(url, outPath) {
   let lastErr = null;
 
   // Special-case: for eetimes try simple GET first (sometimes playwright/http2 fails in GH runners)
-  if (hostKey === 'eetimes.com') {
+  if (url.includes('eetimes.com')) {
     console.warn('Host is eetimes.com — attempting simple HTTPS GET fallback first (special-case)');
     try {
       const tmpOut = outPath + '.httpget.tmp';
@@ -204,6 +197,22 @@ async function render(url, outPath) {
 
     const { page, browser, status } = result;
     console.log(`  Main response status: ${status}`);
+
+    // If host is in acceptOn200Hosts and status < 400 => accept immediately (speed)
+    if (status && status < 400 && acceptOn200Hosts.find(h=>url.includes(h))) {
+      try {
+        const content = await page.content();
+        fs.writeFileSync(outPath, content, { encoding: 'utf-8' });
+        console.log(`Quick-accepted ${url} -> ${outPath} (status: ${status}) for host in acceptOn200Hosts`);
+        try { await browser.close(); } catch(e){}
+        return;
+      } catch (e) {
+        console.warn('Quick-accept failed to write content:', e && e.message ? e.message : e);
+        try { await browser.close(); } catch(e){}
+        lastErr = e;
+        continue;
+      }
+    }
 
     if (status === 403) {
       console.warn(`  Got 403 on ${url} with strategy ${strat.name} — will try next or fallback`);
