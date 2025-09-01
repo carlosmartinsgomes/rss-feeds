@@ -5,7 +5,7 @@ on:
     branches: [ main ]
   workflow_dispatch:
   schedule:
-    - cron: '*/30 * * * *'
+    - cron: '*/30000 * * * *'
 
 env:
   PYTHON_VERSION: '3.11'
