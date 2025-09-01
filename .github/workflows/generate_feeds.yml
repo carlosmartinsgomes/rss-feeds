@@ -5,15 +5,15 @@ on:
     branches: [ main ]
   workflow_dispatch:
   schedule:
-    # every 30 minutes
     - cron: '*/30 * * * *'
+
+env:
+  PYTHON_VERSION: '3.11'
+  NODE_VERSION: '18'
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    env:
-      PYTHON_VERSION: '3.11'
-      NODE_VERSION: '18'
 
     steps:
       - name: Checkout repo
@@ -89,7 +89,7 @@ jobs:
             exit 0
           fi
           mkdir -p "$SCRIPTS/rendered"
-          # ONLY explicit render targets (reduce duplicates/timeouts)
+          # Explicit render targets (BusinessWire pages included) - ONLY these URLs
           RENDER_TARGETS=(
             "https://inmodeinvestors.com/press-release|$SCRIPTS/rendered/inmode-press.html"
             "https://www.darkreading.com/|$SCRIPTS/rendered/darkreading.html"
@@ -108,16 +108,15 @@ jobs:
               echo "render_page.js not found at $SCRIPTS/render_page.js - skipping render for $url"
               continue
             fi
-            # run render; keep going on errors (we log)
+            # Allow render_page.js to decide quick-get vs playwright; log failures but continue
             node "$SCRIPTS/render_page.js" "$url" "$out" || echo "render failed for $url"
           done
           echo "Rendered dir listing:"
           ls -la "$SCRIPTS/rendered" || true
 
-
-
-      - name: Render configured pages (for sites with render_file)
+      - name: Render configured pages (for sites with render_file) - WHITELISTED hosts only
         env:
+          # lista explícita (se quiseres bloquear duplicação): mantive vazia porque a etapa explícita já fez esses
           EXPLICIT_URLS: |
             https://inmodeinvestors.com/press-release
             https://www.darkreading.com/
@@ -136,23 +135,35 @@ jobs:
           const cp = require('child_process');
           const path = require('path');
 
-          function normalizeUrl(u) {
+          // WHITELIST: apenas estes hosts serão processados por este passo
+          const allowedHosts = [
+            'dzone.com',
+            'eetimes.com',
+            'mdpi.com',
+            'medscape.com',
+            'stocktwits.com',
+            'journals.lww.com'
+          ];
+
+          function hostOf(urlString) {
             try {
-              const url = new URL(u);
-              const p = url.pathname.replace(/\/+$/, '');
-              return url.origin + (p || '/') + (url.search || '');
+              const u = new URL(urlString);
+              return (u.hostname || '').toLowerCase().replace(/^www\./,'');
             } catch (e) {
-              return String(u).trim().replace(/\/+$/, '');
+              const m = String(urlString || '').toLowerCase().match(/:\/\/([^\/:?#]+)/);
+              return m ? m[1].replace(/^www\./,'') : '';
             }
           }
 
-          function hostOf(u) {
-            try { return new URL(u).hostname.toLowerCase(); } catch(e){ return String(u).toLowerCase(); }
+          function hostMatchesAllowed(hostname) {
+            if (!hostname) return false;
+            return allowedHosts.some(a => hostname === a || hostname.endsWith('.' + a));
           }
 
+          // read env provided by the step
           let scriptsDir = process.env.SCRIPTS || '';
           const explicitRaw = process.env.EXPLICIT_URLS || '';
-          const explicit = explicitRaw.split(/\r?\n/).map(s => s.trim()).filter(Boolean).map(normalizeUrl);
+          const explicit = explicitRaw.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
 
           const candidates = ['scripts', 'rss-feeds/scripts', './scripts', './rss-feeds/scripts'];
           if (!scriptsDir) {
@@ -162,7 +173,7 @@ jobs:
                   scriptsDir = c;
                   break;
                 }
-              } catch (e) {}
+              } catch (e) { /* ignore */ }
             }
           }
 
@@ -195,48 +206,27 @@ jobs:
 
           try { fs.mkdirSync(path.join(scriptsDir, 'rendered'), { recursive: true }); } catch(e){}
 
-                   // WHITELIST: apenas estes hosts serão processados por este passo
-          // WHITELIST: apenas estes hosts serão processados por este passo
-          const allowedHosts = [
-            'dzone.com',
-            'eetimes.com',
-            'mdpi.com',
-            'medscape.com',
-            'stocktwits.com',
-            'journals.lww.com'
-          ];
-
-          function hostOf(urlString) {
-            try {
-              // tenta usar URL (lida com longos caminhos/params)
-              const u = new URL(urlString);
-              return (u.hostname || '').toLowerCase();
-          } catch (e) {
-          // fallback: tenta extrair com regex
-            const m = String(urlString).toLowerCase().match(/:\/\/([^\/:?#]+)/);
-            return m ? m[1].replace(/^www\./,'') : '';
-          }
-          }
-
-          function hostMatchesAllowed(hostname) {
-            if (!hostname) return false;
-            hostname = hostname.toLowerCase().replace(/^www\./,'');
-            return allowedHosts.some(a => hostname === a || hostname.endsWith('.' + a));
-          }
-
           for (const s of sites.filter(s => s.render_file)) {
             const urlRaw = (s.url || '').trim();
+            if (!urlRaw) continue;
             const host = hostOf(urlRaw);
 
+            // se não estiver na whitelist, ignora
             if (!hostMatchesAllowed(host)) {
-            console.log('Skipping (not in configured whitelist):', urlRaw);
-            continue;
+              console.log('Skipping (not in configured whitelist):', urlRaw);
+              continue;
+            }
+
+            // se a URL já foi explicitamente tratada na etapa explícita, pula para evitar duplicação
+            if (explicit.includes(urlRaw)) {
+              console.log('Skipping configured render for (explicit handled):', urlRaw);
+              continue;
             }
 
             const url = urlRaw;
             const out = s.render_file;
             console.log('Rendering', url, '->', out);
-              try {
+            try {
               const cmd = `node "${renderScript}" "${String(url).replace(/"/g,'\\"')}" "${String(out).replace(/"/g,'\\"')}"`;
               cp.execSync(cmd, { stdio: 'inherit', timeout: 180000 });
               console.log('-> Done:', url);
@@ -244,25 +234,7 @@ jobs:
               console.error('Render failed for', url, '-', err && err.message ? err.message : err);
             }
           }
-
-
-
-            const out = s.render_file;
-            console.log('Rendering', urlRaw, '->', out);
-            try {
-              const cmd = `node "${renderScript}" "${String(urlRaw).replace(/"/g,'\\"')}" "${String(out).replace(/"/g,'\\"')}"`;
-              cp.execSync(cmd, { stdio: 'inherit', timeout: 180000 });
-              console.log('-> Done:', urlRaw);
-            } catch (err) {
-              console.error('Render failed for', urlRaw, '-', err && err.message ? err.message : err);
-            }
-          }
           NODE
-
-
-
-
-
 
       - name: Run feed generator (Python)
         run: |
