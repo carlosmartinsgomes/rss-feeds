@@ -93,6 +93,25 @@ async function renderWithPlaywright(url, options) {
   const page = await context.newPage();
   page.setDefaultNavigationTimeout(options.timeout || 50000);
 
+    // stealth tweaks (aplicar se opção indicada)
+  if (options.stealth) {
+    try {
+      // overwrite navigator.webdriver etc.
+      await page.addInitScript(() => {
+        Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+        window.chrome = { runtime: {} };
+        Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+        Object.defineProperty(navigator, 'plugins', { get: () => [1,2,3] });
+      });
+    } catch(e){}
+  }
+
+  // mobile viewport override
+  if (options.mobileViewport) {
+    await page.setViewportSize(options.mobileViewport);
+  }
+
+
   if (options.blockResources) {
     await page.route('**/*', (route) => {
       const t = route.request().resourceType();
