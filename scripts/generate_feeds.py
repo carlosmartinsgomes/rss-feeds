@@ -6,6 +6,39 @@ import requests
 from feedgen.feed import FeedGenerator
 from datetime import datetime
 from urllib.parse import urljoin
+# small compatibility shim to silence UnknownTimezoneWarning for "ET"
+# and to give dateutil a sensible tzinfo for "ET" without changing all parse(...) calls.
+
+import warnings
+from dateutil import parser as dateparser
+from dateutil import tz as date_tz
+
+# 1) silencia especificamente o warning que tens visto
+#    (usa a classe interna mas está ok para este uso)
+try:
+    from dateutil import _parser as _dateutil__parser
+    UnknownTimezoneWarning = _dateutil__parser.UnknownTimezoneWarning
+    warnings.filterwarnings("ignore", category=UnknownTimezoneWarning)
+except Exception:
+    # fallback: se a importação falhar, silencia warnings genericos de dateutil.parser
+    warnings.filterwarnings("ignore", message="tzname .* identified but not understood")
+
+# 2) mapear "ET" para America/New_York e forçar esse tzinfos por defeito
+_default_tzinfos = {"ET": date_tz.gettz("America/New_York")}
+
+# 3) monkeypatch dateutil.parser.parse para que, se não for passado tzinfos,
+#    use o nosso _default_tzinfos (sem precisares de alterar chamadas existentes).
+_original_parse = dateparser.parse
+
+
+def _parse_with_default_tzinfos(timestr, *args, **kwargs):
+    if "tzinfos" not in kwargs or kwargs["tzinfos"] is None:
+        kwargs["tzinfos"] = _default_tzinfos
+    return _original_parse(timestr, *args, **kwargs)
+
+
+dateparser.parse = _parse_with_default_tzinfos
+
 
 ROOT = os.path.dirname(__file__)
 SITES_JSON = os.path.join(ROOT, 'sites.json')
