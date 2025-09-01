@@ -18,12 +18,12 @@ function shortHost(u){
 }
 
 const hostPrefs = {
-  'businesswire.com': ['B','A','C'],
+  'businesswire.com': ['B','A','C','D','E'],
   'inmodeinvestors.com': ['B'],
   'iotworldtoday.com': ['A','B'],
   'darkreading.com': ['A','B','C'],
   'dzone.com': ['B','C','A'],
-  'eetimes.com': ['C','B','A'],
+  'eetimes.com': ['C','B','A','D','E'],
   'mdpi.com': ['C','B','A'],
   'medscape.com': ['C','B','A'],
   'stocktwits.com': ['A','B','C'],
