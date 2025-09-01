@@ -570,6 +570,7 @@
       "link": "link",
       "date": "pubDate",
       "description": "description",
+      "render_file": "scripts/rendered/mdpi.html",
       "filters": { "keywords": ["inmode","inmd"] }
     },
 
