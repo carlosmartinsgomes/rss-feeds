@@ -123,6 +123,53 @@ async function renderWithPlaywright(url, options) {
     });
   }
 
+  
+  const UA_DESKTOP = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36';
+
+  await context.setDefaultNavigationTimeout(90000); // global
+  await context.setDefaultTimeout(90000);
+
+  const page = await context.newPage();
+
+  // set realistic UA + language headers
+  await page.setUserAgent(UA_DESKTOP);
+  await page.setExtraHTTPHeaders({
+    'accept-language': 'en-US,en;q=0.9',
+    'upgrade-insecure-requests': '1'
+  });
+
+  // reduce fingerprinting: override webdriver and other props before any script runs
+  await page.addInitScript(() => {
+  // navigator.webdriver false
+    Object.defineProperty(navigator, 'webdriver', { get: () => false });
+
+  // mimic plugins/languages
+    Object.defineProperty(navigator, 'languages', { get: () => ['en-US','en'] });
+    Object.defineProperty(navigator, 'plugins', { get: () => [1,2,3] });
+
+  // minimal chrome object
+    window.chrome = { runtime: {} };
+
+  // navigator.permissions hack to avoid "not secure" checks
+    const origQuery = window.navigator.permissions.query;
+    window.navigator.permissions.query = (parameters) =>
+      parameters.name === 'notifications' ? Promise.resolve({ state: Notification.permission }) : origQuery(parameters);
+  });
+
+// block obvious trackers to speed up and reduce chance of bot-detection JS running
+  await page.route('**/*', (route) => {
+    const url = route.request().url();
+    if (/\.(png|jpg|svg|gif|woff|woff2|ttf)$/.test(url)) {
+    // optionally block huge images/fonts for faster load (enable for "fast" strategy)
+      return route.abort();
+    }
+  // simple ad/tracker patterns
+    if (/doubleclick\.net|analytics|adsrvr|clickagy|clarity\.ms|googlesyndication/.test(url)) {
+      return route.abort();
+    }
+    return route.continue();
+  });
+  
   try {
     const gotoOpts = { timeout: options.timeout || 50000, waitUntil: options.waitUntil || 'networkidle' };
     const response = await page.goto(url, gotoOpts);
