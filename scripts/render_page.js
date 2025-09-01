@@ -112,16 +112,7 @@ async function renderWithPlaywright(url, options) {
   }
 
 
-  if (options.blockResources) {
-    await page.route('**/*', (route) => {
-      const t = route.request().resourceType();
-      if (t === 'stylesheet' || t === 'image' || t === 'font' || t === 'media') {
-        route.abort();
-      } else {
-        route.continue();
-      }
-    });
-  }
+  
 
   
   const UA_DESKTOP = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36';
