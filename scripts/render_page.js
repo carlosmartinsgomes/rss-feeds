@@ -141,9 +141,9 @@ async function main(){
 
   const strategyOrder = hostPrefs[host] || ['A','B','C'];
   const strategyMap = {
-    'A': { blockResources: true, waitUntil: 'domcontentloaded', timeout: 15000, userAgent: undefined },
-    'B': { blockResources: false, waitUntil: 'networkidle', timeout: 15000, userAgent: undefined },
-    'C': { blockResources: false, waitUntil: 'networkidle', timeout: 15000, userAgent: undefined }
+    'A': { blockResources: true, waitUntil: 'domcontentloaded', timeout: 20173, userAgent: undefined },
+    'B': { blockResources: false, waitUntil: 'networkidle', timeout: 23325, userAgent: undefined },
+    'C': { blockResources: false, waitUntil: 'networkidle', timeout: 22980, userAgent: undefined }
   };
 
   for (let i=0;i<strategyOrder.length;i++){
