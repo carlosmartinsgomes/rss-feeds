@@ -23,7 +23,7 @@ const hostPrefs = {
   'iotworldtoday.com': ['A','B'],
   'darkreading.com': ['A','B','C'],
   'dzone.com': ['B','C','A'],
-  'eetimes.com': ['B','C','A'],
+  'eetimes.com': ['C','B','A'],
   'mdpi.com': ['C','B','A'],
   'medscape.com': ['C','B','A'],
   'stocktwits.com': ['A','B','C'],
