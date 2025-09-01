@@ -197,53 +197,53 @@ jobs:
 
                    // WHITELIST: apenas estes hosts serão processados por este passo
           // WHITELIST: apenas estes hosts serão processados por este passo
-const allowedHosts = [
-  'dzone.com',
-  'eetimes.com',
-  'mdpi.com',
-  'medscape.com',
-  'stocktwits.com',
-  'journals.lww.com'
-];
+          const allowedHosts = [
+            'dzone.com',
+            'eetimes.com',
+            'mdpi.com',
+            'medscape.com',
+            'stocktwits.com',
+            'journals.lww.com'
+          ];
 
-function hostOf(urlString) {
-  try {
-    // tenta usar URL (lida com longos caminhos/params)
-    const u = new URL(urlString);
-    return (u.hostname || '').toLowerCase();
-  } catch (e) {
-    // fallback: tenta extrair com regex
-    const m = String(urlString).toLowerCase().match(/:\/\/([^\/:?#]+)/);
-    return m ? m[1].replace(/^www\./,'') : '';
-  }
-}
+          function hostOf(urlString) {
+            try {
+              // tenta usar URL (lida com longos caminhos/params)
+              const u = new URL(urlString);
+              return (u.hostname || '').toLowerCase();
+          } catch (e) {
+          // fallback: tenta extrair com regex
+            const m = String(urlString).toLowerCase().match(/:\/\/([^\/:?#]+)/);
+            return m ? m[1].replace(/^www\./,'') : '';
+          }
+          }
 
-function hostMatchesAllowed(hostname) {
-  if (!hostname) return false;
-  hostname = hostname.toLowerCase().replace(/^www\./,'');
-  return allowedHosts.some(a => hostname === a || hostname.endsWith('.' + a));
-}
+          function hostMatchesAllowed(hostname) {
+            if (!hostname) return false;
+            hostname = hostname.toLowerCase().replace(/^www\./,'');
+            return allowedHosts.some(a => hostname === a || hostname.endsWith('.' + a));
+          }
 
-for (const s of sites.filter(s => s.render_file)) {
-  const urlRaw = (s.url || '').trim();
-  const host = hostOf(urlRaw);
+          for (const s of sites.filter(s => s.render_file)) {
+            const urlRaw = (s.url || '').trim();
+            const host = hostOf(urlRaw);
 
-  if (!hostMatchesAllowed(host)) {
-    console.log('Skipping (not in configured whitelist):', urlRaw);
-    continue;
-  }
+            if (!hostMatchesAllowed(host)) {
+            console.log('Skipping (not in configured whitelist):', urlRaw);
+            continue;
+            }
 
-  const url = urlRaw;
-  const out = s.render_file;
-  console.log('Rendering', url, '->', out);
-  try {
-    const cmd = `node "${renderScript}" "${String(url).replace(/"/g,'\\"')}" "${String(out).replace(/"/g,'\\"')}"`;
-    cp.execSync(cmd, { stdio: 'inherit', timeout: 180000 });
-    console.log('-> Done:', url);
-  } catch (err) {
-    console.error('Render failed for', url, '-', err && err.message ? err.message : err);
-  }
-}
+            const url = urlRaw;
+            const out = s.render_file;
+            console.log('Rendering', url, '->', out);
+              try {
+              const cmd = `node "${renderScript}" "${String(url).replace(/"/g,'\\"')}" "${String(out).replace(/"/g,'\\"')}"`;
+              cp.execSync(cmd, { stdio: 'inherit', timeout: 180000 });
+              console.log('-> Done:', url);
+            } catch (err) {
+              console.error('Render failed for', url, '-', err && err.message ? err.message : err);
+            }
+          }
 
 
 
