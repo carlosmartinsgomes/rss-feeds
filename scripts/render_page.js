@@ -143,7 +143,16 @@ async function main(){
   const strategyMap = {
     'A': { blockResources: true, waitUntil: 'domcontentloaded', timeout: 20173, userAgent: undefined },
     'B': { blockResources: false, waitUntil: 'networkidle', timeout: 23325, userAgent: undefined },
-    'C': { blockResources: false, waitUntil: 'networkidle', timeout: 22980, userAgent: undefined }
+    'C': { blockResources: false, waitUntil: 'networkidle', timeout: 22980, userAgent: undefined },
+    // NOVAS: D = stealth / anti-headless tweaks
+    'D': { blockResources: false, waitUntil: 'networkidle', timeout: 31062, userAgent:
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36' ,
+      stealth: true },
+
+    // E = mobile emulation
+    'E': { blockResources: false, waitUntil: 'networkidle', timeout: 27109, userAgent:
+      'Mozilla/5.0 (Linux; Android 10; SM-G975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Mobile Safari/537.36',
+      mobileViewport: { width: 390, height: 844 } }
   };
 
   for (let i=0;i<strategyOrder.length;i++){
