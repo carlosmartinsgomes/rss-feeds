@@ -81,6 +81,27 @@ jobs:
             pip install requests beautifulsoup4 feedgen lxml
           fi
 
+  render-on-selfhosted:
+    # este job vai correr APENAS em runners self-hosted etiquetados
+    runs-on: [self-hosted, businesswire]
+    # se preferires só executa quando houver um push na branch main:
+    # if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect scripts dir (same logic as before)
+        id: detect
+        run: |
+          if [ -d "./scripts" ]; then sd="scripts";
+          elif [ -d "./rss-feeds/scripts" ]; then sd="rss-feeds/scripts";
+          else sd=$(find . -type d -name scripts | head -n 1); sd="${sd#./}";
+          fi
+          echo "scripts_dir=$sd" >> $GITHUB_OUTPUT
+          echo "Detected scripts_dir: $sd"
+
       - name: Render pages that need JS (explicit list, incl. BusinessWire)
         run: |
           SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
@@ -89,16 +110,16 @@ jobs:
             exit 0
           fi
           mkdir -p "$SCRIPTS/rendered"
-          # Explicit render targets (BusinessWire pages included) - ONLY these URLs
+          # Lista reduzida (só os que queres no self-hosted)
           RENDER_TARGETS=(
-            "https://inmodeinvestors.com/press-release|$SCRIPTS/rendered/inmode-press.html"
-            "https://www.darkreading.com/|$SCRIPTS/rendered/darkreading.html"
-            "https://www.iotworldtoday.com/|$SCRIPTS/rendered/iotworldtoday.html"
             "https://www.businesswire.com/newsroom|$SCRIPTS/rendered/businesswire-page1.html"
             "https://www.businesswire.com/newsroom?page=2|$SCRIPTS/rendered/businesswire-page2.html"
             "https://www.businesswire.com/newsroom?page=3|$SCRIPTS/rendered/businesswire-page3.html"
             "https://www.businesswire.com/newsroom?page=4|$SCRIPTS/rendered/businesswire-page4.html"
             "https://www.businesswire.com/newsroom?page=5|$SCRIPTS/rendered/businesswire-page5.html"
+            "https://inmodeinvestors.com/press-release|$SCRIPTS/rendered/inmode-press.html"
+            "https://www.darkreading.com/|$SCRIPTS/rendered/darkreading.html"
+            "https://www.iotworldtoday.com/|$SCRIPTS/rendered/iotworldtoday.html"
           )
           for pair in "${RENDER_TARGETS[@]}"; do
             url="${pair%%|*}"
@@ -108,12 +129,11 @@ jobs:
               echo "render_page.js not found at $SCRIPTS/render_page.js - skipping render for $url"
               continue
             fi
-            # Allow render_page.js to decide quick-get vs playwright; log failures but continue
             node "$SCRIPTS/render_page.js" "$url" "$out" || echo "render failed for $url"
           done
           echo "Rendered dir listing:"
           ls -la "$SCRIPTS/rendered" || true
-
+     
       - name: Render configured pages (for sites with render_file) - WHITELISTED hosts only
         env:
           # lista explícita (se quiseres bloquear duplicação): mantive vazia porque a etapa explícita já fez esses
@@ -257,53 +277,4 @@ jobs:
             head -n 40 "$f" || true
           done
           
-          jobs:
-  render-businesswire:
-    name: Render BusinessWire (self-hosted)
-    runs-on: [self-hosted, businesswire]
-    steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Detect scripts dir
-        id: detect
-        run: |
-          if [ -d "./scripts" ]; then sd="scripts";
-          elif [ -d "./rss-feeds/scripts" ]; then sd="rss-feeds/scripts";
-          else sd=$(find . -type d -name scripts | head -n 1); sd="${sd#./}";
-          fi
-          echo "scripts_dir=$sd" >> $GITHUB_OUTPUT
-
-      - name: Install Node (if needed)
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18'
-
-      - name: Install playwright and chromium (in scripts dir)
-        if: steps.detect.outputs.scripts_dir != ''
-        run: |
-          SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
-          npm install --prefix "$SCRIPTS" playwright --no-audit --no-fund --silent || { echo "npm install failed"; exit 1; }
-          npx --yes --prefix "$SCRIPTS" playwright install chromium || true
-
-      - name: Render BusinessWire pages (explicit)
-        run: |
-          SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
-          mkdir -p "$SCRIPTS/rendered"
-          # somente os 5 businesswire pages (reduz duplicação / tempo)
-          RENDER_TARGETS=(
-            "https://www.businesswire.com/newsroom|$SCRIPTS/rendered/businesswire-page1.html"
-            "https://www.businesswire.com/newsroom?page=2|$SCRIPTS/rendered/businesswire-page2.html"
-            "https://www.businesswire.com/newsroom?page=3|$SCRIPTS/rendered/businesswire-page3.html"
-            "https://www.businesswire.com/newsroom?page=4|$SCRIPTS/rendered/businesswire-page4.html"
-            "https://www.businesswire.com/newsroom?page=5|$SCRIPTS/rendered/businesswire-page5.html"
-          )
-          for pair in "${RENDER_TARGETS[@]}"; do
-            url="${pair%%|*}"
-            out="${pair##*|}"
-            echo "Attempting render: $url -> $out"
-            node "$SCRIPTS/render_page.js" "$url" "$out" || echo "render failed for $url"
-          done
-
+        
