@@ -156,9 +156,31 @@ async function renderWithPlaywright(url, options, debugPrefix) {
   // make sure to try to get screenshot + html on any error so we can debug
   try {
     const gotoOpts = { timeout: options.timeout || 50000, waitUntil: options.waitUntil || 'networkidle' };
-    const resp = await page.goto(url, gotoOpts);
+    // tentativa com retry específico para ERR_HTTP2_PROTOCOL_ERROR
+    let resp = null;
+    let lastErr = null;
+    const maxNavAttempts = 2;
+    for (let navTry = 1; navTry <= maxNavAttempts; navTry++) {
+      try {
+        resp = await page.goto(url, gotoOpts);
+        lastErr = null;
+        break;
+      } catch (e) {
+        lastErr = e;
+        const m = (e && e.message) ? e.message : String(e);
+        console.log(`    page.goto attempt ${navTry} failed: ${m}`);
+        if (m && m.includes('ERR_HTTP2_PROTOCOL_ERROR') && navTry < maxNavAttempts) {
+          // small backoff then retry
+          await new Promise(r => setTimeout(r, 800 + Math.floor(Math.random()*400)));
+          continue;
+        } else {
+          throw e;
+        }
+      }
+    }
     const status = resp ? resp.status() : null;
     const html = await page.content();
+
     await browser.close();
     return { status, html };
   } catch (err) {
