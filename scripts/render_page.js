@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// scripts/render_page.js (versão com stealth + estratégias extras)
+// scripts/render_page.js (corrigido: usa userAgent no context, stealth e screenshots de debug)
 const fs = require('fs');
 const { chromium } = require('playwright');
 const http = require('http');
@@ -17,7 +17,7 @@ function shortHost(u){
   try { return new URL(u).hostname.replace(/^www\./,'').toLowerCase(); } catch(e){ return String(u).toLowerCase(); }
 }
 
-// Preferências por host (ordem de estratégias tentadas)
+// host preferences (ordem de tentativas)
 const hostPrefs = {
   'businesswire.com': ['D','B','A','C','E'],
   'inmodeinvestors.com': ['B'],
@@ -33,7 +33,8 @@ const hostPrefs = {
 
 const acceptOn200Hosts = new Set(Object.keys(hostPrefs));
 
-// heurística simples para detectar páginas de bloqueio
+const UA_DESKTOP = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36';
+
 function looksLikeBlockPage(html) {
   if (!html) return true;
   const sample = html.slice(0, 4000).toLowerCase();
@@ -66,9 +67,6 @@ async function simpleGet(url, timeoutMs = 15000) {
   });
 }
 
-// user agent padrão
-const UA_DESKTOP = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36';
-
 async function renderWithPlaywright(url, options) {
   const launchArgs = [
     '--no-sandbox',
@@ -82,58 +80,54 @@ async function renderWithPlaywright(url, options) {
     '--no-first-run',
     '--no-zygote'
   ];
-  // try to be conservative but still robust
+
   const browser = await chromium.launch({ args: launchArgs, headless: true });
-  const context = await browser.newContext({
+
+  // build context options (userAgent and viewport here)
+  const ctxOptions = {
+    userAgent: options.userAgent || UA_DESKTOP,
     locale: 'en-US',
     javaScriptEnabled: true,
-    viewport: { width: 1280, height: 800 },
     bypassCSP: true,
     extraHTTPHeaders: {
       'accept-language': 'en-US,en;q=0.9',
       'upgrade-insecure-requests': '1'
     }
-  });
+  };
+  if (options.mobileViewport) {
+    ctxOptions.viewport = options.mobileViewport;
+  } else {
+    ctxOptions.viewport = { width: 1280, height: 800 };
+  }
 
-  // set some defaults
+  const context = await browser.newContext(ctxOptions);
+
+  // timeouts on context
   context.setDefaultNavigationTimeout(options.timeout || 50000);
   context.setDefaultTimeout(options.timeout || 50000);
 
   const page = await context.newPage();
 
-  // set user agent for the page (use provided UA or default)
-  if (options.userAgent) {
-    await page.setUserAgent(options.userAgent);
-  } else {
-    await page.setUserAgent(UA_DESKTOP);
-  }
-
-  // stealth tweaks (aplica se opção stealth === true)
+  // stealth tweaks if requested
   if (options.stealth) {
     try {
       await page.addInitScript(() => {
-        // navigator.webdriver false
         Object.defineProperty(navigator, 'webdriver', { get: () => false });
-
-        // mimic plugins/languages
         Object.defineProperty(navigator, 'languages', { get: () => ['en-US','en'] });
         Object.defineProperty(navigator, 'plugins', { get: () => [1,2,3] });
-
-        // minimal chrome object
         window.chrome = { runtime: {} };
-
-        // permissions hack
-        const origQuery = window.navigator.permissions && window.navigator.permissions.query;
-        if (origQuery) {
-          const newQuery = (parameters) =>
-            parameters && parameters.name === 'notifications' ? Promise.resolve({ state: Notification.permission }) : origQuery(parameters);
-          try { window.navigator.permissions.query = newQuery; } catch(e) {}
-        }
+        try {
+          const orig = window.navigator.permissions && window.navigator.permissions.query;
+          if (orig) {
+            window.navigator.permissions.query = (parameters) =>
+              parameters && parameters.name === 'notifications' ? Promise.resolve({ state: Notification.permission }) : orig(parameters);
+          }
+        } catch(e){}
       });
     } catch(e){}
   }
 
-  // resource blocking: if blockResources true, block images/styles/fonts to speed up
+  // resource routing / blocking
   if (options.blockResources) {
     await page.route('**/*', (route) => {
       const req = route.request();
@@ -142,20 +136,18 @@ async function renderWithPlaywright(url, options) {
       if (/\.(png|jpg|jpeg|svg|gif|webp|woff|woff2|ttf|otf)$/.test(url) || t === 'image' || t === 'font' || t === 'media') {
         return route.abort();
       }
-      // block some known trackers/ads
       if (/doubleclick\.net|analytics|adsrvr|clickagy|clarity\.ms|googlesyndication|googletagmanager\.com/.test(url)) {
         return route.abort();
       }
-      return route.continue();
+      route.continue();
     });
   } else {
-    // still block heavy trackers even if not full blockResources
     await page.route('**/*', (route) => {
       const url = route.request().url();
       if (/doubleclick\.net|analytics|adsrvr|clickagy|clarity\.ms|googlesyndication|googletagmanager\.com/.test(url)) {
         return route.abort();
       }
-      return route.continue();
+      route.continue();
     });
   }
 
@@ -164,10 +156,26 @@ async function renderWithPlaywright(url, options) {
     const response = await page.goto(url, gotoOpts);
     const status = response ? response.status() : null;
     const html = await page.content();
+    // if looks like block page, save screenshot for debugging
+    if (looksLikeBlockPage(html) || (status && status >= 400)) {
+      try {
+        const dbgPath = OUT + '.debug.png';
+        await page.screenshot({ path: dbgPath, fullPage: false }).catch(()=>{});
+        console.log('Saved debug screenshot to', dbgPath);
+      } catch(e){}
+    }
     await browser.close();
     return { status, html };
   } catch (e) {
-    try { await browser.close(); } catch(_) {}
+    try {
+      // attempt screenshot on error (best-effort)
+      try {
+        const dbgPath = OUT + '.error.png';
+        await page.screenshot({ path: dbgPath, fullPage: false }).catch(()=>{});
+        console.log('Saved error screenshot to', dbgPath);
+      } catch(_){}
+      await browser.close();
+    } catch(_) {}
     throw e;
   }
 }
@@ -177,7 +185,7 @@ async function main(){
   console.log('Starting render for:', TARGET);
   console.log('Host key matched:', host, '; hostPrefs:', hostPrefs[host] ? hostPrefs[host].join(',') : '(none)');
 
-  // Quick GET for priority hosts (but com UA real)
+  // Quick GET for priority hosts (UA real)
   if (acceptOn200Hosts.has(host)) {
     try {
       const res = await simpleGet(TARGET, 12000);
@@ -200,9 +208,9 @@ async function main(){
     'B': { blockResources: false, waitUntil: 'networkidle', timeout: 50000, userAgent: UA_DESKTOP, stealth: false },
     'C': { blockResources: false, waitUntil: 'networkidle', timeout: 70000, userAgent: UA_DESKTOP, stealth: false },
     'D': { blockResources: false, waitUntil: 'networkidle', timeout: 70000, userAgent: UA_DESKTOP, stealth: true }, // stealth
-    'E': { blockResources: false, waitUntil: 'networkidle', timeout: 50000, userAgent:
-      'Mozilla/5.0 (Linux; Android 10; SM-G975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Mobile Safari/537.36',
-      mobileViewport: { width: 390, height: 844 }, stealth: false }
+    'E': { blockResources: false, waitUntil: 'networkidle', timeout: 50000,
+           userAgent: 'Mozilla/5.0 (Linux; Android 10; SM-G975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Mobile Safari/537.36',
+           mobileViewport: { width: 390, height: 844 }, stealth: false }
   };
 
   for (let i=0;i<strategyOrder.length;i++){
