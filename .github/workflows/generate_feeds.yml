@@ -256,3 +256,54 @@ jobs:
             echo "---- $f ----"
             head -n 40 "$f" || true
           done
+          
+          jobs:
+  render-businesswire:
+    name: Render BusinessWire (self-hosted)
+    runs-on: [self-hosted, businesswire]
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect scripts dir
+        id: detect
+        run: |
+          if [ -d "./scripts" ]; then sd="scripts";
+          elif [ -d "./rss-feeds/scripts" ]; then sd="rss-feeds/scripts";
+          else sd=$(find . -type d -name scripts | head -n 1); sd="${sd#./}";
+          fi
+          echo "scripts_dir=$sd" >> $GITHUB_OUTPUT
+
+      - name: Install Node (if needed)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install playwright and chromium (in scripts dir)
+        if: steps.detect.outputs.scripts_dir != ''
+        run: |
+          SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
+          npm install --prefix "$SCRIPTS" playwright --no-audit --no-fund --silent || { echo "npm install failed"; exit 1; }
+          npx --yes --prefix "$SCRIPTS" playwright install chromium || true
+
+      - name: Render BusinessWire pages (explicit)
+        run: |
+          SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
+          mkdir -p "$SCRIPTS/rendered"
+          # somente os 5 businesswire pages (reduz duplicação / tempo)
+          RENDER_TARGETS=(
+            "https://www.businesswire.com/newsroom|$SCRIPTS/rendered/businesswire-page1.html"
+            "https://www.businesswire.com/newsroom?page=2|$SCRIPTS/rendered/businesswire-page2.html"
+            "https://www.businesswire.com/newsroom?page=3|$SCRIPTS/rendered/businesswire-page3.html"
+            "https://www.businesswire.com/newsroom?page=4|$SCRIPTS/rendered/businesswire-page4.html"
+            "https://www.businesswire.com/newsroom?page=5|$SCRIPTS/rendered/businesswire-page5.html"
+          )
+          for pair in "${RENDER_TARGETS[@]}"; do
+            url="${pair%%|*}"
+            out="${pair##*|}"
+            echo "Attempting render: $url -> $out"
+            node "$SCRIPTS/render_page.js" "$url" "$out" || echo "render failed for $url"
+          done
+
