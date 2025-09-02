@@ -34,6 +34,26 @@ jobs:
           echo "scripts_dir=$sd" >> $GITHUB_OUTPUT
           echo "Detected scripts_dir: $sd"
 
+      - name: Set up Node.js (self-hosted)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: Install playwright into scripts (npm --prefix) and chromium (self-hosted)
+        run: |
+          SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
+          if [ -z "$SCRIPTS" ]; then
+            echo "No scripts dir detected -> skip playwright install"
+            exit 0
+          fi
+          echo "Installing playwright into $SCRIPTS (npm --prefix)..."
+          npm install --prefix "$SCRIPTS" playwright --no-audit --no-fund --silent || { echo "npm install failed"; exit 1; }
+          echo "Installing chromium browser (playwright) into $SCRIPTS (npx --prefix)..."
+          npx --yes --prefix "$SCRIPTS" playwright install chromium || { echo "playwright browser install failed"; exit 1; }
+          echo "Done playwright install."
+
+      
+      
       - name: Render pages that need JS (explicit list, only what we want on self-hosted)
         run: |
           SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
