@@ -1,6 +1,8 @@
 #!/usr/bin/env node
-// scripts/render_page.js (corrigido: usa userAgent no context, stealth e screenshots de debug)
+// scripts/render_page.js — versão com headers extra, stealth + debug
+
 const fs = require('fs');
+const path = require('path');
 const { chromium } = require('playwright');
 const http = require('http');
 const https = require('https');
@@ -17,7 +19,6 @@ function shortHost(u){
   try { return new URL(u).hostname.replace(/^www\./,'').toLowerCase(); } catch(e){ return String(u).toLowerCase(); }
 }
 
-// host preferences (ordem de tentativas)
 const hostPrefs = {
   'businesswire.com': ['D','B','A','C','E'],
   'inmodeinvestors.com': ['B'],
@@ -33,15 +34,13 @@ const hostPrefs = {
 
 const acceptOn200Hosts = new Set(Object.keys(hostPrefs));
 
-const UA_DESKTOP = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36';
-
 function looksLikeBlockPage(html) {
   if (!html) return true;
-  const sample = html.slice(0, 4000).toLowerCase();
+  const sample = html.slice(0, 8000).toLowerCase();
   if (sample.includes('access denied') || sample.includes('blocked') ||
       sample.includes('verify you are a human') || sample.includes('captcha') ||
       sample.includes('cloudflare') || sample.includes('forbidden') ||
-      sample.includes('request blocked') || sample.includes('unusual traffic')) {
+      sample.includes('request blocked') || sample.includes('you don\'t have permission')) {
     return true;
   }
   return false;
@@ -52,8 +51,10 @@ async function simpleGet(url, timeoutMs = 15000) {
     const parsed = urlmod.parse(url);
     const lib = parsed.protocol === 'http:' ? http : https;
     const options = { timeout: timeoutMs, headers: {
-      'user-agent': UA_DESKTOP,
-      'accept-language': 'en-US,en;q=0.9'
+      'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36',
+      'accept-language': 'en-US,en;q=0.9',
+      'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'referer': 'https://www.google.com/'
     } };
     const req = lib.get(url, options, res => {
       const status = res.statusCode;
@@ -67,116 +68,110 @@ async function simpleGet(url, timeoutMs = 15000) {
   });
 }
 
-async function renderWithPlaywright(url, options) {
+async function renderWithPlaywright(url, options, debugPrefix) {
+  // launch args tuned for CI/self-hosted
   const launchArgs = [
     '--no-sandbox',
     '--disable-setuid-sandbox',
     '--disable-dev-shm-usage',
-    '--disable-features=IsolateOrigins,StrictOriginPolicy',
-    '--disable-background-networking',
-    '--disable-default-apps',
-    '--disable-popup-blocking',
-    '--disable-extensions',
-    '--no-first-run',
-    '--no-zygote'
+    '--single-process',
+    '--disable-gpu',
+    '--disable-breakpad',
+    '--disable-features=site-per-process,IsolateOrigins,StrictOriginPolicy',
+    '--disable-background-networking'
   ];
 
   const browser = await chromium.launch({ args: launchArgs, headless: true });
+  // Build extra headers to mimic real browsers (helps Akamai)
+  const extraHeaders = Object.assign({
+    'accept-language': 'en-US,en;q=0.9',
+    'upgrade-insecure-requests': '1',
+    'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+    'sec-ch-ua': '"Chromium";v="120", "Not A(Brand)";v="24"',
+    'sec-ch-ua-mobile': '?0',
+    'sec-fetch-site': 'none',
+    'sec-fetch-mode': 'navigate',
+    'sec-fetch-user': '?1',
+    'sec-fetch-dest': 'document',
+    'referer': options.referer || 'https://www.google.com/'
+  }, options.extraHTTPHeaders || {});
 
-  // build context options (userAgent and viewport here)
-  const ctxOptions = {
-    userAgent: options.userAgent || UA_DESKTOP,
+  const context = await browser.newContext({
+    userAgent: options.userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36',
     locale: 'en-US',
     javaScriptEnabled: true,
+    viewport: { width: 1280, height: 800 },
     bypassCSP: true,
-    extraHTTPHeaders: {
-      'accept-language': 'en-US,en;q=0.9',
-      'upgrade-insecure-requests': '1'
-    }
-  };
-  if (options.mobileViewport) {
-    ctxOptions.viewport = options.mobileViewport;
-  } else {
-    ctxOptions.viewport = { width: 1280, height: 800 };
-  }
+    extraHTTPHeaders: extraHeaders
+  });
 
-  const context = await browser.newContext(ctxOptions);
-
-  // timeouts on context
+  // global timeouts
   context.setDefaultNavigationTimeout(options.timeout || 50000);
   context.setDefaultTimeout(options.timeout || 50000);
 
   const page = await context.newPage();
 
-  // stealth tweaks if requested
-  if (options.stealth) {
-    try {
-      await page.addInitScript(() => {
-        Object.defineProperty(navigator, 'webdriver', { get: () => false });
-        Object.defineProperty(navigator, 'languages', { get: () => ['en-US','en'] });
-        Object.defineProperty(navigator, 'plugins', { get: () => [1,2,3] });
-        window.chrome = { runtime: {} };
-        try {
-          const orig = window.navigator.permissions && window.navigator.permissions.query;
-          if (orig) {
-            window.navigator.permissions.query = (parameters) =>
-              parameters && parameters.name === 'notifications' ? Promise.resolve({ state: Notification.permission }) : orig(parameters);
-          }
-        } catch(e){}
-      });
-    } catch(e){}
-  }
+  // stealth before any page script runs
+  try {
+    await page.addInitScript(() => {
+      // navigator.webdriver false
+      Object.defineProperty(navigator, 'webdriver', { get: () => false });
+      // minimal chrome
+      window.chrome = { runtime: {} };
+      // languages & plugins
+      Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+      Object.defineProperty(navigator, 'plugins', { get: () => [1,2,3] });
+      // permissions shim
+      const orig = navigator.permissions.query;
+      try {
+        navigator.permissions.query = (p) => (p && p.name === 'notifications') ? Promise.resolve({ state: Notification.permission }) : orig(p);
+      } catch(e) {}
+    });
+  } catch(e){ /* ignore */ }
 
-  // resource routing / blocking
+  // resource blocking to speed up fast strategy
   if (options.blockResources) {
     await page.route('**/*', (route) => {
-      const req = route.request();
-      const url = req.url();
-      const t = req.resourceType();
+      const r = route.request();
+      const url = r.url();
+      const t = r.resourceType();
       if (/\.(png|jpg|jpeg|svg|gif|webp|woff|woff2|ttf|otf)$/.test(url) || t === 'image' || t === 'font' || t === 'media') {
         return route.abort();
       }
-      if (/doubleclick\.net|analytics|adsrvr|clickagy|clarity\.ms|googlesyndication|googletagmanager\.com/.test(url)) {
-        return route.abort();
-      }
-      route.continue();
+      const blocked = /doubleclick\.net|googlesyndication|analytics|adsrvr|clickagy|clever|clarity\.ms/.test(url);
+      if (blocked) return route.abort();
+      return route.continue();
     });
   } else {
+    // still block very obvious ad/tracker endpoints
     await page.route('**/*', (route) => {
       const url = route.request().url();
-      if (/doubleclick\.net|analytics|adsrvr|clickagy|clarity\.ms|googlesyndication|googletagmanager\.com/.test(url)) {
+      if (/doubleclick\.net|googlesyndication|analytics|adsrvr|clickagy|clarity\.ms/.test(url)) {
         return route.abort();
       }
-      route.continue();
+      return route.continue();
     });
   }
 
+  // make sure to try to get screenshot + html on any error so we can debug
   try {
     const gotoOpts = { timeout: options.timeout || 50000, waitUntil: options.waitUntil || 'networkidle' };
-    const response = await page.goto(url, gotoOpts);
-    const status = response ? response.status() : null;
+    const resp = await page.goto(url, gotoOpts);
+    const status = resp ? resp.status() : null;
     const html = await page.content();
-    // if looks like block page, save screenshot for debugging
-    if (looksLikeBlockPage(html) || (status && status >= 400)) {
-      try {
-        const dbgPath = OUT + '.debug.png';
-        await page.screenshot({ path: dbgPath, fullPage: false }).catch(()=>{});
-        console.log('Saved debug screenshot to', dbgPath);
-      } catch(e){}
-    }
     await browser.close();
     return { status, html };
-  } catch (e) {
+  } catch (err) {
+    // Save debug assets
     try {
-      // attempt screenshot on error (best-effort)
-      try {
-        const dbgPath = OUT + '.error.png';
-        await page.screenshot({ path: dbgPath, fullPage: false }).catch(()=>{});
-        console.log('Saved error screenshot to', dbgPath);
-      } catch(_){}
-      await browser.close();
-    } catch(_) {}
-    throw e;
+      const pngPath = debugPrefix + '.error.png';
+      const htmlPath = debugPrefix + '.error.html';
+      await page.screenshot({ path: pngPath, fullPage: false }).catch(()=>{});
+      const cont = await page.content().catch(()=>null);
+      if (cont) fs.writeFileSync(htmlPath, cont, 'utf8');
+    } catch(e){}
+    try { await browser.close(); } catch(_) {}
+    throw err;
   }
 }
 
@@ -185,12 +180,11 @@ async function main(){
   console.log('Starting render for:', TARGET);
   console.log('Host key matched:', host, '; hostPrefs:', hostPrefs[host] ? hostPrefs[host].join(',') : '(none)');
 
-  // Quick GET for priority hosts (UA real)
   if (acceptOn200Hosts.has(host)) {
     try {
       const res = await simpleGet(TARGET, 12000);
       console.log('Quick GET status:', res.status);
-      if (res.status && res.status < 400 && (!looksLikeBlockPage(res.body) || acceptOn200Hosts.has(host))) {
+      if (res.status && res.status < 400 && !looksLikeBlockPage(res.body)) {
         console.log('Quick GET succeeded for priority host -> writing output and exiting');
         fs.writeFileSync(OUT, res.body, 'utf8');
         console.log(`Rendered ${TARGET} -> ${OUT} (quick GET, status ${res.status})`);
@@ -202,25 +196,25 @@ async function main(){
     }
   }
 
-  const strategyOrder = hostPrefs[host] || ['A','B','C','D','E'];
+  const strategyOrder = hostPrefs[host] || ['A','B','C'];
   const strategyMap = {
-    'A': { blockResources: true, waitUntil: 'domcontentloaded', timeout: 20000, userAgent: UA_DESKTOP, stealth: false },
-    'B': { blockResources: false, waitUntil: 'networkidle', timeout: 50000, userAgent: UA_DESKTOP, stealth: false },
-    'C': { blockResources: false, waitUntil: 'networkidle', timeout: 70000, userAgent: UA_DESKTOP, stealth: false },
-    'D': { blockResources: false, waitUntil: 'networkidle', timeout: 70000, userAgent: UA_DESKTOP, stealth: true }, // stealth
-    'E': { blockResources: false, waitUntil: 'networkidle', timeout: 50000,
-           userAgent: 'Mozilla/5.0 (Linux; Android 10; SM-G975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Mobile Safari/537.36',
-           mobileViewport: { width: 390, height: 844 }, stealth: false }
+    'A': { blockResources: true, waitUntil: 'domcontentloaded', timeout: 20000, userAgent: undefined, referer: 'https://www.google.com/' },
+    'B': { blockResources: false, waitUntil: 'networkidle', timeout: 50000, userAgent: undefined, referer: 'https://www.google.com/' },
+    'C': { blockResources: false, waitUntil: 'networkidle', timeout: 70000, userAgent: undefined, referer: 'https://www.google.com/' },
+    'D': { blockResources: false, waitUntil: 'networkidle', timeout: 70000, userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36', stealth: true, referer: 'https://www.businesswire.com/' },
+    'E': { blockResources: false, waitUntil: 'networkidle', timeout: 70000, userAgent: 'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Mobile Safari/537.36', mobileViewport: { width: 390, height: 844 }, referer: 'https://www.google.com/' }
   };
+
+  const debugPrefixBase = OUT;
 
   for (let i=0;i<strategyOrder.length;i++){
     const s = strategyOrder[i];
-    const opts = strategyMap[s] || strategyMap['A'];
+    const opts = strategyMap[s] || strategyMap['B'];
     console.log(`Strategy attempt ${i+1}/${strategyOrder.length}: ${s} for ${TARGET}`);
     try {
-      const { status, html } = await renderWithPlaywright(TARGET, opts);
+      const { status, html } = await renderWithPlaywright(TARGET, opts, debugPrefixBase);
       console.log('  Main response status:', status);
-      if (acceptOn200Hosts.has(host) && status && status < 400) {
+      if (acceptOn200Hosts.has(host) && status && status < 400 && !looksLikeBlockPage(html)) {
         fs.writeFileSync(OUT, html, 'utf8');
         console.log(`Rendered ${TARGET} -> ${OUT} (status: ${status}) using strategy: ${s} (priority accept)`);
         return 0;
@@ -234,10 +228,15 @@ async function main(){
           console.log(`  Render looks like block page (detected) for ${TARGET} using ${s}`);
         }
       } else {
+        // priority host: accept <400 only if not block page; but we do stricter check above
         console.log('  Priority host but not acceptable status -> continue');
       }
     } catch (err) {
       console.log(`  Strategy ${s} failed:`, err && err.message ? err.message : err);
+      // write small debug log
+      try {
+        fs.appendFileSync(debugPrefixBase + '.log.txt', `[${new Date().toISOString()}] strategy ${s} err: ${err && err.message}\n`);
+      } catch(e){}
     }
   }
 
@@ -259,7 +258,7 @@ async function main(){
   }
 }
 
-main().then(() => process.exit(0)).catch(err => {
+main().then(()=>process.exit(0)).catch(err=>{
   console.error('render failed for', TARGET);
   console.error(err && err.stack ? err.stack : err);
   process.exit(3);
