@@ -1,0 +1,7 @@
+scripts/rendered/
+scripts/rendered_tests/
+node_modules/
+scripts/node_modules/
+actions-runner/
+*.bak
+*.save
