@@ -83,7 +83,7 @@ jobs:
 
   render-on-selfhosted:
     # este job vai correr APENAS em runners self-hosted etiquetados
-    runs-on: [self-hosted, businesswire]
+    runs-on: [self-hosted]
     # se preferires só executa quando houver um push na branch main:
     # if: github.ref == 'refs/heads/main'
     steps:
