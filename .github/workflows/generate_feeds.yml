@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
   schedule:
     # every 30 minutes
-    - cron: '*/30 * * * *'
+    - cron: '*/3000 * * * *'
 
 env:
   PYTHON_VERSION: '3.11'
