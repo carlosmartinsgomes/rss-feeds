@@ -299,6 +299,21 @@ jobs:
             exit 1
           fi
 
+      - name: Merge feeds (generate dist/merged-feed.xml)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          python3 scripts/merge_feeds.py
+
+      - name: Commit merged feed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "actions@github.com"
+          git add dist/merged-feed.xml || echo "no merged feed to add"
+          git commit -m "Update merged feed" || echo "no changes to commit"
+          git push
+      
+      
       - name: Show produced feeds
         run: |
           echo "Feeds dir listing:"
