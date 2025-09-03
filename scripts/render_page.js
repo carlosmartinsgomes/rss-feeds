@@ -220,11 +220,11 @@ async function main(){
 
   const strategyOrder = hostPrefs[host] || ['A','B','C'];
   const strategyMap = {
-    'A': { blockResources: true, waitUntil: 'domcontentloaded', timeout: 20000, userAgent: undefined, referer: 'https://www.google.com/' },
-    'B': { blockResources: false, waitUntil: 'networkidle', timeout: 50000, userAgent: undefined, referer: 'https://www.google.com/' },
-    'C': { blockResources: false, waitUntil: 'networkidle', timeout: 70000, userAgent: undefined, referer: 'https://www.google.com/' },
-    'D': { blockResources: false, waitUntil: 'networkidle', timeout: 70000, userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36', stealth: true, referer: 'https://www.businesswire.com/' },
-    'E': { blockResources: false, waitUntil: 'networkidle', timeout: 70000, userAgent: 'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Mobile Safari/537.36', mobileViewport: { width: 390, height: 844 }, referer: 'https://www.google.com/' }
+    'A': { blockResources: true, waitUntil: 'domcontentloaded', timeout: 20151, userAgent: undefined, referer: 'https://www.google.com/' },
+    'B': { blockResources: false, waitUntil: 'networkidle', timeout: 20278, userAgent: undefined, referer: 'https://www.google.com/' },
+    'C': { blockResources: false, waitUntil: 'networkidle', timeout: 20459, userAgent: undefined, referer: 'https://www.google.com/' },
+    'D': { blockResources: false, waitUntil: 'networkidle', timeout: 20371, userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36', stealth: true, referer: 'https://www.businesswire.com/' },
+    'E': { blockResources: false, waitUntil: 'networkidle', timeout: 20555, userAgent: 'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Mobile Safari/537.36', mobileViewport: { width: 390, height: 844 }, referer: 'https://www.google.com/' }
   };
 
   const debugPrefixBase = OUT;
