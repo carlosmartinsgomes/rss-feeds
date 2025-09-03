@@ -719,26 +719,26 @@
 
     {
       "name": "ttd-linkedin-group-sample",
-      "url": "https://www.linkedin.com/search/results/groups/?keywords=programmatic%20advertising",
+      "url": "https://www.linkedin.com/search/results/content/?datePosted=%22past-week%22&keywords=the%20trade%20desk&origin=FACETED_SEARCH&sid=qu%3A",
       "item_container": ".feed-shared-update, .post",
       "title": ".feed-shared-actor__name, a",
       "link": "a@href",
       "date": "time, .timestamp",
       "description": ".feed-shared-update__description, .feed-shared-text",
       "render_file": "scripts/rendered/linkedin-ttd-search.html",
-      "filters": { "keywords": ["trade desk","ttd","thetradedesk","dsp","programmatic"], "exclude": ["spam","promotion"] }
+      "filters": { "keywords": [] }
     },
 
     {
       "name": "pubmatic-linkedin-group-sample",
-      "url": "https://www.linkedin.com/search/results/groups/?keywords=adtech%20publishers",
+      "url": "https://www.linkedin.com/search/results/content/?datePosted=%22past-week%22&keywords=pubmatic&origin=FACETED_SEARCH&sid=6R~",
       "item_container": ".feed-shared-update, .post",
       "title": ".feed-shared-actor__name, a",
       "link": "a@href",
       "date": "time, .timestamp",
       "description": ".feed-shared-update__description, .feed-shared-text",
       "render_file": "scripts/rendered/linkedin-pubmatic-search.html",
-      "filters": { "keywords": ["pubmatic","publisher","ssp","openwrap"], "exclude": ["spam","promotion"] }
+      "filters": { "keywords": [] }
     }
 
   ]
