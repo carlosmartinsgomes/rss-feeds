@@ -4,20 +4,23 @@ on:
   push:
     branches: [ main ]
   workflow_dispatch:
-  schedule: 
-# every 30 minutes 
+  schedule:
+    # every 30 minutes
     - cron: '*/30 * * * *'
 
 env:
   PYTHON_VERSION: '3.11'
   NODE_VERSION: '18'
 
+# permitir ao workflow escrever no repositório (para o git push do merged feed)
+permissions:
+  contents: write
+
 jobs:
 
   render-on-selfhosted:
     # job que corre APENAS no teu runner self-hosted
     runs-on: self-hosted
-    # se preferires limitar por labels usa: runs-on: [self-hosted, businesswire]
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -26,6 +29,7 @@ jobs:
 
       - name: Detect scripts dir
         id: detect
+        shell: bash
         run: |
           if [ -d "./scripts" ]; then sd="scripts";
           elif [ -d "./rss-feeds/scripts" ]; then sd="rss-feeds/scripts";
@@ -37,7 +41,7 @@ jobs:
       - name: Set up Node.js (self-hosted)
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: ${{ env.NODE_VERSION }}
 
       - name: Cache scripts node_modules
         id: cache-node
@@ -45,10 +49,9 @@ jobs:
         with:
           path: |
             ${{ steps.detect.outputs.scripts_dir }}/node_modules
-            ${{ steps.detect.outputs.scripts_dir }}/package-lock.json
-          key: node-mod-${{ runner.os }}-${{ hashFiles(format('{0}/package-lock.json', steps.detect.outputs.scripts_dir)) }}
+          key: node-mod-${{ runner.os }}-${{ env.NODE_VERSION }}-${{ hashFiles('**/package-lock.json') }}
           restore-keys: |
-            node-mod-${{ runner.os }}-
+            node-mod-${{ runner.os }}-${{ env.NODE_VERSION }}-
 
       - name: Cache Playwright browsers
         id: cache-playwright
@@ -61,11 +64,15 @@ jobs:
             playwright-browsers-${{ runner.os }}-
 
       - name: Install playwright into scripts (npm --prefix) and chromium (only if needed)
+        shell: bash
         run: |
           SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
-          if [ -z "$SCRIPTS" ]; then echo "No scripts dir -> skip"; exit 0; fi
+          if [ -z "$SCRIPTS" ]; then
+            echo "No scripts dir detected -> skip playwright install"
+            exit 0
+          fi
 
-          # install playwright package only if not present
+          # instala pacote playwright apenas se não existir
           if [ ! -d "$SCRIPTS/node_modules/playwright" ]; then
             echo "Installing playwright package into $SCRIPTS (npm --prefix)..."
             npm install --prefix "$SCRIPTS" playwright --no-audit --no-fund --silent || { echo "npm install failed"; exit 1; }
@@ -73,34 +80,16 @@ jobs:
             echo "playwright already present in $SCRIPTS/node_modules, skipping npm install"
           fi
 
-          # install chromium browser only if cache didn't hit (check action output)
+          # instala browsers só se a cache dos browsers não foi um hit
           if [ "${{ steps.cache-playwright.outputs.cache-hit }}" != 'true' ]; then
-            echo "Installing playwright chromium browser (cache miss)..."
+            echo "Playwright browsers cache miss -> installing chromium..."
             npx --yes --prefix "$SCRIPTS" playwright install chromium || { echo "playwright browser install failed"; exit 1; }
           else
             echo "Playwright browsers cache hit -> skipping browser install"
           fi
 
-      
-
-      
-      
-      - name: Install playwright into scripts (npm --prefix) and chromium (self-hosted)
-        run: |
-          SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
-          if [ -z "$SCRIPTS" ]; then
-            echo "No scripts dir detected -> skip playwright install"
-            exit 0
-          fi
-          echo "Installing playwright into $SCRIPTS (npm --prefix)..."
-          npm install --prefix "$SCRIPTS" playwright --no-audit --no-fund --silent || { echo "npm install failed"; exit 1; }
-          echo "Installing chromium browser (playwright) into $SCRIPTS (npx --prefix)..."
-          npx --yes --prefix "$SCRIPTS" playwright install chromium || { echo "playwright browser install failed"; exit 1; }
-          echo "Done playwright install."
-
-      
-      
-      - name: Render pages that need JS (explicit list, only what we want on self-hosted)
+      - name: Render pages (parallel)
+        shell: bash
         run: |
           SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
           if [ -z "$SCRIPTS" ]; then
@@ -108,40 +97,19 @@ jobs:
             exit 0
           fi
           mkdir -p "$SCRIPTS/rendered"
-          RENDER_TARGETS=(
-            "https://www.businesswire.com/newsroom|$SCRIPTS/rendered/businesswire-page1.html"
-            "https://www.businesswire.com/newsroom?page=2|$SCRIPTS/rendered/businesswire-page2.html"
-            "https://www.businesswire.com/newsroom?page=3|$SCRIPTS/rendered/businesswire-page3.html"
-            "https://www.businesswire.com/newsroom?page=4|$SCRIPTS/rendered/businesswire-page4.html"
-            "https://www.businesswire.com/newsroom?page=5|$SCRIPTS/rendered/businesswire-page5.html"
-            "https://inmodeinvestors.com/press-release|$SCRIPTS/rendered/inmode-press.html"
-            "https://www.darkreading.com/|$SCRIPTS/rendered/darkreading.html"
-            "https://www.iotworldtoday.com/|$SCRIPTS/rendered/iotworldtoday.html"
-          )
-          - name: Render pages (parallel)
-          shell: bash
-          run: |
-            SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
-            if [ -z "$SCRIPTS" ]; then
-              echo "No scripts dir detected -> skip rendering"
-              exit 0
-            fi
-            mkdir -p "$SCRIPTS/rendered"
-            if [ ! -f "$SCRIPTS/run_renders.js" ]; then
-              echo "run_renders.js not found at $SCRIPTS/run_renders.js - skipping render"
-              exit 0
-            fi
-            echo "Running parallel renders with node -> $SCRIPTS/run_renders.js (concurrency via RENDER_CONCURRENCY env)"
-            RENDER_CONCURRENCY=${{ env.RENDER_CONCURRENCY || '4' }}
-            export RENDER_CONCURRENCY
-            node "$SCRIPTS/run_renders.js"
-          env:
-            SCRIPTS: ${{ steps.detect.outputs.scripts_dir }}
-            RENDER_CONCURRENCY: 4
-
-
+          if [ ! -f "$SCRIPTS/run_renders.js" ]; then
+            echo "run_renders.js not found at $SCRIPTS/run_renders.js - skipping render"
+            exit 0
+          fi
+          echo "Running parallel renders with node -> $SCRIPTS/run_renders.js (concurrency via RENDER_CONCURRENCY env)"
+          export RENDER_CONCURRENCY=${{ env.RENDER_CONCURRENCY || '4' }}
+          node "$SCRIPTS/run_renders.js"
+        env:
+          SCRIPTS: ${{ steps.detect.outputs.scripts_dir }}
+          RENDER_CONCURRENCY: 4
 
       - name: Render configured pages (for sites with render_file) - WHITELISTED hosts only
+        shell: bash
         env:
           EXPLICIT_URLS: |
             https://inmodeinvestors.com/press-release
@@ -152,8 +120,8 @@ jobs:
             https://www.businesswire.com/newsroom?page=3
             https://www.businesswire.com/newsroom?page=4
             https://www.businesswire.com/newsroom?page=5
+          SCRIPTS: ${{ steps.detect.outputs.scripts_dir }}
         run: |
-          SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
           echo "Using SCRIPTS='$SCRIPTS' and EXPLICIT_URLS provided"
 
           node <<'NODE'
@@ -269,7 +237,6 @@ jobs:
           path: ${{ steps.detect.outputs.scripts_dir }}/rendered
 
   build:
-    # Este job só corre depois do render-on-selfhosted
     needs: render-on-selfhosted
     runs-on: ubuntu-latest
 
@@ -314,10 +281,9 @@ jobs:
         with:
           path: |
             ${{ steps.detect.outputs.scripts_dir }}/node_modules
-            ${{ steps.detect.outputs.scripts_dir }}/package-lock.json
-          key: node-mod-${{ runner.os }}-${{ hashFiles(format('{0}/package-lock.json', steps.detect.outputs.scripts_dir)) }}
+          key: node-mod-${{ runner.os }}-${{ env.NODE_VERSION }}-${{ hashFiles('**/package-lock.json') }}
           restore-keys: |
-            node-mod-${{ runner.os }}-
+            node-mod-${{ runner.os }}-${{ env.NODE_VERSION }}-
 
       - name: Cache Playwright browsers
         id: cache-playwright
@@ -330,36 +296,23 @@ jobs:
             playwright-browsers-${{ runner.os }}-
 
       - name: Install playwright into scripts (npm --prefix) and chromium (only if needed)
+        if: steps.detect.outputs.scripts_dir != ''
+        shell: bash
         run: |
           SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
-          if [ -z "$SCRIPTS" ]; then echo "No scripts dir -> skip"; exit 0; fi
-
-          # install playwright package only if not present
+          echo "Installing playwright into $SCRIPTS (npm --prefix) if needed..."
           if [ ! -d "$SCRIPTS/node_modules/playwright" ]; then
-            echo "Installing playwright package into $SCRIPTS (npm --prefix)..."
             npm install --prefix "$SCRIPTS" playwright --no-audit --no-fund --silent || { echo "npm install failed"; exit 1; }
           else
             echo "playwright already present in $SCRIPTS/node_modules, skipping npm install"
           fi
 
-          # install chromium browser only if cache didn't hit (check action output)
           if [ "${{ steps.cache-playwright.outputs.cache-hit }}" != 'true' ]; then
-            echo "Installing playwright chromium browser (cache miss)..."
+            echo "Playwright browsers cache miss -> installing chromium..."
             npx --yes --prefix "$SCRIPTS" playwright install chromium || { echo "playwright browser install failed"; exit 1; }
           else
             echo "Playwright browsers cache hit -> skipping browser install"
           fi
-
-      
-      - name: Install playwright into scripts (npm --prefix) and chromium
-        if: steps.detect.outputs.scripts_dir != ''
-        run: |
-          SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
-          echo "Installing playwright into $SCRIPTS (npm --prefix)..."
-          npm install --prefix "$SCRIPTS" playwright --no-audit --no-fund --silent || { echo "npm install failed"; exit 1; }
-          echo "Installing chromium browser (playwright) into $SCRIPTS (npx --prefix)..."
-          npx --yes --prefix "$SCRIPTS" playwright install chromium || { echo "playwright browser install failed"; exit 1; }
-          echo "Done playwright install."
 
       - name: Verify playwright is importable (sanity)
         if: steps.detect.outputs.scripts_dir != ''
@@ -382,7 +335,7 @@ jobs:
           if [ -f "requirements.txt" ]; then
             pip install -r requirements.txt
           else
-            pip install requests beautifulsoup4 feedgen lxml
+            pip install requests beautifulsoup4 feedgen lxml feedparser python-dateutil
           fi
 
       - name: Run feed generator (Python)
@@ -410,8 +363,7 @@ jobs:
           git add dist/merged-feed.xml || echo "no merged feed to add"
           git commit -m "Update merged feed" || echo "no changes to commit"
           git push
-      
-      
+
       - name: Show produced feeds
         run: |
           echo "Feeds dir listing:"
