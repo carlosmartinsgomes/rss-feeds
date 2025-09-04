@@ -106,8 +106,8 @@ async function renderWithPlaywright(url, options, debugPrefix) {
   });
 
   // global timeouts
-  context.setDefaultNavigationTimeout(options.timeout || 50000);
-  context.setDefaultTimeout(options.timeout || 50000);
+  context.setDefaultNavigationTimeout(options.timeout || 30321);
+  context.setDefaultTimeout(options.timeout || 33274);
 
   const page = await context.newPage();
 
@@ -155,7 +155,7 @@ async function renderWithPlaywright(url, options, debugPrefix) {
 
   // make sure to try to get screenshot + html on any error so we can debug
   try {
-    const gotoOpts = { timeout: options.timeout || 50000, waitUntil: options.waitUntil || 'networkidle' };
+    const gotoOpts = { timeout: options.timeout || 35000, waitUntil: options.waitUntil || 'networkidle' };
     // tentativa com retry específico para ERR_HTTP2_PROTOCOL_ERROR
     let resp = null;
     let lastErr = null;
@@ -221,10 +221,10 @@ async function main(){
   const strategyOrder = hostPrefs[host] || ['A','B','C'];
   const strategyMap = {
     'A': { blockResources: true, waitUntil: 'domcontentloaded', timeout: 20151, userAgent: undefined, referer: 'https://www.google.com/' },
-    'B': { blockResources: false, waitUntil: 'networkidle', timeout: 20278, userAgent: undefined, referer: 'https://www.google.com/' },
-    'C': { blockResources: false, waitUntil: 'networkidle', timeout: 20459, userAgent: undefined, referer: 'https://www.google.com/' },
-    'D': { blockResources: false, waitUntil: 'networkidle', timeout: 20371, userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36', stealth: true, referer: 'https://www.businesswire.com/' },
-    'E': { blockResources: false, waitUntil: 'networkidle', timeout: 20555, userAgent: 'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Mobile Safari/537.36', mobileViewport: { width: 390, height: 844 }, referer: 'https://www.google.com/' }
+    'B': { blockResources: false, waitUntil: 'domcontentloaded', timeout: 20278, userAgent: undefined, referer: 'https://www.google.com/' },
+    'C': { blockResources: false, waitUntil: 'domcontentloaded', timeout: 20459, userAgent: undefined, referer: 'https://www.google.com/' },
+    'D': { blockResources: false, waitUntil: 'domcontentloaded', timeout: 20371, userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36', stealth: true, referer: 'https://www.businesswire.com/' },
+    'E': { blockResources: false, waitUntil: 'domcontentloaded', timeout: 20555, userAgent: 'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Mobile Safari/537.36', mobileViewport: { width: 390, height: 844 }, referer: 'https://www.google.com/' }
   };
 
   const debugPrefixBase = OUT;
