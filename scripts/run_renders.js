@@ -1,11 +1,15 @@
 // scripts/run_renders.js
+// Executa vários renders em paralelo com limite de concorrência.
+// Uso: node scripts/run_renders.js
+// Define SCRIPTS via env (ex: SCRIPTS=scripts) e RENDER_CONCURRENCY (ex: 4)
+
 const { spawn } = require('child_process');
 const path = require('path');
 
 const SCRIPTS = process.env.SCRIPTS || 'scripts';
 const renderScript = path.join(SCRIPTS, 'render_page.js');
 
-// lista de pares url|out (copiar do workflow original)
+// Lista de pares [url, output] — adapta se quiseres adicionar/retirar URLs
 const RENDER_TARGETS = [
   ["https://www.businesswire.com/newsroom", `${SCRIPTS}/rendered/businesswire-page1.html`],
   ["https://www.businesswire.com/newsroom?page=2", `${SCRIPTS}/rendered/businesswire-page2.html`],
@@ -31,27 +35,33 @@ async function runAll() {
   const queue = RENDER_TARGETS.slice();
   const running = [];
   const results = [];
+
   while (queue.length || running.length) {
     while (queue.length && running.length < CONCURRENCY) {
       const [url, out] = queue.shift();
       const p = runOne(url, out).then(res => {
-        // remove from running when done
         const idx = running.indexOf(p);
         if (idx >= 0) running.splice(idx, 1);
         results.push(res);
       });
       running.push(p);
     }
-    // wait for any to finish
+    // espera que pelo menos 1 termine
     await Promise.race(running.map(r => r.catch(()=>{})));
   }
   return results;
 }
 
 runAll().then(results => {
-  console.log("All done. Results:", results.map(r=>`${r.url} => ${r.code}`));
+  console.log("All done. Results:");
+  results.forEach(r => console.log(`${r.url} -> code ${r.code}`));
   const failed = results.filter(r => r.code && r.code !== 0);
-  if (failed.length) process.exit(2);
+  if (failed.length) {
+    console.error(`Failed ${failed.length} renders.`);
+    process.exit(2);
+  } else {
+    process.exit(0);
+  }
 }).catch(err => {
   console.error("Runner error:", err);
   process.exit(3);
