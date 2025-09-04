@@ -39,6 +39,52 @@ jobs:
         with:
           node-version: 18
 
+      - name: Cache scripts node_modules
+        id: cache-node
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ steps.detect.outputs.scripts_dir }}/node_modules
+            ${{ steps.detect.outputs.scripts_dir }}/package-lock.json
+          key: node-mod-${{ runner.os }}-${{ hashFiles(format('{0}/package-lock.json', steps.detect.outputs.scripts_dir)) }}
+          restore-keys: |
+            node-mod-${{ runner.os }}-
+
+      - name: Cache Playwright browsers
+        id: cache-playwright
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/ms-playwright
+          key: playwright-browsers-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            playwright-browsers-${{ runner.os }}-
+
+      - name: Install playwright into scripts (npm --prefix) and chromium (only if needed)
+        run: |
+          SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
+          if [ -z "$SCRIPTS" ]; then echo "No scripts dir -> skip"; exit 0; fi
+
+          # install playwright package only if not present
+          if [ ! -d "$SCRIPTS/node_modules/playwright" ]; then
+            echo "Installing playwright package into $SCRIPTS (npm --prefix)..."
+            npm install --prefix "$SCRIPTS" playwright --no-audit --no-fund --silent || { echo "npm install failed"; exit 1; }
+          else
+            echo "playwright already present in $SCRIPTS/node_modules, skipping npm install"
+          fi
+
+          # install chromium browser only if cache didn't hit (check action output)
+          if [ "${{ steps.cache-playwright.outputs.cache-hit }}" != 'true' ]; then
+            echo "Installing playwright chromium browser (cache miss)..."
+            npx --yes --prefix "$SCRIPTS" playwright install chromium || { echo "playwright browser install failed"; exit 1; }
+          else
+            echo "Playwright browsers cache hit -> skipping browser install"
+          fi
+
+      
+
+      
+      
       - name: Install playwright into scripts (npm --prefix) and chromium (self-hosted)
         run: |
           SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
@@ -249,6 +295,49 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
+      - name: Cache scripts node_modules
+        id: cache-node
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ steps.detect.outputs.scripts_dir }}/node_modules
+            ${{ steps.detect.outputs.scripts_dir }}/package-lock.json
+          key: node-mod-${{ runner.os }}-${{ hashFiles(format('{0}/package-lock.json', steps.detect.outputs.scripts_dir)) }}
+          restore-keys: |
+            node-mod-${{ runner.os }}-
+
+      - name: Cache Playwright browsers
+        id: cache-playwright
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/ms-playwright
+          key: playwright-browsers-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            playwright-browsers-${{ runner.os }}-
+
+      - name: Install playwright into scripts (npm --prefix) and chromium (only if needed)
+        run: |
+          SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
+          if [ -z "$SCRIPTS" ]; then echo "No scripts dir -> skip"; exit 0; fi
+
+          # install playwright package only if not present
+          if [ ! -d "$SCRIPTS/node_modules/playwright" ]; then
+            echo "Installing playwright package into $SCRIPTS (npm --prefix)..."
+            npm install --prefix "$SCRIPTS" playwright --no-audit --no-fund --silent || { echo "npm install failed"; exit 1; }
+          else
+            echo "playwright already present in $SCRIPTS/node_modules, skipping npm install"
+          fi
+
+          # install chromium browser only if cache didn't hit (check action output)
+          if [ "${{ steps.cache-playwright.outputs.cache-hit }}" != 'true' ]; then
+            echo "Installing playwright chromium browser (cache miss)..."
+            npx --yes --prefix "$SCRIPTS" playwright install chromium || { echo "playwright browser install failed"; exit 1; }
+          else
+            echo "Playwright browsers cache hit -> skipping browser install"
+          fi
+
+      
       - name: Install playwright into scripts (npm --prefix) and chromium
         if: steps.detect.outputs.scripts_dir != ''
         run: |
