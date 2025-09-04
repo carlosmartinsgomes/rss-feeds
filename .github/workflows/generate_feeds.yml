@@ -119,13 +119,26 @@ jobs:
             "https://www.iotworldtoday.com/|$SCRIPTS/rendered/iotworldtoday.html"
           )
           - name: Render pages (parallel)
+          shell: bash
           run: |
             SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
+            if [ -z "$SCRIPTS" ]; then
+              echo "No scripts dir detected -> skip rendering"
+              exit 0
+            fi
             mkdir -p "$SCRIPTS/rendered"
-            node "${{ steps.detect.outputs.scripts_dir }}/run_renders.js"
+            if [ ! -f "$SCRIPTS/run_renders.js" ]; then
+              echo "run_renders.js not found at $SCRIPTS/run_renders.js - skipping render"
+              exit 0
+            fi
+            echo "Running parallel renders with node -> $SCRIPTS/run_renders.js (concurrency via RENDER_CONCURRENCY env)"
+            RENDER_CONCURRENCY=${{ env.RENDER_CONCURRENCY || '4' }}
+            export RENDER_CONCURRENCY
+            node "$SCRIPTS/run_renders.js"
           env:
             SCRIPTS: ${{ steps.detect.outputs.scripts_dir }}
             RENDER_CONCURRENCY: 4
+
 
 
       - name: Render configured pages (for sites with render_file) - WHITELISTED hosts only
