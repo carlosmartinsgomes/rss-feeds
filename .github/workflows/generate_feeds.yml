@@ -70,19 +70,15 @@ jobs:
             "https://www.darkreading.com/|$SCRIPTS/rendered/darkreading.html"
             "https://www.iotworldtoday.com/|$SCRIPTS/rendered/iotworldtoday.html"
           )
-          for pair in "${RENDER_TARGETS[@]}"; do
-            url="${pair%%|*}"
-            out="${pair##*|}"
-            echo "Attempting render: $url -> $out"
-            if [ ! -f "$SCRIPTS/render_page.js" ]; then
-              echo "render_page.js not found at $SCRIPTS/render_page.js - skipping render for $url"
-              continue
-            fi
-            # invoca render_page.js (assume que no self-hosted já tens node/playwright configurados)
-            node "$SCRIPTS/render_page.js" "$url" "$out" || echo "render failed for $url"
-          done
-          echo "Rendered dir listing:"
-          ls -la "$SCRIPTS/rendered" || true
+          - name: Render pages (parallel)
+          run: |
+            SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
+            mkdir -p "$SCRIPTS/rendered"
+            node "${{ steps.detect.outputs.scripts_dir }}/run_renders.js"
+          env:
+            SCRIPTS: ${{ steps.detect.outputs.scripts_dir }}
+            RENDER_CONCURRENCY: 4
+
 
       - name: Render configured pages (for sites with render_file) - WHITELISTED hosts only
         env:
