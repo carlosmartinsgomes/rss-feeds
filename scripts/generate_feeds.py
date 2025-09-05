@@ -44,8 +44,71 @@ ROOT = os.path.dirname(__file__)
 SITES_JSON = os.path.join(ROOT, 'sites.json')
 
 def load_sites():
-    j = json.load(open(SITES_JSON, 'r', encoding='utf-8'))
-    return j.get('sites', [])
+    """
+    Load scripts/sites.json with a small, forgiving sanitizer:
+    - tries json.load normally
+    - if that fails tries to remove // and /* */ comments and trailing commas,
+      then retries json.loads on the sanitized text
+    - on persistent failure prints a helpful snippet around the parse error
+      so you can correct the JSON manually.
+    Returns a list of site configs (the value of "sites" if the JSON is an object).
+    """
+    try:
+        raw = open(SITES_JSON, 'r', encoding='utf-8').read()
+    except Exception as e:
+        print("Failed to read sites.json:", e)
+        return []
+
+    try:
+        j = json.loads(raw)
+    except json.JSONDecodeError as e:
+        # Try a forgiving sanitize pass (remove JS-style comments and trailing commas)
+        import re
+        print("sites.json JSON decode error (first pass):", e)
+        s = raw
+        # remove single-line comments (// ...) that end at newline
+        s = re.sub(r'//.*(?=\n)', '', s)
+        # remove block comments /* ... */
+        s = re.sub(r'/\*.*?\*/', '', s, flags=re.S)
+        # remove trailing commas before } or ]
+        s = re.sub(r',\s*(\}|])', r'\1', s)
+        try:
+            j = json.loads(s)
+            print("Loaded sites.json after basic sanitization (comments/trailing commas removed).")
+        except Exception as e2:
+            # Show helpful snippet around the error position (if available)
+            pos = None
+            if isinstance(e2, json.JSONDecodeError):
+                pos = e2.pos
+                msg = str(e2)
+            else:
+                # fallback to original exception pos if any
+                try:
+                    pos = e.pos
+                except Exception:
+                    pos = None
+                msg = str(e2)
+            print("Failed to parse sites.json even after sanitizing. Error:", msg)
+            if pos is not None:
+                start = max(pos - 120, 0)
+                end = pos + 120
+                snippet = s[start:end]
+                # show line/column approximate info
+                # compute line/col for clarity
+                line = s.count('\n', 0, pos) + 1
+                col = pos - (s.rfind('\n', 0, pos) + 1)
+                print(f"Parse error around line {line}, column {col} (char pos {pos}).")
+                print("Snippet around error (≈240 chars):\n" + ("-"*60) + "\n" + snippet + "\n" + ("-"*60))
+            # raise to fail early so you fix the JSON (or fallback will produce empty sites)
+            raise e2
+
+    # Normalise return type: accept {"sites": [...]} or a bare list
+    if isinstance(j, dict):
+        return j.get('sites', [])
+    if isinstance(j, list):
+        return j
+    return []
+
 
 def fetch_html(url, timeout=20):
     headers = {
