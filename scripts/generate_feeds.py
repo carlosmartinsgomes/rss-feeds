@@ -172,30 +172,27 @@ def matches_filters(item, cfg):
             return False
     return True
 
-def build_feed(name, cfg, items):
-    fg = FeedGenerator()
-    fg.title(name)
-    fg.link(href=cfg.get('url',''), rel='alternate')
-    fg.description(f'Feed gerado para {name}')
-    count = 0
-    for it in items:
-        fe = fg.add_entry()
-        fe.title(it.get('title') or 'No title')
-        if it.get('link'):
-            fe.link(href=it.get('link'))
-        fe.description(it.get('description') or it.get('full_text') or '')
-        # pubDate: try to leave raw string
-        if it.get('date'):
-            try:
-                fe.pubDate(it.get('date'))
-            except Exception:
-                pass
-        count += 1
-    outdir = os.path.join(ROOT, '..', 'feeds') if os.path.exists(os.path.join(ROOT,'..','feeds')) else os.path.join(ROOT, '..', 'feeds')
-    os.makedirs(outdir, exist_ok=True)
-    outpath = os.path.join(outdir, f'{name}.xml')
-    fg.rss_file(outpath)
-    print(f'Wrote {outpath}')
+# ---- Dedupe simples por link (normalização) ----
+def normalize_link_for_dedupe(u):
+    if not u:
+        return ''
+    u = re.sub(r'#.*$', '', u)           # remove fragmentos
+    u = re.sub(r'\?.*$', '', u)          # remove query string
+    u = u.rstrip('/')
+    return u.lower()
+
+# depois de 'matched' ter sido preenchido:
+unique = {}
+for it in matched:
+    key = normalize_link_for_dedupe(it.get('link') or '')
+    if not key:
+        # fallback para título curto
+        key = (it.get('title','') or '').strip().lower()[:200]
+    if key and key not in unique:
+        unique[key] = it
+matched = list(unique.values())
+# ---- fim dedupe ----
+
 
 def main():
     sites = load_sites()
