@@ -151,26 +151,36 @@ def parse_feed(items):
     # items expected as dicts with keys title, link, description, date, full_text
     return items
 
-def matches_filters(item, cfg):
+def matches_filters_debug(item, cfg):
     kw = cfg.get('filters', {}).get('keywords', [])
     exclude = cfg.get('filters', {}).get('exclude', [])
     if not kw and not exclude:
-        return True
-    text = ' '.join([item.get('title','') or '', item.get('description','') or '', item.get('full_text','') or '', item.get('link','') or '']).lower()
-    # include — at least one keyword must appear if keywords not empty
+        return True, None
+    text_title = (item.get('title','') or '').lower()
+    text_desc = (item.get('description','') or '').lower()
+    text_full = (item.get('full_text','') or '').lower()
+    text_link = (item.get('link','') or '').lower()
+
+    # include
     if kw:
-        matched = False
         for k in kw:
-            if k.lower() in text:
-                matched = True
-                break
-        if not matched:
-            return False
-    # exclude — if any exclude present in text, skip
+            kl = k.lower()
+            if kl in text_title:
+                return True, f"keyword '{k}' in title"
+            if kl in text_desc:
+                return True, f"keyword '{k}' in description"
+            if kl in text_full:
+                return True, f"keyword '{k}' in full_text"
+            if kl in text_link:
+                return True, f"keyword '{k}' in link"
+        return False, None
+
+    # exclude
     for ex in exclude:
-        if ex.lower() in text:
-            return False
-    return True
+        if ex.lower() in text_title or ex.lower() in text_desc or ex.lower() in text_full:
+            return False, f"exclude '{ex}' matched"
+    return True, None
+
 
 # ---- Dedupe simples por link (normalização) ----
 def normalize_link_for_dedupe(u):
