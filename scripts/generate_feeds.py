@@ -192,16 +192,29 @@ def normalize_link_for_dedupe(u):
     return u.lower()
 
 # depois de 'matched' ter sido preenchido:
+# ---- dedupe (correcao: fallback se 'matched' nao existir) ---
+
 unique = {}
-for it in matched:
+
+# decide que lista vamos deduplicar: prefer matched, senão items, senão lista vazia
+if 'matched' in locals():
+    to_dedupe = matched or []
+elif 'items' in locals():
+    to_dedupe = items or []
+else:
+    to_dedupe = []
+
+for it in to_dedupe:
     key = normalize_link_for_dedupe(it.get('link') or '')
     if not key:
         # fallback para título curto
         key = (it.get('title','') or '').strip().lower()[:200]
     if key and key not in unique:
         unique[key] = it
+
 matched = list(unique.values())
-# ---- fim dedupe ----
+# ---- fim dedupe ---
+
 
 
 def build_feed(name, cfg, items): 
