@@ -1,0 +1,61 @@
+name: Run feed generator (remote)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  run-generator:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # permite commit/push com GITHUB_TOKEN, se necessário
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          else
+            pip install requests beautifulsoup4 feedgen lxml python-dateutil
+          fi
+
+      - name: Run feed generator (Python)
+        run: |
+          # garante que existe pasta feeds
+          mkdir -p feeds
+          python3 scripts/generate_feeds.py
+
+      - name: Show produced feeds (sample)
+        run: |
+          echo "=== Feeds dir listing ==="
+          ls -la feeds || true
+          for f in feeds/*.xml; do
+            echo "---- $f ----"
+            head -n 40 "$f" || true
+          done
+
+      - name: Upload feeds artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: feeds
+          path: feeds
+
+      - name: Commit merged feed (optional)
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "actions@github.com"
+          git add dist/merged-feed.xml || true
+          git commit -m "Update merged feed (auto)" || echo "no changes to commit"
+          git push || echo "push failed (maybe no token write permission)"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
