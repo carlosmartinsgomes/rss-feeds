@@ -289,8 +289,11 @@ def main():
         kw = cfg.get('filters', {}).get('keywords', [])
         print(f'Applying {len(kw)} keyword filters for {name}: {kw}')
         for it in items:
-            if matches_filters(it, cfg):
-                matched.append(it)
+            keep, reason = matches_filters_debug(it, cfg)
+            if keep:
+                 it['matched_reason'] = reason
+                 matched.append(it)  
+
 
         print(f'{len(matched)} items matched filters for {name}')
         if not matched and items:
