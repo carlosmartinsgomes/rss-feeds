@@ -175,14 +175,26 @@ jobs:
             process.exit(0);
           }
 
-          let sites = [];
+          // read & parse sites.json with simple sanitizer (remove // and /* */ and trailing commas)
+          let raw = fs.readFileSync(sitesFile, 'utf8');
+          let sitesObj = null;
           try {
-            const raw = fs.readFileSync(sitesFile, 'utf8');
-            sites = JSON.parse(raw).sites || [];
+            sitesObj = JSON.parse(raw);
           } catch (e) {
-            console.error('Failed to read/parse sites.json:', e && e.message ? e.message : e);
-            process.exit(0);
+            // sanitize: remove // comments and /* */ blocks and trailing commas
+            let s = raw.replace(/\/\/.*(?=\n)/g, '');
+            s = s.replace(/\/\*[\s\S]*?\*\//g, '');
+            s = s.replace(/,\s*(\}|])/g, '$1');
+            try {
+              sitesObj = JSON.parse(s);
+              console.log('Parsed sites.json after basic sanitize (node).');
+            } catch (e2) {
+              console.error('Failed to parse sites.json in Node even after sanitize:', e2 && e2.message ? e2.message : e2);
+              process.exit(1);
+            }
           }
+          let sites = (sitesObj && sitesObj.sites) ? sitesObj.sites : (Array.isArray(sitesObj) ? sitesObj : []);
+
 
           const renderScript = path.join(scriptsDir, 'render_page.js');
           if (!fs.existsSync(renderScript)) {
