@@ -7,7 +7,7 @@ jobs:
   run-generator:
     runs-on: ubuntu-latest
     permissions:
-      contents: write  # permite commit/push com GITHUB_TOKEN, se necessário
+      contents: write  # permite commit/push se precisares (opcional)
 
     steps:
       - name: Checkout repo
@@ -29,28 +29,54 @@ jobs:
             pip install requests beautifulsoup4 feedgen lxml python-dateutil
           fi
 
-      - name: Run feed generator (Python)
+      - name: Ensure directories exist (pre)
         run: |
-          # garante que existe pasta feeds
           mkdir -p feeds
-          python3 scripts/generate_feeds.py
+          ls -la .
 
-      - name: Show produced feeds (sample)
+      - name: Run feed generator (Python)
+        id: run_gen
         run: |
-          echo "=== Feeds dir listing ==="
+          set -o pipefail
+          # garante que temos logs e que qualquer erro aparece
+          python3 scripts/generate_feeds.py 2>&1 | tee run_generate.log
+          rc=${PIPESTATUS[0]}; echo "::set-output name=exitcode::$rc"
+        shell: bash
+
+      - name: Show produced feeds (sample & counts)
+        if: always()
+        run: |
+          echo "=== workdir listing ==="
+          pwd
+          ls -la
+          echo "=== feeds dir listing ==="
           ls -la feeds || true
+          echo "=== head of each feed (first 40 lines) ==="
           for f in feeds/*.xml; do
             echo "---- $f ----"
             head -n 40 "$f" || true
           done
+          echo "=== run log tail (if exists) ==="
+          test -f run_generate.log && tail -n 200 run_generate.log || true
 
       - name: Upload feeds artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: feeds
           path: feeds
+          retention-days: 7
 
-      - name: Commit merged feed (optional)
+      - name: Upload run log artifact (helpful for debug)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: run-generate-log
+          path: run_generate.log
+          retention-days: 7
+
+      - name: Optional: Commit merged feed (dist/merged-feed.xml) back to repo
+        if: success() && -f dist/merged-feed.xml
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "actions@github.com"
