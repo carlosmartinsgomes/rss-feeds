@@ -689,7 +689,16 @@
       "date": "time, .date",
       "description": "p",
       "filters": { "keywords": [] }
+    },
+    {
+      "name": "thefly",
+      "url": "https://thefly.com/",
+      "item_container": "article, .feature, .teaser, .story",
+      "title": "h1, h2 a, h3 a, a",
+      "link": "h1 a@href, h2 a@href, h3 a@href, a@href",
+      "date": "time, .published, .date",
+      "description": "p, .summary, .excerpt",
+      "filters": { "keywords": [] }
     }
-
   ]
 }
