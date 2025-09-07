@@ -183,25 +183,29 @@ def matches_filters_debug(item, cfg):
     return True, None
 
 
-# ---- Dedupe simples por link (normalização) ----
-def normalize_link_for_dedupe(u):
-    if not u:
-        return ''
-    u = re.sub(r'#.*$', '', u)           # remove fragmentos
-    u = re.sub(r'\?.*$', '', u)          # remove query string
-    u = u.rstrip('/')
-    return u.lower()
+# ---- helper: dedupe lista de items (mantem a primeira aparição) ----
+def dedupe_items(items):
+    """
+    Remove duplicados por link normalizado (mantem a primeira ocorrencia).
+    items: lista de dicts com keys 'link' e 'title' (ou similares).
+    Retorna lista preservando ordem de aparicao.
+    """
+    unique = {}
+    out = []
+    for it in (items or []):
+        key = normalize_link_for_dedupe(it.get('link') or '')
+        if not key:
+            # fallback para título curto
+            key = (it.get('title','') or '').strip().lower()[:200]
+        if not key:
+            # sem chave válida: gera um hash simples (evita perder item)
+            key = f"__no_key__{len(out)}"
+        if key not in unique:
+            unique[key] = True
+            out.append(it)
+    return out
+# ---- fim helper ----
 
-unique = {}
-for it in matched:
-    key = normalize_link_for_dedupe(it.get('link') or '')
-    if not key:
-        # fallback para título curto
-        key = (it.get('title','') or '').strip().lower()[:200]
-    if key and key not in unique:
-        unique[key] = it
-matched = list(unique.values())
-# ---- fim dedupe ----
 
 
 
@@ -300,6 +304,7 @@ def main():
         if not matched and items:
             print(f'No items matched filters for {name} — falling back to all {len(items)} items')
             matched = items
+
 
         # write feed
         build_feed(name, cfg, matched)
