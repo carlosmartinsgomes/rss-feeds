@@ -45,32 +45,30 @@ jobs:
       - name: Show produced feeds (sample & counts)
         if: always()
         run: |
-          echo "=== feeds dir listing ==="
+          echo "=== Feeds dir listing (workspace) ==="
           ls -la feeds || true
-          echo "=== sample of each feed (first 40 lines) ==="
           for f in feeds/*.xml; do
             echo "---- $f ----"
             head -n 40 "$f" || true
           done
-          echo "=== tail of run log ==="
           test -f run_generate.log && tail -n 200 run_generate.log || true
+        shell: bash
 
       - name: Create timestamped zip of feeds
         if: always()
         env:
           ZIPNAME: feeds-${{ github.run_id }}-${{ github.run_number }}.zip
         run: |
-          echo "ZIPNAME=$ZIPNAME"
-          # se não houver xmls, criamos um placeholder para garantir que o zip existe
+          set -e
           if ls feeds/*.xml 1> /dev/null 2>&1; then
             zip -r "$ZIPNAME" feeds || true
           else
-            echo "No xml files found in feeds/ -> creating placeholder"
             mkdir -p feeds
             echo "no-feeds" > feeds/placeholder.txt
             zip -r "$ZIPNAME" feeds || true
           fi
           ls -la "$ZIPNAME"
+        shell: bash
 
       - name: Upload feeds artifact (zip)
         if: always()
@@ -88,24 +86,19 @@ jobs:
           path: run_generate.log
           retention-days: 7
 
-      - name: Optional: Commit merged feed (dist/merged-feed.xml) back to repo
-        if: always()
+      - name: Optional commit merged feed back to repo
         run: |
-          # só tenta commitar se existir o ficheiro
           if [ -f dist/merged-feed.xml ]; then
             git config user.name "github-actions[bot]"
             git config user.email "actions@github.com"
             git add dist/merged-feed.xml || true
-            # verificar se há mudanças staged
             if git diff --cached --quiet; then
               echo "No changes to commit for dist/merged-feed.xml"
             else
               git commit -m "Update merged feed (auto)" || true
-              # push usando token fornecido pelo checkout (poderá necessitar de permissões)
-              git push || echo "git push failed (token/permission?)"
+              git push || echo "git push failed (maybe token/permission?)"
             fi
           else
             echo "No dist/merged-feed.xml found -> skipping commit"
           fi
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
