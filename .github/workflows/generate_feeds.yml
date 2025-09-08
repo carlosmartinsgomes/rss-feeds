@@ -353,6 +353,29 @@ jobs:
             exit 1
           fi
 
+      - name: Ensure output dir exists
+        run: |
+          mkdir -p feeds
+          ls -la
+
+      - name: Create timestamped zip of feeds
+        run: |
+          ZIPNAME=feeds-${{ github.run_id }}-${{ github.run_number }}.zip
+          if ls feeds/*.xml 1> /dev/null 2>&1; then
+            zip -r "$ZIPNAME" feeds || true
+          else
+            mkdir -p feeds
+            echo "no-feeds" > feeds/placeholder.txt
+            zip -r "$ZIPNAME" feeds || true
+          fi
+          echo "ZIPNAME=$ZIPNAME" >> $GITHUB_OUTPUT
+      - name: Upload feeds artifact (zip)
+        uses: actions/upload-artifact@v4
+        with:
+          name: feeds-${{ github.run_id }}-${{ github.run_number }}
+          path: ${{ steps.last_step.outputs.ZIPNAME }}   # ou usar a variável impressa
+
+
       - name: Merge feeds (generate dist/merged-feed.xml)
         run: |
           python -m pip install --upgrade pip
