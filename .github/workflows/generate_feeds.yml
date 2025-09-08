@@ -114,7 +114,7 @@ jobs:
          const cp = require('child_process');
          const path = require('path'); 
          
-         // apenas estes hosts serão processados por este passo 
+         
          const allowedHosts = [ 
           'dzone.com',
           'eetimes.com',
@@ -138,7 +138,7 @@ jobs:
           return false; return allowedHosts.some(a => hostname === a || hostname.endsWith('.' + a)); 
          } 
          
-         // read env provided by the step
+         
          let scriptsDir = process.env.SCRIPTS || ''; 
          const explicitRaw = process.env.EXPLICIT_URLS || ''; 
          const explicit = explicitRaw.split(/\r?\n/).map(s => s.trim()).filter(Boolean); 
@@ -167,7 +167,7 @@ jobs:
              process.exit(0); 
            } 
          
-         // read & parse sites.json with simple sanitizer (remove // and /* */ and trailing commas) 
+         
            let raw = fs.readFileSync(sitesFile, 'utf8'); 
            let sitesObj = null; 
            try { 
@@ -201,13 +201,13 @@ jobs:
             if (!urlRaw) continue; 
             const host = hostOf(urlRaw); 
          
-            // se não estiver na whitelist, ignora 
+            
             if (!hostMatchesAllowed(host)) { 
               console.log('Skipping (not in configured whitelist):', urlRaw); 
               continue; 
             } 
          
-            // se a URL já foi explicitamente tratada na etapa explícita, pula para evitar duplicação 
+           
             if (explicit.includes(urlRaw)) { 
               console.log('Skipping configured render for (explicit handled):', urlRaw); 
               continue; 
