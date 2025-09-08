@@ -173,7 +173,7 @@ jobs:
            try { 
              sitesObj = JSON.parse(raw); 
            } catch (e) { 
-             // remove // comments and /* */ blocks and trailing commas 
+             
          
              let s = raw.replace(/\/\/.*(?=\n)/g, ''); 
              s = s.replace(/\/\*[\s\S]*?\*\//g, ''); 
