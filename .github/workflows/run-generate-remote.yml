@@ -42,6 +42,13 @@ jobs:
           exit ${PIPESTATUS[0]}
         shell: bash
 
+      - name: Debug listing (after generate)
+        run: |
+          echo "PWD: $(pwd)"
+          ls -la
+          ls -la feeds || true
+          find . -maxdepth 3 -type f -name "*.xml" -print || true
+
       - name: Show produced feeds (sample & counts)
         if: always()
         run: |
