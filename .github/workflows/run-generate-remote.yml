@@ -62,12 +62,11 @@ jobs:
         shell: bash
 
       - name: Create zip of feeds (safe)
+        id: create_zip
         run: |
           set -e
-          ZIPNAME=feeds.zip
-          # garante que a pasta existe
+          ZIPNAME=feeds-${{ github.run_id }}-${{ github.run_number }}.zip
           mkdir -p feeds
-          # se existirem .xml, adiciona; se não, cria placeholder para não falhar
           if ls feeds/*.xml 1> /dev/null 2>&1; then
             zip -r "$ZIPNAME" feeds || true
           else
@@ -76,16 +75,16 @@ jobs:
             zip -r "$ZIPNAME" feeds || true
           fi
           ls -la "$ZIPNAME"
+          echo "zipname=$ZIPNAME" >> $GITHUB_OUTPUT
+        shell: bash
 
       - name: Upload feeds artifact (zip)
         uses: actions/upload-artifact@v4
         with:
           name: feeds-${{ github.run_id }}-${{ github.run_number }}
-          path: feeds.zip
+          path: ${{ steps.create_zip.outputs.zipname }}
           if-no-files-found: warn
           retention-days: 7
-
-
 
       - name: Upload run log artifact
         if: always()
