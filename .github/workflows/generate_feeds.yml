@@ -94,6 +94,138 @@ jobs:
           SCRIPTS: ${{ steps.detect.outputs.scripts_dir }}
           RENDER_CONCURRENCY: 4
 
+      - name: Render configured pages (for sites with render_file) - WHITELISTED hosts only
+        shell: bash
+        env:
+         EXPLICIT_URLS: | 
+          https://inmodeinvestors.com/press-release 
+          https://www.darkreading.com/ 
+          https://www.iotworldtoday.com/ 
+          https://www.businesswire.com/newsroom 
+          https://www.businesswire.com/newsroom?page=2 
+          https://www.businesswire.com/newsroom?page=3 
+          https://www.businesswire.com/newsroom?page=4 
+          https://www.businesswire.com/newsroom?page=5 
+         SCRIPTS: ${{ steps.detect.outputs.scripts_dir }} 
+        run: | 
+         echo "Using SCRIPTS='$SCRIPTS' and EXPLICIT_URLS provided" 
+        
+         node <<'NODE' const fs = require('fs');
+         const cp = require('child_process');
+         const path = require('path'); 
+         
+         // WHITELIST: apenas estes hosts serão processados por este passo 
+         const allowedHosts = [ 
+          'dzone.com',
+          'eetimes.com',
+          'mdpi.com',
+          'medscape.com',
+          'stocktwits.com',
+          'journals.lww.com' 
+         ]; 
+         
+         function hostOf(urlString) { 
+          try { 
+            const u = new URL(String(urlString)); 
+            return (u.hostname || '').toLowerCase().replace(/^www\./,''); 
+          } catch (e) { 
+            const m = String(urlString || '').toLowerCase().match(/:\/\/([^\/:?#]+)/); 
+            return m ? m[1].replace(/^www\./,'') : '';
+          } 
+         } 
+         function hostMatchesAllowed(hostname) { 
+          if (!hostname) 
+          return false; return allowedHosts.some(a => hostname === a || hostname.endsWith('.' + a)); 
+         } 
+         
+         // read env provided by the step
+         let scriptsDir = process.env.SCRIPTS || ''; 
+         const explicitRaw = process.env.EXPLICIT_URLS || ''; 
+         const explicit = explicitRaw.split(/\r?\n/).map(s => s.trim()).filter(Boolean); 
+         
+         const candidates = ['scripts', 'rss-feeds/scripts', './scripts', './rss-feeds/scripts']; 
+         if (!scriptsDir) { 
+           for (const c of candidates) { 
+            try { 
+             if (fs.existsSync(path.join(c, 'sites.json')) && fs.existsSync(path.join(c, 'render_page.js'))) { 
+               scriptsDir = c; 
+               break; 
+              } 
+             } catch (e) { /* ignore */ } 
+            } 
+           } 
+         
+           if (!scriptsDir) { 
+             console.warn('Could not determine scripts directory. Skipping configured renders.'); 
+             process.exit(0); 
+           } 
+         
+           scriptsDir = scriptsDir.replace(/\/+$/,''); 
+           const sitesFile = path.join(scriptsDir, 'sites.json'); 
+           if (!fs.existsSync(sitesFile)) { 
+             console.warn(sites.json not found at ${sitesFile} -> skipping configured renders); 
+             process.exit(0); 
+           } 
+         
+         // read & parse sites.json with simple sanitizer (remove // and /* */ and trailing commas) 
+           let raw = fs.readFileSync(sitesFile, 'utf8'); 
+           let sitesObj = null; 
+           try { 
+             sitesObj = JSON.parse(raw); 
+           } catch (e) { 
+             // sanitize: remove // comments and /* */ blocks and trailing commas 
+         
+             let s = raw.replace(/\/\/.*(?=\n)/g, ''); 
+             s = s.replace(/\/\*[\s\S]*?\*\//g, ''); 
+             s = s.replace(/,\s*(\}|])/g, '$1'); 
+             try { 
+              sitesObj = JSON.parse(s); 
+              console.log('Parsed sites.json after basic sanitize (node).'); 
+            } catch (e2) { 
+             console.error('Failed to parse sites.json in Node even after sanitize:', e2 && e2.message ? e2.message : e2); 
+             process.exit(1); 
+            } 
+           } 
+           let sites = (sitesObj && sitesObj.sites) ? sitesObj.sites : (Array.isArray(sitesObj) ? sitesObj : []); 
+         
+           const renderScript = path.join(scriptsDir, 'render_page.js'); 
+           if (!fs.existsSync(renderScript)) { 
+             console.warn(render_page.js not found at ${renderScript} -> skipping); 
+             process.exit(0); 
+           } 
+         
+           try { fs.mkdirSync(path.join(scriptsDir, 'rendered'), { recursive: true }); } catch(e){} 
+         
+           for (const s of sites.filter(s => s.render_file)) { 
+            const urlRaw = (s.url || '').trim(); 
+            if (!urlRaw) continue; 
+            const host = hostOf(urlRaw); 
+         
+            // se não estiver na whitelist, ignora 
+            if (!hostMatchesAllowed(host)) { 
+              console.log('Skipping (not in configured whitelist):', urlRaw); 
+              continue; 
+            } 
+         
+            // se a URL já foi explicitamente tratada na etapa explícita, pula para evitar duplicação 
+            if (explicit.includes(urlRaw)) { 
+              console.log('Skipping configured render for (explicit handled):', urlRaw); 
+              continue; 
+            } 
+         
+            const url = urlRaw; 
+            const out = s.render_file; 
+            console.log('Rendering', url, '->', out); 
+            try { 
+              const cmd = node "${renderScript}" "${String(url).replace(/"/g,'\\"')}" "${String(out).replace(/"/g,'\\"')}"; 
+              cp.execSync(cmd, { stdio: 'inherit', timeout: 180000 }); 
+              console.log('-> Done:', url); 
+            } catch (err) { 
+              console.error('Render failed for', url, '-', err && err.message ? err.message : err); 
+            } 
+           } 
+           NODE
+
       - name: Upload rendered HTML as artifact
         uses: actions/upload-artifact@v4
         with:
