@@ -1,34 +1,68 @@
 #!/usr/bin/env python3
 # parse_merged.py
+# Usage: python3 parse_merged.py path/to/dist/merged-feed.xml > merged_table.md
+
 import sys
 from xml.etree import ElementTree as ET
 from urllib.parse import urlparse
-def text_of(n):
-    return (n.text or '').strip() if n is not None else ''
-def domain(u):
-    try:
-        return urlparse(u).netloc or ''
-    except:
+import html
+import csv
+
+def short(text, n=200):
+    if text is None:
         return ''
-if len(sys.argv)<2:
-    print("Uso: python3 parse_merged.py /caminho/merged-feed.xml")
-    sys.exit(1)
-p=sys.argv[1]
-max_items = 200  # ajusta se quiseres menos/mais
-print("| # | domain | title | pubDate | link | description (preview) |")
-print("|---|--------|-------|---------|------|----------------------|")
-count=0
-for ev,el in ET.iterparse(p,events=('end',)):
-    if el.tag.endswith('item'):
-        t = text_of(el.find('title'))
-        d = text_of(el.find('pubDate'))
-        l = text_of(el.find('link')) or text_of(el.find('guid'))
-        desc = text_of(el.find('description'))
-        desc_preview = (desc[:220] + '...') if len(desc)>220 else desc
-        dom = domain(l)
-        count += 1
-        print(f"| {count} | {dom} | {t.replace('|',' ')} | {d} | {l} | {desc_preview.replace('|',' ')} |")
-        el.clear()
-        if count>=max_items:
-            break
-print(f"# items shown: {count}")
+    t = text.strip()
+    return (t[:n] + '...') if len(t) > n else t
+
+def domain_from_url(u):
+    if not u:
+        return ''
+    try:
+        p = urlparse(u)
+        return p.netloc or ''
+    except Exception:
+        return ''
+
+def item_text(elem, tag):
+    t = elem.find(tag)
+    return t.text if t is not None and t.text is not None else ''
+
+def main(path):
+    xml = open(path, 'r', encoding='utf-8').read()
+    # try to strip obvious problematic nulls
+    xml = xml.replace('\r\n', '\n')
+    root = ET.fromstring(xml)
+    chan = root.find('channel')
+    if chan is None:
+        print("# Error: no <channel> found", file=sys.stderr)
+        return
+
+    items = chan.findall('item')
+    # write markdown table to stdout
+    headers = ['index','title','link','source','pubDate','description (short)','item_container']
+    # markdown header
+    print('| ' + ' | '.join(headers) + ' |')
+    print('|' + '|'.join(['---']*len(headers)) + '|')
+
+    for i, it in enumerate(items, start=1):
+        title = html.unescape(item_text(it, 'title')).replace('\n',' ').strip()
+        link = item_text(it, 'link').strip()
+        guid = item_text(it, 'guid').strip()
+        description = html.unescape(item_text(it, 'description')).replace('\n',' ').strip()
+        pubDate = item_text(it, 'pubDate').strip()
+        # prefer link for domain, fallback to guid
+        src = domain_from_url(link or guid)
+        # short description
+        dshort = short(description, 200).replace('|','\\|')
+        # escape pipes in title/link
+        title_safe = title.replace('|','\\|')
+        link_safe = link.replace('|','\\|')
+        pubDate_safe = pubDate.replace('|','\\|')
+        # item_container left blank (merged feed doesn't include it)
+        print(f'| {i} | {title_safe} | {link_safe} | {src} | {pubDate_safe} | {dshort} |  |')
+
+if __name__ == '__main__':
+    if len(sys.argv) < 2:
+        print("Usage: python3 parse_merged.py path/to/dist/merged-feed.xml", file=sys.stderr)
+        sys.exit(2)
+    main(sys.argv[1])
