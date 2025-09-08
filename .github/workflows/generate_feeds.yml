@@ -114,7 +114,7 @@ jobs:
          const cp = require('child_process');
          const path = require('path'); 
          
-         // WHITELIST: apenas estes hosts serão processados por este passo 
+         // apenas estes hosts serão processados por este passo 
          const allowedHosts = [ 
           'dzone.com',
           'eetimes.com',
@@ -173,7 +173,7 @@ jobs:
            try { 
              sitesObj = JSON.parse(raw); 
            } catch (e) { 
-             // sanitize: remove // comments and /* */ blocks and trailing commas 
+             // remove // comments and /* */ blocks and trailing commas 
          
              let s = raw.replace(/\/\/.*(?=\n)/g, ''); 
              s = s.replace(/\/\*[\s\S]*?\*\//g, ''); 
