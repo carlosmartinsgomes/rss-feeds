@@ -54,19 +54,38 @@ jobs:
           test -f run_generate.log && tail -n 200 run_generate.log || true
         shell: bash
 
-      - name: Create timestamped zip of feeds
+      - name: Create timestamped zip of feeds (debug)
         if: always()
         env:
           ZIPNAME: feeds-${{ github.run_id }}-${{ github.run_number }}.zip
         run: |
-          set -e
+          set -euo pipefail
+          echo "PWD: $(pwd)"
+          echo "Listing workspace top-level:"
+          ls -la
+          echo "Listing possible feed dirs:"
+          ls -la feeds || true
+          ls -la scripts/../feeds || true
+          # create placeholder if no xmls
           if ls feeds/*.xml 1> /dev/null 2>&1; then
-            zip -r "$ZIPNAME" feeds || true
+            echo "Found xmls in feeds/"
+          elif ls scripts/../feeds/*.xml 1> /dev/null 2>&1; then
+            echo "Found xmls in scripts/../feeds/ -> copying to feeds/"
+            mkdir -p feeds
+            cp scripts/../feeds/*.xml feeds/ || true
           else
+            echo "No XMLs found in feeds or scripts/../feeds - will create placeholder"
             mkdir -p feeds
             echo "no-feeds" > feeds/placeholder.txt
-            zip -r "$ZIPNAME" feeds || true
           fi
+
+          # show counts
+          echo "After check, feeds/ contains:"
+          ls -la feeds || true
+
+          # create the zip
+          zip -r "$ZIPNAME" feeds || ( echo "zip failed" && ls -la && exit 0 )
+          echo "Zip created:"
           ls -la "$ZIPNAME"
         shell: bash
 
@@ -75,8 +94,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: feeds-${{ github.run_id }}-${{ github.run_number }}
-          path: feeds-${{ github.run_id }}-${{ github.run_number }}.zip
+          path: ${{ env.ZIPNAME }}
           retention-days: 7
+
 
       - name: Upload run log artifact
         if: always()
