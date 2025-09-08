@@ -5,21 +5,18 @@ on:
     branches: [ main ]
   workflow_dispatch:
   schedule:
-    # every 30 minutes
     - cron: '*/30 * * * *'
 
 env:
   PYTHON_VERSION: '3.11'
   NODE_VERSION: '18'
 
-# permitir ao workflow escrever no repositório (para o git push do merged feed)
 permissions:
   contents: write
 
 jobs:
 
   render-on-selfhosted:
-    # job que corre APENAS no teu runner self-hosted
     runs-on: self-hosted
     steps:
       - name: Checkout repo
@@ -62,7 +59,6 @@ jobs:
             exit 0
           fi
 
-          # instala o pacote playwright apenas se não existir
           if [ ! -d "$SCRIPTS/node_modules/playwright" ]; then
             echo "Installing playwright package into $SCRIPTS (npm --prefix)..."
             npm install --prefix "$SCRIPTS" playwright --no-audit --no-fund --silent || { echo "npm install failed"; exit 1; }
@@ -70,7 +66,6 @@ jobs:
             echo "playwright package already present in $SCRIPTS/node_modules - skipping npm install"
           fi
 
-          # se os browsers já estão instalados localmente (self-hosted), pulamos a instalação
           if [ -d "${HOME}/.cache/ms-playwright" ] && [ "$(ls -A ${HOME}/.cache/ms-playwright 2>/dev/null | wc -l)" -gt 0 ]; then
             echo "Playwright browsers already present in ${HOME}/.cache/ms-playwright -> skipping browser install"
           else
@@ -93,146 +88,11 @@ jobs:
             echo "run_renders.js not found at $SCRIPTS/run_renders.js - skipping render"
             exit 0
           fi
-          echo "Running parallel renders with node -> $SCRIPTS/run_renders.js (concurrency via RENDER_CONCURRENCY env)"
           export RENDER_CONCURRENCY=${{ env.RENDER_CONCURRENCY || '4' }}
           node "$SCRIPTS/run_renders.js"
         env:
           SCRIPTS: ${{ steps.detect.outputs.scripts_dir }}
           RENDER_CONCURRENCY: 4
-
-      - name: Render configured pages (for sites with render_file) - WHITELISTED hosts only
-        shell: bash
-        env:
-          EXPLICIT_URLS: |
-            https://inmodeinvestors.com/press-release
-            https://www.darkreading.com/
-            https://www.iotworldtoday.com/
-            https://www.businesswire.com/newsroom
-            https://www.businesswire.com/newsroom?page=2
-            https://www.businesswire.com/newsroom?page=3
-            https://www.businesswire.com/newsroom?page=4
-            https://www.businesswire.com/newsroom?page=5
-          SCRIPTS: ${{ steps.detect.outputs.scripts_dir }}
-        run: |
-          echo "Using SCRIPTS='$SCRIPTS' and EXPLICIT_URLS provided"
-
-          node <<'NODE'
-          const fs = require('fs');
-          const cp = require('child_process');
-          const path = require('path');
-
-          // WHITELIST: apenas estes hosts serão processados por este passo
-          const allowedHosts = [
-            'dzone.com',
-            'eetimes.com',
-            'mdpi.com',
-            'medscape.com',
-            'stocktwits.com',
-            'journals.lww.com'
-          ];
-
-          function hostOf(urlString) {
-            try {
-              const u = new URL(String(urlString));
-              return (u.hostname || '').toLowerCase().replace(/^www\./,'');
-            } catch (e) {
-              const m = String(urlString || '').toLowerCase().match(/:\/\/([^\/:?#]+)/);
-              return m ? m[1].replace(/^www\./,'') : '';
-            }
-          }
-
-          function hostMatchesAllowed(hostname) {
-            if (!hostname) return false;
-            return allowedHosts.some(a => hostname === a || hostname.endsWith('.' + a));
-          }
-
-          // read env provided by the step
-          let scriptsDir = process.env.SCRIPTS || '';
-          const explicitRaw = process.env.EXPLICIT_URLS || '';
-          const explicit = explicitRaw.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
-
-          const candidates = ['scripts', 'rss-feeds/scripts', './scripts', './rss-feeds/scripts'];
-          if (!scriptsDir) {
-            for (const c of candidates) {
-              try {
-                if (fs.existsSync(path.join(c, 'sites.json')) && fs.existsSync(path.join(c, 'render_page.js'))) {
-                  scriptsDir = c;
-                  break;
-                }
-              } catch (e) { /* ignore */ }
-            }
-          }
-
-          if (!scriptsDir) {
-            console.warn('Could not determine scripts directory. Skipping configured renders.');
-            process.exit(0);
-          }
-
-          scriptsDir = scriptsDir.replace(/\/+$/,'');
-          const sitesFile = path.join(scriptsDir, 'sites.json');
-          if (!fs.existsSync(sitesFile)) {
-            console.warn(`sites.json not found at ${sitesFile} -> skipping configured renders`);
-            process.exit(0);
-          }
-
-          // read & parse sites.json with simple sanitizer (remove // and /* */ and trailing commas)
-          let raw = fs.readFileSync(sitesFile, 'utf8');
-          let sitesObj = null;
-          try {
-            sitesObj = JSON.parse(raw);
-          } catch (e) {
-            // sanitize: remove // comments and /* */ blocks and trailing commas
-            let s = raw.replace(/\/\/.*(?=\n)/g, '');
-            s = s.replace(/\/\*[\s\S]*?\*\//g, '');
-            s = s.replace(/,\s*(\}|])/g, '$1');
-            try {
-              sitesObj = JSON.parse(s);
-              console.log('Parsed sites.json after basic sanitize (node).');
-            } catch (e2) {
-              console.error('Failed to parse sites.json in Node even after sanitize:', e2 && e2.message ? e2.message : e2);
-              process.exit(1);
-            }
-          }
-          let sites = (sitesObj && sitesObj.sites) ? sitesObj.sites : (Array.isArray(sitesObj) ? sitesObj : []);
-
-
-          const renderScript = path.join(scriptsDir, 'render_page.js');
-          if (!fs.existsSync(renderScript)) {
-            console.warn(`render_page.js not found at ${renderScript} -> skipping`);
-            process.exit(0);
-          }
-
-          try { fs.mkdirSync(path.join(scriptsDir, 'rendered'), { recursive: true }); } catch(e){}
-
-          for (const s of sites.filter(s => s.render_file)) {
-            const urlRaw = (s.url || '').trim();
-            if (!urlRaw) continue;
-            const host = hostOf(urlRaw);
-
-            // se não estiver na whitelist, ignora
-            if (!hostMatchesAllowed(host)) {
-              console.log('Skipping (not in configured whitelist):', urlRaw);
-              continue;
-            }
-
-            // se a URL já foi explicitamente tratada na etapa explícita, pula para evitar duplicação
-            if (explicit.includes(urlRaw)) {
-              console.log('Skipping configured render for (explicit handled):', urlRaw);
-              continue;
-            }
-
-            const url = urlRaw;
-            const out = s.render_file;
-            console.log('Rendering', url, '->', out);
-            try {
-              const cmd = `node "${renderScript}" "${String(url).replace(/"/g,'\\"')}" "${String(out).replace(/"/g,'\\"')}"`;
-              cp.execSync(cmd, { stdio: 'inherit', timeout: 180000 });
-              console.log('-> Done:', url);
-            } catch (err) {
-              console.error('Render failed for', url, '-', err && err.message ? err.message : err);
-            }
-          }
-          NODE
 
       - name: Upload rendered HTML as artifact
         uses: actions/upload-artifact@v4
@@ -289,7 +149,7 @@ jobs:
           restore-keys: |
             node-mod-${{ runner.os }}-${{ env.NODE_VERSION }}-
 
-      - name: Install playwright into scripts (npm --prefix) and chromium (self-hosted, smart)
+      - name: Install playwright into scripts (npm --prefix) and chromium (smart)
         shell: bash
         run: |
           SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
@@ -298,24 +158,15 @@ jobs:
             exit 0
           fi
 
-          # instala o pacote playwright apenas se não existir
           if [ ! -d "$SCRIPTS/node_modules/playwright" ]; then
-            echo "Installing playwright package into $SCRIPTS (npm --prefix)..."
             npm install --prefix "$SCRIPTS" playwright --no-audit --no-fund --silent || { echo "npm install failed"; exit 1; }
-          else
-            echo "playwright package already present in $SCRIPTS/node_modules - skipping npm install"
           fi
 
-          # se os browsers já estão instalados localmente (self-hosted), pulamos a instalação
           if [ -d "${HOME}/.cache/ms-playwright" ] && [ "$(ls -A ${HOME}/.cache/ms-playwright 2>/dev/null | wc -l)" -gt 0 ]; then
-            echo "Playwright browsers already present in ${HOME}/.cache/ms-playwright -> skipping browser install"
+            echo "Playwright browsers already present -> skipping"
           else
-            echo "Playwright browsers not found in ${HOME}/.cache/ms-playwright -> installing chromium"
             npx --yes --prefix "$SCRIPTS" playwright install chromium || { echo "playwright browser install failed"; exit 1; }
           fi
-
-          echo "Done playwright setup."
-
 
       - name: Verify playwright is importable (sanity)
         if: steps.detect.outputs.scripts_dir != ''
@@ -323,7 +174,6 @@ jobs:
           SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
           echo "Node version: $(node --version)"
           echo "NPM version: $(npm --version)"
-          echo "Listing $SCRIPTS/node_modules top entries:"
           ls -la "$SCRIPTS/node_modules" | sed -n '1,200p' || true
           node -e "try { require('./${{ steps.detect.outputs.scripts_dir }}/node_modules/playwright'); console.log('playwright ok'); } catch(e) { console.error('playwright require failed:', e.message); process.exit(2); }"
 
@@ -359,7 +209,9 @@ jobs:
           ls -la
 
       - name: Create timestamped zip of feeds
+        id: create_zip
         run: |
+          set -e
           ZIPNAME=feeds-${{ github.run_id }}-${{ github.run_number }}.zip
           if ls feeds/*.xml 1> /dev/null 2>&1; then
             zip -r "$ZIPNAME" feeds || true
@@ -368,18 +220,24 @@ jobs:
             echo "no-feeds" > feeds/placeholder.txt
             zip -r "$ZIPNAME" feeds || true
           fi
-          echo "ZIPNAME=$ZIPNAME" >> $GITHUB_OUTPUT
+          echo "zipname=$ZIPNAME" >> $GITHUB_OUTPUT
+        shell: bash
+
       - name: Upload feeds artifact (zip)
         uses: actions/upload-artifact@v4
         with:
           name: feeds-${{ github.run_id }}-${{ github.run_number }}
-          path: ${{ steps.last_step.outputs.ZIPNAME }}   # ou usar a variável impressa
-
+          path: ${{ steps.create_zip.outputs.zipname }}
+          if-no-files-found: warn
 
       - name: Merge feeds (generate dist/merged-feed.xml)
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          else
+            pip install feedparser feedgen python-dateutil
+          fi
           python3 scripts/merge_feeds.py
 
       - name: Commit merged feed
