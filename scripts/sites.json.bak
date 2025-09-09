@@ -4,8 +4,8 @@
       "name": "iotworldtoday",
       "url": "https://www.iotworldtoday.com/",
       "item_container": "article, .listing-item, .post",
-      "title": "h1, h2 a, .teaser-title a",
-      "link": "h1 a@href, h2 a@href, .teaser-title a@href, a@href",
+      "title": "h1, h2 a",
+      "link": "h1 a@href, h2 a@href",
       "date": "time, .entry-date, .published",
       "description": "article p, .excerpt, .summary",
       "render_file": "scripts/rendered/iotworldtoday.html",
@@ -14,7 +14,7 @@
     {
       "name": "darkreading",
       "url": "https://www.darkreading.com/",
-      "item_container": "article, .story, .listing-item",
+      "item_container": "article, .listing-item, .story",
       "title": "h1, h2 a, h3 a, .article-title a",
       "link": "h1 a@href, h2 a@href, h3 a@href, .article-title a@href",
       "date": "time, .timestamp, .published",
@@ -25,7 +25,7 @@
     {
       "name": "edsurge",
       "url": "https://www.edsurge.com",
-      "item_container": "article, .post, .teaser",
+      "item_container": "article, .post, li",
       "title": "h1, h2 a, h3 a",
       "link": "h2 a@href, a@href",
       "date": "time, .date",
@@ -72,6 +72,17 @@
       "description": "p, .excerpt",
       "filters": { "keywords": ["hims","hers","hims&hers"] }
     },
+    { 
+      "name": "inmode-press",
+      "url": "https://inmodeinvestors.com/press-release/",
+      "item_container": ".investors_events_content_boxes .investors_events_bodybox, article",
+      "title": "article h2 a, a",
+      "link": "article h2 a@href, a@href",
+      "date": "article time, time",
+      "description": "article p, p",
+      "render_file": "scripts/rendered/inmode-press.html",
+      "filters": { "keywords": ["inmode","inmd"] } 
+    },
     {
       "name": "networkworld",
       "url": "https://www.networkworld.com/",
@@ -80,7 +91,7 @@
       "link": "h2 a@href, a@href",
       "date": "time, .date, .published",
       "description": "p, .dek",
-      "filters": { "keywords": ["anet","arista"] }
+      "filters": { "keywords": [] }
     },
     {
       "name": "prnewswire",
@@ -90,7 +101,7 @@
       "link": "a@href, h3 a@href, link@href",
       "date": "time, pubDate, .date",
       "description": "p, .summary, description",
-      "filters": { "keywords": ["rbrk","rubrik","duol","duolingo","iot","samsara"] }
+      "filters": { "keywords": ["rbrk","rubrik","alab","astera","anet","arista","duol","duolingo","axon","crwd","crowdstrike","ddog","datadog","ftnt","fortinet","hims","hers","hims&hers","iot","samsara","mndy","monday.com","onon","on holdings","on holding","on running","ttd","trade desk"] }
     },
     {
       "name": "globenewswire",
@@ -100,7 +111,7 @@
       "link": "a@href, h3 a@href",
       "date": ".date, time, span",
       "description": "p",
-      "filters": { "keywords": ["rbrk","rubrik","anet","arista","duol","duolingo"] }
+      "filters": { "keywords": ["rbrk","rubrik","alab","astera","anet","arista","duol","duolingo","axon","crwd","crowdstrike","ddog","datadog","ftnt","fortinet","hims","hers","hims&hers","iot","samsara","mndy","monday.com","onon","on holdings","on holding","on running","ttd","trade desk"] }
     },
     {
       "name": "businesswire-page1",
@@ -111,7 +122,7 @@
       "date": "time, .date, .timestamp",
       "description": "p, .summary",
       "render_file": "scripts/rendered/businesswire-page1.html",
-      "filters": { "keywords": ["rbrk","rubrik","anet","arista","crwd","crowdstrike"] }
+      "filters": { "keywords": ["rbrk","rubrik","alab","astera","anet","arista","duol","duolingo","axon","crwd","crowdstrike","ddog","datadog","ftnt","fortinet","hims","hers","hims&hers","iot","samsara","mndy","monday.com","onon","on holdings","on holding","on running","ttd","trade desk"] }
     },
     {
       "name": "businesswire-page2",
@@ -122,7 +133,7 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/businesswire-page2.html",
-      "filters": { "keywords": ["rbrk","rubrik","anet","arista","crwd","crowdstrike"] }
+      "filters": { "keywords": ["rbrk","rubrik","alab","astera","anet","arista","duol","duolingo","axon","crwd","crowdstrike","ddog","datadog","ftnt","fortinet","hims","hers","hims&hers","iot","samsara","mndy","monday.com","onon","on holdings","on holding","on running","ttd","trade desk"] }
     },
     {
       "name": "businesswire-page3",
@@ -133,7 +144,7 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/businesswire-page3.html",
-      "filters": { "keywords": ["rbrk","rubrik","anet","arista","crwd","crowdstrike"] }
+      "filters": { "keywords": ["rbrk","rubrik","alab","astera","anet","arista","duol","duolingo","axon","crwd","crowdstrike","ddog","datadog","ftnt","fortinet","hims","hers","hims&hers","iot","samsara","mndy","monday.com","onon","on holdings","on holding","on running","ttd","trade desk"] }
     },
     {
       "name": "businesswire-page4",
@@ -144,7 +155,7 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/businesswire-page4.html",
-      "filters": { "keywords": ["rbrk","rubrik","anet","arista","crwd","crowdstrike"] }
+      "filters": { "keywords": ["rbrk","rubrik","alab","astera","anet","arista","duol","duolingo","axon","crwd","crowdstrike","ddog","datadog","ftnt","fortinet","hims","hers","hims&hers","iot","samsara","mndy","monday.com","onon","on holdings","on holding","on running","ttd","trade desk"] }
     },
     {
       "name": "businesswire-page5",
@@ -155,7 +166,7 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/businesswire-page5.html",
-      "filters": { "keywords": ["rbrk","rubrik","anet","arista","crwd","crowdstrike"] }
+      "filters": { "keywords": ["rbrk","rubrik","alab","astera","anet","arista","duol","duolingo","axon","crwd","crowdstrike","ddog","datadog","ftnt","fortinet","hims","hers","hims&hers","iot","samsara","mndy","monday.com","onon","on holdings","on holding","on running","ttd","trade desk"] }
     },
     {
       "name": "financewire",
@@ -165,7 +176,7 @@
       "link": "a@href, h3 a@href",
       "date": "time, .date",
       "description": "p",
-      "filters": { "keywords": ["rbrk","rubrik","anet","arista","duol","duolingo"] }
+      "filters": { "keywords": ["rbrk","rubrik","alab","astera","anet","arista","duol","duolingo","axon","crwd","crowdstrike","ddog","datadog","ftnt","fortinet","hims","hers","hims&hers","iot","samsara","mndy","monday.com","onon","on holdings","on holding","on running","ttd","trade desk"] }
     },
     {
       "name": "yahoo-latest",
@@ -175,7 +186,7 @@
       "link": "a@href, h3 a@href",
       "date": "time, .Fz(12px), .published",
       "description": "p, .summary",
-      "filters": { "keywords": ["rbrk","rubrik","iot","samsara"] }
+      "filters": { "keywords": ["rbrk","rubrik","alab","astera","anet","arista","duol","duolingo","axon","crwd","crowdstrike","ddog","datadog","ftnt","fortinet","hims","hers","hims&hers","iot","samsara","mndy","monday.com","onon","on holdings","on holding","on running","ttd","trade desk"] }
     },
     {
       "name": "adage",
@@ -186,7 +197,7 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/adage.html",
-      "filters": { "keywords": ["supply path optimization","connected tv","ctv","programmatic","the trade desk","ttd"] }
+      "filters": { "keywords": ["supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"] }
     },
     {
       "name": "adweek-feed",
@@ -196,7 +207,7 @@
       "link": "link",
       "date": "pubDate",
       "description": "description",
-      "filters": { "keywords": ["supply path optimization","connected tv","ctv","programmatic","the trade desk","ttd"] }
+      "filters": { "keywords": ["supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"] }
     },
     {
       "name": "adexchanger-feed",
@@ -206,7 +217,7 @@
       "link": "link",
       "date": "pubDate",
       "description": "description",
-      "filters": { "keywords": ["supply path optimization","connected tv","ctv","programmatic","the trade desk","ttd"] }
+      "filters": { "keywords": ["supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"] }
     },
     {
       "name": "thedrum-adtech",
@@ -217,7 +228,7 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/thedrum-adtech.html",
-      "filters": { "keywords": ["supply path optimization","connected tv","ctv","programmatic","the trade desk","ttd"] }
+      "filters": { "keywords": ["supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"] }
     },
     {
       "name": "digiday",
@@ -228,7 +239,7 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/digiday.html",
-      "filters": { "keywords": ["supply path optimization","connected tv","ctv","programmatic","the trade desk","ttd"] }
+      "filters": { "keywords": ["supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"] }
     },
     {
       "name": "martech-feed",
@@ -238,7 +249,7 @@
       "link": "link",
       "date": "pubDate",
       "description": "description",
-      "filters": { "keywords": ["supply path optimization","connected tv","ctv","programmatic","the trade desk","ttd"] }
+      "filters": { "keywords": ["supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"] }
     },
     {
       "name": "mediapost",
@@ -249,7 +260,7 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/mediapost.html",
-      "filters": { "keywords": ["supply path optimization","connected tv","ctv","programmatic","the trade desk","ttd"] }
+      "filters": { "keywords": ["supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"] }
     },
     {
       "name": "exchangewire",
@@ -260,7 +271,7 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/exchangewire.html",
-      "filters": { "keywords": ["supply path optimization","connected tv","ctv","programmatic","the trade desk","ttd"] }
+      "filters": { "keywords": ["supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"] }
     },
     {
       "name": "admonsters",
@@ -271,7 +282,7 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/admonsters.html",
-      "filters": { "keywords": ["supply path optimization","connected tv","ctv","programmatic","the trade desk","ttd"] }
+      "filters": { "keywords": ["supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"] }
     },
     {
       "name": "videoweek",
@@ -282,7 +293,7 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/videoweek.html",
-      "filters": { "keywords": ["supply path optimization","connected tv","ctv","programmatic","the trade desk","ttd"] }
+      "filters": { "keywords": ["supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"] }
     },
     {
       "name": "marketingdive-search-trade-desk",
@@ -368,7 +379,7 @@
       "date": "time, .published, .byline",
       "description": "article p, .excerpt, .summary",
       "render_file": "scripts/rendered/cyberscoop.html",
-      "filters": { "keywords": ["crwd","crowdstrike"] }
+      "filters": { "keywords": ["crwd","crowdstrike","rubrik","fortinet"] }
     },
     {
       "name": "dzone",
@@ -410,7 +421,7 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/scworld.html",
-      "filters": { "keywords": ["ftnt","fortinet"] }
+      "filters": { "keywords": ["ftnt","fortinet","rubrik","crowdstrike"] }
     },
     {
       "name": "fiercehealthcare",
@@ -562,7 +573,7 @@
       "date": "time, .date",
       "description": "p, .abstract",
       "render_file": "scripts/rendered/plasticsurgerymeeting.html",
-      "filters": { "keywords": ["inmode","morpheus8","facetite","bodytite","rfal","abstract","clinical study","trial","presentation","podium"] }
+      "filters": { "keywords": ["inmode","morpheus8","facetite","bodytite","accutite","rfal","clinical study","trial","abstract","presentation","podium"] }
     },
     {
       "name": "linkedin-group-5146549",
@@ -610,7 +621,7 @@
     },
     {
       "name": "pubmatic-linkedin-group-sample",
-      "url": "https://www.linkedin.com/search/results/content/?datePosted=%22past-week%22&keywords=pubmatic&origin=FACETED_SEARCH&sid=6R~",
+      "url": "https://www.linkedin.com/search/results/content/?datePosted=%22past-week%22&keywords=pubmatic&origin=FACETED_SEARCH&sid=6R%7E",
       "item_container": ".feed-shared-update, .post",
       "title": ".feed-shared-actor__name, a",
       "link": "a@href",
@@ -619,16 +630,7 @@
       "render_file": "scripts/rendered/linkedin-pubmatic-search.html",
       "filters": { "keywords": [] }
     },
-    {
-      "name": "adexchanger",
-      "url": "https://adexchanger.com/",
-      "item_container": "article, li, div",
-      "title": "a, h2 a, h3 a",
-      "link": "a@href",
-      "date": "time, .date",
-      "description": "p, .summary",
-      "filters": { "keywords": ["supply path optimization","programmatic","the trade desk","ttd"] }
-    },
+    
     {
       "name": "pubmatic",
       "url": "https://pubmatic.com/",
@@ -639,16 +641,7 @@
       "description": "p, .summary",
       "filters": { "keywords": [] }
     },
-    {
-      "name": "techcrunch",
-      "url": "https://techcrunch.com/",
-      "item_container": "article, .post, .river",
-      "title": "h1, h2 a, .post-block__title a",
-      "link": "h1 a@href, h2 a@href, .post-block__title a@href",
-      "date": "time, .river-byline__time",
-      "description": "p, .post-block__content",
-      "filters": { "keywords": ["duol","duolingo","mndy","monday.com"] }
-    },
+    
     {
       "name": "theverge",
       "url": "https://www.theverge.com/",
@@ -658,18 +651,9 @@
       "date": ".c-byline__item time, time",
       "description": ".c-entry-summary p, p",
       "render_file": "scripts/rendered/theverge.html",
-      "filters": { "keywords": ["duol","duolingo","inmode","device","acquisition","partnership","fda","clinical trial"] }
+      "filters": { "keywords": ["duol","duolingo","inmode","device","acquisition","partnership","fda","clinical trial"], "exclude": ["opinion","review"]
     },
-    {
-      "name": "globenewswire_alt",
-      "url": "https://www.globenewswire.com/",
-      "item_container": "article, li, .press-release",
-      "title": "h1, h2 a, a",
-      "link": "a@href, h2 a@href",
-      "date": "time, .date",
-      "description": "p",
-      "filters": { "keywords": ["rbrk","rubrik","anet","arista","duol","duolingo"] }
-    },
+    
     {
       "name": "financefeed-common",
       "url": "https://www.financefeeds.com/",
@@ -690,6 +674,6 @@
       "description": "p",
       "filters": { "keywords": [] }
     }
-
+    
   ]
 }
