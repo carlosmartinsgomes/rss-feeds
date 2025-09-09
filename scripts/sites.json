@@ -101,7 +101,7 @@
       "link": "a@href, h3 a@href, link@href",
       "date": "time, pubDate, .date",
       "description": "p, .summary, description",
-      "filters": { "keywords": ["anet","arista"] }
+      "filters": { "keywords": ["rbrk","rubrik","alab","astera","anet","arista","duol","duolingo","axon","crwd","crowdstrike","ddog","datadog","ftnt","fortinet","hims","hers","hims&hers","iot","samsara","mndy","monday.com","onon","on holdings","on holding","on running","ttd","trade desk"] }
     },
     {
       "name": "globenewswire",
@@ -197,7 +197,7 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/adage.html",
-      "filters": { "keywords": [] }
+      "filters": { "keywords": ["supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"] }
     },
     {
       "name": "adweek-feed",
@@ -207,7 +207,7 @@
       "link": "link",
       "date": "pubDate",
       "description": "description",
-      "filters": { "keywords": [] }
+      "filters": { "keywords": ["supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"] }
     },
     {
       "name": "adexchanger-feed",
@@ -217,7 +217,7 @@
       "link": "link",
       "date": "pubDate",
       "description": "description",
-      "filters": { "keywords": [] }
+      "filters": { "keywords": ["supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"] }
     },
     {
       "name": "thedrum-adtech",
@@ -228,7 +228,7 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/thedrum-adtech.html",
-      "filters": { "keywords": [] }
+      "filters": { "keywords": ["supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"] }
     },
     {
       "name": "digiday",
@@ -239,7 +239,7 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/digiday.html",
-      "filters": { "keywords": [] }
+      "filters": { "keywords": ["supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"] }
     },
     {
       "name": "martech-feed",
@@ -249,7 +249,7 @@
       "link": "link",
       "date": "pubDate",
       "description": "description",
-      "filters": { "keywords": [] }
+      "filters": { "keywords": ["supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"] }
     },
     {
       "name": "mediapost",
@@ -260,7 +260,7 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/mediapost.html",
-      "filters": { "keywords": [] }
+      "filters": { "keywords": ["supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"] }
     },
     {
       "name": "exchangewire",
@@ -271,7 +271,7 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/exchangewire.html",
-      "filters": { "keywords": [] }
+      "filters": { "keywords": ["supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"] }
     },
     {
       "name": "admonsters",
@@ -282,7 +282,7 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/admonsters.html",
-      "filters": { "keywords": [] }
+      "filters": { "keywords": ["supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"] }
     },
     {
       "name": "videoweek",
@@ -293,7 +293,7 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/videoweek.html",
-      "filters": { "keywords": [] }
+      "filters": { "keywords": ["supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"] }
     },
     {
       "name": "marketingdive-search-trade-desk",
@@ -337,7 +337,7 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/semiengineering.html",
-      "filters": { "keywords": [] }
+      "filters": { "keywords": ["astera","alab"] }
     },
     {
       "name": "eetimes",
@@ -348,7 +348,7 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/eetimes.html",
-      "filters": { "keywords": [] }
+      "filters": { "keywords": ["astera","alab"] }
     },
     {
       "name": "techcrunch-feed",
@@ -358,7 +358,7 @@
       "link": "link",
       "date": "pubDate",
       "description": "description",
-      "filters": { "keywords": [] }
+      "filters": { "keywords": ["duol","duolingo","mndy","monday.com"] }
     },
     {
       "name": "thehackersnews",
@@ -379,7 +379,7 @@
       "date": "time, .published, .byline",
       "description": "article p, .excerpt, .summary",
       "render_file": "scripts/rendered/cyberscoop.html",
-      "filters": { "keywords": [] }
+      "filters": { "keywords": ["crwd","crowdstrike","rubrik","fortinet"] }
     },
     {
       "name": "dzone",
@@ -390,7 +390,7 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/dzone.html",
-      "filters": { "keywords": [] }
+      "filters": { "keywords": ["ddog","datadog"] }
     },
     {
       "name": "infoq-feed",
@@ -400,7 +400,7 @@
       "link": "link",
       "date": "pubDate",
       "description": "description",
-      "filters": { "keywords": [] }
+      "filters": { "keywords": ["ddog","datadog"] }
     },
     {
       "name": "thenewstack-feed",
@@ -410,7 +410,7 @@
       "link": "link",
       "date": "pubDate",
       "description": "description",
-      "filters": { "keywords": [] }
+      "filters": { "keywords": ["ddog","datadog"] }
     },
     {
       "name": "scworld",
@@ -421,7 +421,7 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/scworld.html",
-      "filters": { "keywords": [] }
+      "filters": { "keywords": ["ftnt","fortinet","rubrik","crowdstrike"] }
     },
     {
       "name": "fiercehealthcare",
@@ -431,7 +431,7 @@
       "link": "link",
       "date": "pubDate",
       "description": "description",
-      "filters": { "keywords": [] }
+      "filters": { "keywords": ["hims","hers","hims&hers"] }
     },
     {
       "name": "venturebeat",
@@ -442,7 +442,7 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/venturebeat.html",
-      "filters": { "keywords": [] }
+      "filters": { "keywords": ["iot","samsara","mndy","monday.com"] }
     },
     {
       "name": "wwd-footwear",
@@ -453,7 +453,7 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/wwd-footwear.html",
-      "filters": { "keywords": [] }
+      "filters": { "keywords": ["onon","on holding","on holdings","running"] }
     },
     {
       "name": "retaildive",
@@ -464,7 +464,7 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/retaildive.html",
-      "filters": { "keywords": [] }
+      "filters": { "keywords": ["onon","on holding","on holdings","running"] }
     },
     {
       "name": "mdpi-jaestheticmed",
@@ -475,7 +475,7 @@
       "date": "pubDate",
       "description": "description",
       "render_file": "scripts/rendered/mdpi.html",
-      "filters": { "keywords": [] }
+      "filters": { "keywords": ["inmode","inmd"] }
     },
     {
       "name": "medtechdive",
@@ -486,7 +486,7 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/medtechdive.html",
-      "filters": { "keywords": [] }
+      "filters": { "keywords": ["inmode","inmd"] }
     },
     {
       "name": "medtechdive-devices",
@@ -497,7 +497,7 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/medtechdive-devices.html",
-      "filters": { "keywords": [] }
+      "filters": { "keywords": ["inmode","inmd"] }
     },
     {
       "name": "fiercebiotech",
@@ -507,7 +507,7 @@
       "link": "link",
       "date": "pubDate",
       "description": "description",
-      "filters": { "keywords": [] }
+      "filters": { "keywords": ["inmode","inmd"] }
     },
     {
       "name": "medscape-derm",
@@ -518,7 +518,7 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/medscape.html",
-      "filters": { "keywords": [] }
+      "filters": { "keywords": ["inmode","inmd"] }
     },
     {
       "name": "modernhealthcare",
@@ -529,7 +529,7 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/modernhealthcare.html",
-      "filters": { "keywords": [] }
+      "filters": { "keywords": ["inmode","inmd"] }
     },
     {
       "name": "healio-derm",
@@ -540,7 +540,7 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/healio-derm.html",
-      "filters": { "keywords": ["a"] }
+      "filters": { "keywords": ["inmode","inmd"] }
     },
     {
       "name": "plasticsurgery-latest",
@@ -551,7 +551,7 @@
       "date": "pubDate",
       "description": "description",
       "render_file": "scripts/rendered/journals_lww_latest.html",
-      "filters": { "keywords": ["a"] }
+      "filters": { "keywords": ["inmode","morpheus8","facetite","bodytite","accutite","rfal","clinical study","trial","abstract","presentation","podium"] }
     },
     {
       "name": "plasticsurgery-currentissue",
@@ -562,7 +562,7 @@
       "date": "pubDate",
       "description": "description",
       "render_file": "scripts/rendered/journals_lww_current.html",
-      "filters": { "keywords": ["a"] }
+      "filters": { "keywords": ["inmode","morpheus8","facetite","bodytite","accutite","rfal","clinical study","trial","abstract","presentation","podium"] }
     },
     {
       "name": "plasticsurgerymeeting",
@@ -573,7 +573,7 @@
       "date": "time, .date",
       "description": "p, .abstract",
       "render_file": "scripts/rendered/plasticsurgerymeeting.html",
-      "filters": { "keywords": ["a"] }
+      "filters": { "keywords": ["inmode","morpheus8","facetite","bodytite","accutite","rfal","clinical study","trial","abstract","presentation","podium"] }
     },
     {
       "name": "linkedin-group-5146549",
@@ -584,7 +584,7 @@
       "date": "time, .timestamp",
       "description": ".feed-shared-update__description, .feed-shared-text",
       "render_file": "scripts/rendered/linkedin-5146549.html",
-      "filters": { "keywords": ["a"], "exclude": ["spam","promotion","course"] }
+      "filters": { "keywords": ["inmode","morpheus8","facetite","bodytite","complication","adverse","review","case","experience"], "exclude": ["spam","promotion","course"] }
     },
     {
       "name": "linkedin-group-4682610",
@@ -595,7 +595,7 @@
       "date": "time, .timestamp",
       "description": ".feed-shared-update__description, .feed-shared-text",
       "render_file": "scripts/rendered/linkedin-4682610.html",
-      "filters": { "keywords": ["a"], "exclude": ["spam","promotion","course"] }
+      "filters": { "keywords": ["inmode","morpheus8","facetite","bodytite","complication","adverse","review","case","experience"], "exclude": ["spam","promotion","course"] }
     },
     {
       "name": "linkedin-group-3875737",
@@ -606,7 +606,7 @@
       "date": "time, .timestamp",
       "description": ".feed-shared-update__description, .feed-shared-text",
       "render_file": "scripts/rendered/linkedin-3875737.html",
-      "filters": { "keywords": ["a"], "exclude": ["spam","promotion","course"] }
+      "filters": { "keywords": ["inmode","morpheus8","facetite","bodytite","complication","adverse","review","case","experience"], "exclude": ["spam","promotion","course"] }
     },
     {
       "name": "ttd-linkedin-group-sample",
@@ -700,16 +700,7 @@
       "date": "time, .date",
       "description": "p",
       "filters": { "keywords": [] }
-    },
-    {
-      "name": "thefly",
-      "url": "https://thefly.com/",
-      "item_container": "article, .feature, .teaser, .story",
-      "title": "h1, h2 a, h3 a, a",
-      "link": "h1 a@href, h2 a@href, h3 a@href, a@href",
-      "date": "time, .published, .date",
-      "description": "p, .summary, .excerpt",
-      "filters": { "keywords": [] }
     }
+    
   ]
 }
