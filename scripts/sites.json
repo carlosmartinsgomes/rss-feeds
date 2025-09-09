@@ -60,7 +60,7 @@
       "link": "h2 a@href, a@href",
       "date": "time, .published, .byline",
       "description": "p, .summary",
-      "filters": { "keywords": ["a"], "exclude": ["opinion","review"] }
+      "filters": { "keywords": ["inmode","device","acquisition","partnership","fda","clinical trial"], "exclude": ["opinion","review"] }
     },
     {
       "name": "mobihealthnews",
@@ -70,7 +70,7 @@
       "link": "h2 a@href, a@href",
       "date": "time, .date",
       "description": "p, .excerpt",
-      "filters": { "keywords": [] }
+      "filters": { "keywords": ["hims","hers","hims&hers"] }
     },
     {
       "name": "networkworld",
@@ -90,7 +90,7 @@
       "link": "a@href, h3 a@href, link@href",
       "date": "time, pubDate, .date",
       "description": "p, .summary, description",
-      "filters": { "keywords": [] }
+      "filters": { "keywords": ["anet","arista"] }
     },
     {
       "name": "globenewswire",
