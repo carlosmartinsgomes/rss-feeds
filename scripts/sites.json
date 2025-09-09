@@ -671,16 +671,7 @@
       "render_file": "scripts/rendered/theverge.html",
       "filters": { "keywords": ["duol","duolingo","inmode","device","acquisition","partnership","fda","clinical trial"], "exclude": ["opinion","review"]
     },
-    {
-      "name": "globenewswire_alt",
-      "url": "https://www.globenewswire.com/",
-      "item_container": "article, li, .press-release",
-      "title": "h1, h2 a, a",
-      "link": "a@href, h2 a@href",
-      "date": "time, .date",
-      "description": "p",
-      "filters": { "keywords": [] }
-    },
+    
     {
       "name": "financefeed-common",
       "url": "https://www.financefeeds.com/",
