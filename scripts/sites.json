@@ -651,7 +651,7 @@
       "date": ".c-byline__item time, time",
       "description": ".c-entry-summary p, p",
       "render_file": "scripts/rendered/theverge.html",
-      "filters": { "keywords": ["duol","duolingo","inmode","device","acquisition","partnership","fda","clinical trial"], "exclude": ["opinion","review"]
+      "filters": { "keywords": ["duol","duolingo","inmode","device","acquisition","partnership","fda","clinical trial"], "exclude": ["opinion","review"] }
     },
     
     {
