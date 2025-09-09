@@ -630,16 +630,7 @@
       "render_file": "scripts/rendered/linkedin-pubmatic-search.html",
       "filters": { "keywords": [] }
     },
-    {
-      "name": "adexchanger",
-      "url": "https://adexchanger.com/",
-      "item_container": "article, li, div",
-      "title": "a, h2 a, h3 a",
-      "link": "a@href",
-      "date": "time, .date",
-      "description": "p, .summary",
-      "filters": { "keywords": [] }
-    },
+    
     {
       "name": "pubmatic",
       "url": "https://pubmatic.com/",
@@ -650,16 +641,7 @@
       "description": "p, .summary",
       "filters": { "keywords": [] }
     },
-    {
-      "name": "techcrunch",
-      "url": "https://techcrunch.com/",
-      "item_container": "article, .post, .river",
-      "title": "h1, h2 a, .post-block__title a",
-      "link": "h1 a@href, h2 a@href, .post-block__title a@href",
-      "date": "time, .river-byline__time",
-      "description": "p, .post-block__content",
-      "filters": { "keywords": [] }
-    },
+    
     {
       "name": "theverge",
       "url": "https://www.theverge.com/",
