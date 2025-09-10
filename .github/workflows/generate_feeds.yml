@@ -232,29 +232,34 @@ jobs:
         working-directory: ${{ steps.detect.outputs.scripts_dir }}
         run: node render_linkedin_extract.js 'https://www.linkedin.com/groups/5146549/'
         env:
-          # opcional: define secrets no repo se quiseres permitir login automático
           LINKEDIN_EMAIL: ${{ secrets.LINKEDIN_EMAIL || '' }}
           LINKEDIN_PASSWORD: ${{ secrets.LINKEDIN_PASSWORD || '' }}
-          HEADLESS: 'true'   # define para 'false' só se quiseres ver o browser quando correr localmente / self-hosted
+          HEADLESS: 'true'
 
 
-      - name: Show produced linkedin files
+      - name: Show produced linkedin files (debug)
+        working-directory: ${{ steps.detect.outputs.scripts_dir }}
         run: |
           pwd
-          echo "Scripts dir: $SCRIPTS"
-          ls -la "${{ steps.detect.outputs.scripts_dir }}" || true
-          ls -la "${{ steps.detect.outputs.scripts_dir }}/output" || true
-          test -f "${{ steps.detect.outputs.scripts_dir }}/output/linkedin.json" && head -n 200 "${{ steps.detect.outputs.scripts_dir }}/output/linkedin.json" || true
-          test -f "${{ steps.detect.outputs.scripts_dir }}/output/linkedin.xlsx" && ls -la "${{ steps.detect.outputs.scripts_dir }}/output/linkedin.xlsx" || true
+          echo "Scripts dir: $SCRIPTS / $(pwd)"
+          ls -la || true
+          ls -la output || true
+          echo "---- head of output/linkedin.json (if exists) ----"
+          test -f output/linkedin.json && (echo "LEN:" $(wc -c < output/linkedin.json) && head -n 200 output/linkedin.json) || echo "no linkedin.json"
+          echo "---- list debug html/png ----"
+          ls -la output/debug-* || true
+          test -f linkedin_auth.json && echo "linkedin_auth.json exists (size: $(wc -c < linkedin_auth.json))" || echo "no linkedin_auth.json"
         env:
           SCRIPTS: ${{ steps.detect.outputs.scripts_dir }}
+
 
       - name: Upload linkedin artifact
         uses: actions/upload-artifact@v4
         with:
           name: linkedin-output
-          path: ${{ steps.detect.outputs.scripts_dir }}/output/linkedin.xlsx
+          path: ${{ steps.detect.outputs.scripts_dir }}/output
           if-no-files-found: warn
+
 
     
       - name: Upload rendered HTML as artifact
