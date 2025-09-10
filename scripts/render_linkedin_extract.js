@@ -36,12 +36,21 @@ const { chromium } = require('playwright');
     }
   }
 
-  
-  // Clica em todos os "see more" visíveis
-  const seeMore = await page.$$('button.feed-shared-inline-show-more-text__see-more-less-toggle');
-  for (const b of seeMore) {
-    try { await b.click(); await page.waitForTimeout(200); } catch(e){ }
+    // exemplo dentro do async após page.goto(...)
+  const containers = [
+    'article, li, .post',   // exemplo: podes usar a string que tens em sites.json
+  ];
+  for (const sel of containers) {
+    try {
+      const count = await page.evaluate(s => {
+        try { return document.querySelectorAll(s).length } catch(e){ return 'ERR' }
+      }, sel);
+      console.log(`Selector "${sel}" => ${count}`);
+    } catch(e){
+      console.log(`Eval failed for selector "${sel}":`, e && e.message);
+    }
   }
+
 
   const posts = await page.$$('div.feed-shared-update-v2, div.occludable-update[role="article"]');
   const out = [];
