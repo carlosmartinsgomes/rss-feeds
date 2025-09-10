@@ -1,0 +1,438 @@
+name: Generate RSS feeds (stable + businesswire)
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+  schedule:
+    - cron: '*/30 * * * *'
+
+env:
+  PYTHON_VERSION: '3.11'
+  NODE_VERSION: '18'
+
+permissions:
+  contents: write
+
+jobs:
+
+  render-on-selfhosted:
+    runs-on: self-hosted
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect scripts dir
+        id: detect
+        shell: bash
+        run: |
+          if [ -d "./scripts" ]; then sd="scripts";
+          elif [ -d "./rss-feeds/scripts" ]; then sd="rss-feeds/scripts";
+          else sd=$(find . -type d -name scripts | head -n 1); sd="${sd#./}";
+          fi
+          echo "scripts_dir=$sd" >> $GITHUB_OUTPUT
+          echo "Detected scripts_dir: $sd"
+
+      - name: Set up Node.js (self-hosted)
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Cache scripts node_modules
+        id: cache-node
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ steps.detect.outputs.scripts_dir }}/node_modules
+          key: node-mod-${{ runner.os }}-${{ env.NODE_VERSION }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            node-mod-${{ runner.os }}-${{ env.NODE_VERSION }}-
+
+      - name: Install playwright into scripts (npm --prefix) and chromium (self-hosted, smart)
+        shell: bash
+        run: |
+          SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
+          if [ -z "$SCRIPTS" ]; then
+            echo "No scripts dir detected -> skip playwright install"
+            exit 0
+          fi
+
+          if [ ! -d "$SCRIPTS/node_modules/playwright" ]; then
+            echo "Installing playwright package into $SCRIPTS (npm --prefix)..."
+            npm install --prefix "$SCRIPTS" playwright --no-audit --no-fund --silent || { echo "npm install failed"; exit 1; }
+          else
+            echo "playwright package already present in $SCRIPTS/node_modules - skipping npm install"
+          fi
+
+          if [ -d "${HOME}/.cache/ms-playwright" ] && [ "$(ls -A ${HOME}/.cache/ms-playwright 2>/dev/null | wc -l)" -gt 0 ]; then
+            echo "Playwright browsers already present in ${HOME}/.cache/ms-playwright -> skipping browser install"
+          else
+            echo "Playwright browsers not found in ${HOME}/.cache/ms-playwright -> installing chromium"
+            npx --yes --prefix "$SCRIPTS" playwright install chromium || { echo "playwright browser install failed"; exit 1; }
+          fi
+
+          echo "Done playwright setup."
+
+      - name: Render pages (parallel)
+        shell: bash
+        run: |
+          SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
+          if [ -z "$SCRIPTS" ]; then
+            echo "No scripts dir detected -> skip rendering"
+            exit 0
+          fi
+          mkdir -p "$SCRIPTS/rendered"
+          if [ ! -f "$SCRIPTS/run_renders.js" ]; then
+            echo "run_renders.js not found at $SCRIPTS/run_renders.js - skipping render"
+            exit 0
+          fi
+          export RENDER_CONCURRENCY=${{ env.RENDER_CONCURRENCY || '4' }}
+          node "$SCRIPTS/run_renders.js"
+        env:
+          SCRIPTS: ${{ steps.detect.outputs.scripts_dir }}
+          RENDER_CONCURRENCY: 4
+
+      - name: Render configured pages (for sites with render_file) - WHITELISTED hosts only
+        shell: bash
+        env:
+          EXPLICIT_URLS: |
+            https://inmodeinvestors.com/press-release
+            https://www.darkreading.com/
+            https://www.iotworldtoday.com/
+            https://www.businesswire.com/newsroom
+            https://www.businesswire.com/newsroom?page=2
+            https://www.businesswire.com/newsroom?page=3
+            https://www.businesswire.com/newsroom?page=4
+            https://www.businesswire.com/newsroom?page=5
+          SCRIPTS: ${{ steps.detect.outputs.scripts_dir }}
+        run: |
+          echo "Using SCRIPTS='$SCRIPTS' and EXPLICIT_URLS provided"
+      
+          node <<'NODE'
+          const fs = require('fs');
+          const cp = require('child_process');
+          const path = require('path');
+      
+          // WHITELIST: apenas estes hosts serão processados por este passo
+          const allowedHosts = [
+            'dzone.com',
+            'eetimes.com',
+            'mdpi.com',
+            'medscape.com',
+            'stocktwits.com',
+            'journals.lww.com'
+          ];
+      
+          function hostOf(urlString) {
+            try {
+              const u = new URL(String(urlString));
+              return (u.hostname || '').toLowerCase().replace(/^www\./,'');
+            } catch (e) {
+              const m = String(urlString || '').toLowerCase().match(/:\/\/([^\/:?#]+)/);
+              return m ? m[1].replace(/^www\./,'') : '';
+            }
+          }
+      
+          function hostMatchesAllowed(hostname) {
+            if (!hostname) return false;
+            return allowedHosts.some(a => hostname === a || hostname.endsWith('.' + a));
+          }
+      
+          // read env provided by the step
+          let scriptsDir = process.env.SCRIPTS || '';
+          const explicitRaw = process.env.EXPLICIT_URLS || '';
+          const explicit = explicitRaw.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+      
+          const candidates = ['scripts', 'rss-feeds/scripts', './scripts', './rss-feeds/scripts'];
+          if (!scriptsDir) {
+            for (const c of candidates) {
+              try {
+                if (fs.existsSync(path.join(c, 'sites.json')) && fs.existsSync(path.join(c, 'render_page.js'))) {
+                  scriptsDir = c;
+                  break;
+                }
+              } catch (e) { /* ignore */ }
+            }
+          }
+      
+          if (!scriptsDir) {
+            console.warn('Could not determine scripts directory. Skipping configured renders.');
+            process.exit(0);
+          }
+      
+          scriptsDir = scriptsDir.replace(/\/+$/, '');
+          const sitesFile = path.join(scriptsDir, 'sites.json');
+          if (!fs.existsSync(sitesFile)) {
+            console.warn(`sites.json not found at ${sitesFile} -> skipping configured renders`);
+            process.exit(0);
+          }
+      
+          // read & parse sites.json with simple sanitizer (remove // and /* */ and trailing commas)
+          let raw = fs.readFileSync(sitesFile, 'utf8');
+          let sitesObj = null;
+          try {
+            sitesObj = JSON.parse(raw);
+          } catch (e) {
+            // sanitize: remove // comments and /* */ blocks and trailing commas
+            let s = raw.replace(/\/\/.*(?=\n)/g, '');
+            s = s.replace(/\/\*[\s\S]*?\*\//g, '');
+            s = s.replace(/,\s*(\}|])/g, '$1');
+            try {
+              sitesObj = JSON.parse(s);
+              console.log('Parsed sites.json after basic sanitize (node).');
+            } catch (e2) {
+              console.error('Failed to parse sites.json in Node even after sanitize:', e2 && e2.message ? e2.message : e2);
+              process.exit(1);
+            }
+          }
+      
+          let sites = (sitesObj && sitesObj.sites) ? sitesObj.sites : (Array.isArray(sitesObj) ? sitesObj : []);
+      
+          const renderScript = path.join(scriptsDir, 'render_page.js');
+          if (!fs.existsSync(renderScript)) {
+            console.warn(`render_page.js not found at ${renderScript} -> skipping`);
+            process.exit(0);
+          }
+      
+          try { fs.mkdirSync(path.join(scriptsDir, 'rendered'), { recursive: true }); } catch(e){}
+      
+          for (const s of sites.filter(s => s.render_file)) {
+            const urlRaw = (s.url || '').trim();
+            if (!urlRaw) continue;
+            const host = hostOf(urlRaw);
+      
+            // se não estiver na whitelist, ignora
+            if (!hostMatchesAllowed(host)) {
+              console.log('Skipping (not in configured whitelist):', urlRaw);
+              continue;
+            }
+      
+            // se a URL já foi explicitamente tratada na etapa explícita, pula para evitar duplicação
+            if (explicit.includes(urlRaw)) {
+              console.log('Skipping configured render for (explicit handled):', urlRaw);
+              continue;
+            }
+      
+            const url = urlRaw;
+            const out = s.render_file;
+            console.log('Rendering', url, '->', out);
+            try {
+              const cmd = `node "${renderScript}" "${String(url).replace(/"/g,'\\"')}" "${String(out).replace(/"/g,'\\"')}"`;
+              cp.execSync(cmd, { stdio: 'inherit', timeout: 180000 });
+              console.log('-> Done:', url);
+            } catch (err) {
+              console.error('Render failed for', url, '-', err && err.message ? err.message : err);
+            }
+          }
+          NODE
+    
+      - name: Run linkedin extract (self-hosted)
+        shell: bash
+        run: |
+          echo "Running linkedin extract from $SCRIPTS"
+          node "${{ steps.detect.outputs.scripts_dir }}/render_linkedin_extract.js" 2>&1 | tee run_linkedin.log
+        env:
+          SCRIPTS: ${{ steps.detect.outputs.scripts_dir }}
+
+      - name: Show produced linkedin files
+        run: |
+          pwd
+          echo "Scripts dir: $SCRIPTS"
+          ls -la "${{ steps.detect.outputs.scripts_dir }}" || true
+          ls -la "${{ steps.detect.outputs.scripts_dir }}/output" || true
+          test -f "${{ steps.detect.outputs.scripts_dir }}/output/linkedin.json" && head -n 200 "${{ steps.detect.outputs.scripts_dir }}/output/linkedin.json" || true
+          test -f "${{ steps.detect.outputs.scripts_dir }}/output/linkedin.xlsx" && ls -la "${{ steps.detect.outputs.scripts_dir }}/output/linkedin.xlsx" || true
+        env:
+          SCRIPTS: ${{ steps.detect.outputs.scripts_dir }}
+
+      - name: Upload linkedin artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linkedin-output-${{ github.run_id }}-${{ github.run_number }}
+          path: ${{ steps.detect.outputs.scripts_dir }}/output/linkedin.xlsx
+          if-no-files-found: warn
+
+    
+      - name: Upload rendered HTML as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rendered-html
+          path: ${{ steps.detect.outputs.scripts_dir }}/rendered
+
+  build:
+    needs: render-on-selfhosted
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download rendered HTML artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: rendered-html
+          path: scripts/rendered
+
+      - name: Show repo root (debug)
+        run: |
+          echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
+          pwd
+          ls -la
+          echo "rendered dir (downloaded):"
+          ls -la scripts/rendered || true
+
+      - name: Detect scripts dir
+        id: detect
+        run: |
+          if [ -d "./scripts" ]; then sd="scripts";
+          elif [ -d "./rss-feeds/scripts" ]; then sd="rss-feeds/scripts";
+          else sd=$(find . -type d -name scripts | head -n 1); sd="${sd#./}";
+          fi
+          echo "scripts_dir=$sd" >> $GITHUB_OUTPUT
+          echo "Detected scripts_dir: $sd"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Cache scripts node_modules
+        id: cache-node
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ steps.detect.outputs.scripts_dir }}/node_modules
+          key: node-mod-${{ runner.os }}-${{ env.NODE_VERSION }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            node-mod-${{ runner.os }}-${{ env.NODE_VERSION }}-
+
+      - name: Install playwright into scripts (npm --prefix) and chromium (smart)
+        shell: bash
+        run: |
+          SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
+          if [ -z "$SCRIPTS" ]; then
+            echo "No scripts dir detected -> skip playwright install"
+            exit 0
+          fi
+
+          if [ ! -d "$SCRIPTS/node_modules/playwright" ]; then
+            npm install --prefix "$SCRIPTS" playwright --no-audit --no-fund --silent || { echo "npm install failed"; exit 1; }
+          fi
+
+          if [ -d "${HOME}/.cache/ms-playwright" ] && [ "$(ls -A ${HOME}/.cache/ms-playwright 2>/dev/null | wc -l)" -gt 0 ]; then
+            echo "Playwright browsers already present -> skipping"
+          else
+            npx --yes --prefix "$SCRIPTS" playwright install chromium || { echo "playwright browser install failed"; exit 1; }
+          fi
+
+      - name: Verify playwright is importable (sanity)
+        if: steps.detect.outputs.scripts_dir != ''
+        run: |
+          SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
+          echo "Node version: $(node --version)"
+          echo "NPM version: $(npm --version)"
+          ls -la "$SCRIPTS/node_modules" | sed -n '1,200p' || true
+          node -e "try { require('./${{ steps.detect.outputs.scripts_dir }}/node_modules/playwright'); console.log('playwright ok'); } catch(e) { console.error('playwright require failed:', e.message); process.exit(2); }"
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f "requirements.txt" ]; then
+            pip install -r requirements.txt
+          else
+            pip install requests beautifulsoup4 feedgen lxml feedparser python-dateutil
+          fi
+
+      - name: Run feed generator (Python)
+        run: |
+          SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
+          if [ -f "${SCRIPTS}/generate_feeds.py" ]; then
+            python3 "${SCRIPTS}/generate_feeds.py"
+          elif [ -f "scripts/generate_feeds.py" ]; then
+            python3 scripts/generate_feeds.py
+          else
+            echo "generate_feeds.py not found -> abort"
+            exit 1
+          fi
+
+      - name: Install tiny extras for Excel export
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas openpyxl feedparser beautifulsoup4
+
+      - name: Generate Excel summary of feeds
+        run: |
+          python3 scripts/feeds_to_excel.py
+        shell: bash
+
+      - name: Upload feeds Excel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: feeds-summary-${{ github.run_id }}-${{ github.run_number }}
+          path: feeds_summary.xlsx
+          if-no-files-found: warn
+          retention-days: 7
+    
+
+      - name: Ensure output dir exists
+        run: |
+          mkdir -p feeds
+          ls -la
+
+      - name: Create timestamped zip of feeds
+        id: create_zip
+        run: |
+          set -e
+          ZIPNAME=feeds-${{ github.run_id }}-${{ github.run_number }}.zip
+          if ls feeds/*.xml 1> /dev/null 2>&1; then
+            zip -r "$ZIPNAME" feeds || true
+          else
+            mkdir -p feeds
+            echo "no-feeds" > feeds/placeholder.txt
+            zip -r "$ZIPNAME" feeds || true
+          fi
+          echo "zipname=$ZIPNAME" >> $GITHUB_OUTPUT
+        shell: bash
+
+      - name: Upload feeds artifact (zip)
+        uses: actions/upload-artifact@v4
+        with:
+          name: feeds-${{ github.run_id }}-${{ github.run_number }}
+          path: ${{ steps.create_zip.outputs.zipname }}
+          if-no-files-found: warn
+
+      - name: Merge feeds (generate dist/merged-feed.xml)
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          else
+            pip install feedparser feedgen python-dateutil
+          fi
+          python3 scripts/merge_feeds.py
+
+      - name: Commit merged feed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "actions@github.com"
+          git add dist/merged-feed.xml || echo "no merged feed to add"
+          git commit -m "Update merged feed" || echo "no changes to commit"
+          git push
+
+      - name: Show produced feeds
+        run: |
+          echo "Feeds dir listing:"
+          ls -la feeds || true
+          for f in feeds/*.xml; do
+            echo "---- $f ----"
+            head -n 40 "$f" || true
+          done
