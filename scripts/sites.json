@@ -233,13 +233,14 @@
     {
       "name": "digiday",
       "url": "https://digiday.com/",
-      "item_container": "article, li, div",
-      "title": "a, h2 a, h3 a",
-      "link": "a@href, h2 a@href",
-      "date": "time, .date",
-      "description": "p",
+      "item_container": "ul.news-list li, .flex-container .news-content, .news-list .news-content, .block-text, .home-featured",
+      "title": "a.link, h4 a.title, h4 a, a.title, h3 a",
+      "link": "a.link@href, h4 a.title@href, h4 a@href, a[href]@href",
+      "date": "span.date, .article-info .date, time, .timestamp",
+      "description": ".news-content p, .block-text p, .excerpt, .dek, p, a.link@title, h4 a.title@title",
+      "topic": ".eyebrow a, .eyebrow",
       "render_file": "scripts/rendered/digiday.html",
-      "filters": { "keywords": ["supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"] }
+      "filters": { "keywords": ["supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"], "exclude": ["sponsored", "sponsor", "promoted", "promo", "patrocinad"] }
     },
     {
       "name": "martech-feed",
@@ -578,57 +579,62 @@
     {
       "name": "linkedin-group-5146549",
       "url": "https://www.linkedin.com/groups/5146549/",
-      "item_container": ".feed-shared-update, .post, .pv-shared-update",
-      "title": ".feed-shared-actor__name, a, h3",
-      "link": "a@href",
-      "date": "time, .timestamp",
-      "description": ".feed-shared-update__description, .feed-shared-text",
+      "item_container": "div.feed-shared-update-v2, div.occludable-update[role='article'], div[id^='ember'][role='article']",
+  "title": "div.update-components-actor__title span.update-components-actor__single-line-truncate, a.update-components-actor__meta-link",
+  "link": "div.update-components-actor__meta a.update-components-actor__meta-link@href, a.update-components-actor__image@href",
+  "date": "span.update-components-actor__sub-description, span.update-components-actor__sub-description span[aria-hidden='true'], span.update-components-actor__sub-description",
+  "description": "div.update-components-text.update-components-update-v2__commentary, div.feed-shared-inline-show-more-text div.update-components-text",
+  "expand_more_selector": "button.feed-shared-inline-show-more-text__see-more-less-toggle, button[aria-label*='ver mais'], button[aria-label*='see more']",
       "render_file": "scripts/rendered/linkedin-5146549.html",
-      "filters": { "keywords": ["inmode","morpheus8","facetite","bodytite","complication","adverse","review","case","experience"], "exclude": ["spam","promotion","course"] }
+      "filters": { "keywords": ["inmode","morpheus8","facetite","bodytite","complication","adverse","review","case","experience"], "exclude": ["spam","promotion", "promo","course"] }
     },
     {
       "name": "linkedin-group-4682610",
       "url": "https://www.linkedin.com/groups/4682610/",
-      "item_container": ".feed-shared-update, .post",
-      "title": ".feed-shared-actor__name, a",
-      "link": "a@href",
-      "date": "time, .timestamp",
-      "description": ".feed-shared-update__description, .feed-shared-text",
+      "item_container": "div.feed-shared-update-v2, div.occludable-update[role='article'], div[id^='ember'][role='article']",
+  "title": "div.update-components-actor__title span.update-components-actor__single-line-truncate, a.update-components-actor__meta-link",
+  "link": "div.update-components-actor__meta a.update-components-actor__meta-link@href, a.update-components-actor__image@href",
+  "date": "span.update-components-actor__sub-description, span.update-components-actor__sub-description span[aria-hidden='true'], span.update-components-actor__sub-description",
+  "description": "div.update-components-text.update-components-update-v2__commentary, div.feed-shared-inline-show-more-text div.update-components-text",
+  "expand_more_selector": "button.feed-shared-inline-show-more-text__see-more-less-toggle, button[aria-label*='ver mais'], button[aria-label*='see more']",
       "render_file": "scripts/rendered/linkedin-4682610.html",
-      "filters": { "keywords": ["inmode","morpheus8","facetite","bodytite","complication","adverse","review","case","experience"], "exclude": ["spam","promotion","course"] }
+      "filters": { "keywords": ["inmode","morpheus8","facetite","bodytite","complication","adverse","review","case","experience"], "exclude": ["spam","promotion", "promo","course"] }
     },
     {
       "name": "linkedin-group-3875737",
       "url": "https://www.linkedin.com/groups/3875737/",
-      "item_container": ".feed-shared-update, .post",
-      "title": ".feed-shared-actor__name, a",
-      "link": "a@href",
-      "date": "time, .timestamp",
-      "description": ".feed-shared-update__description, .feed-shared-text",
+      "item_container": "div.feed-shared-update-v2, div.occludable-update[role='article'], div[id^='ember'][role='article']",
+  "title": "div.update-components-actor__title span.update-components-actor__single-line-truncate, a.update-components-actor__meta-link",
+  "link": "div.update-components-actor__meta a.update-components-actor__meta-link@href, a.update-components-actor__image@href",
+  "date": "span.update-components-actor__sub-description, span.update-components-actor__sub-description span[aria-hidden='true'], span.update-components-actor__sub-description",
+  "description": "div.update-components-text.update-components-update-v2__commentary, div.feed-shared-inline-show-more-text div.update-components-text",
+  "expand_more_selector": "button.feed-shared-inline-show-more-text__see-more-less-toggle, button[aria-label*='ver mais'], button[aria-label*='see more']",
       "render_file": "scripts/rendered/linkedin-3875737.html",
-      "filters": { "keywords": ["inmode","morpheus8","facetite","bodytite","complication","adverse","review","case","experience"], "exclude": ["spam","promotion","course"] }
+      "filters": { "keywords": ["inmode","morpheus8","facetite","bodytite","complication","adverse","review","case","experience"], "exclude": ["spam","promotion", "promo","course"] }
     },
     {
       "name": "ttd-linkedin-group-sample",
       "url": "https://www.linkedin.com/search/results/content/?datePosted=%22past-week%22&keywords=the%20trade%20desk&origin=FACETED_SEARCH&sid=qu%3A",
-      "item_container": ".feed-shared-update, .post",
-      "title": ".feed-shared-actor__name, a",
-      "link": "a@href",
-      "date": "time, .timestamp",
-      "description": ".feed-shared-update__description, .feed-shared-text",
+      "item_container": "div.feed-shared-update-v2, div.occludable-update[role='article'], div[id^='ember'][role='article']",
+  "title": "div.update-components-actor__title span.update-components-actor__single-line-truncate, a.update-components-actor__meta-link",
+  "link": "div.update-components-actor__meta a.update-components-actor__meta-link@href, a.update-components-actor__image@href",
+  "date": "span.update-components-actor__sub-description, span.update-components-actor__sub-description span[aria-hidden='true'], span.update-components-actor__sub-description",
+  "description": "div.update-components-text.update-components-update-v2__commentary, div.feed-shared-inline-show-more-text div.update-components-text",
+  "expand_more_selector": "button.feed-shared-inline-show-more-text__see-more-less-toggle, button[aria-label*='ver mais'], button[aria-label*='see more']",
       "render_file": "scripts/rendered/linkedin-ttd-search.html",
-      "filters": { "keywords": [] }
+      "filters": { "keywords": [], "exclude": ["spam","promotion", "promo","course"] } 
     },
     {
       "name": "pubmatic-linkedin-group-sample",
       "url": "https://www.linkedin.com/search/results/content/?datePosted=%22past-week%22&keywords=pubmatic&origin=FACETED_SEARCH&sid=6R%7E",
-      "item_container": ".feed-shared-update, .post",
-      "title": ".feed-shared-actor__name, a",
-      "link": "a@href",
-      "date": "time, .timestamp",
-      "description": ".feed-shared-update__description, .feed-shared-text",
+      "item_container": "div.feed-shared-update-v2, div.occludable-update[role='article'], div[id^='ember'][role='article']",
+  "title": "div.update-components-actor__title span.update-components-actor__single-line-truncate, a.update-components-actor__meta-link",
+  "link": "div.update-components-actor__meta a.update-components-actor__meta-link@href, a.update-components-actor__image@href",
+  "date": "span.update-components-actor__sub-description, span.update-components-actor__sub-description span[aria-hidden='true'], span.update-components-actor__sub-description",
+  "description": "div.update-components-text.update-components-update-v2__commentary, div.feed-shared-inline-show-more-text div.update-components-text",
+  "expand_more_selector": "button.feed-shared-inline-show-more-text__see-more-less-toggle, button[aria-label*='ver mais'], button[aria-label*='see more']",
       "render_file": "scripts/rendered/linkedin-pubmatic-search.html",
-      "filters": { "keywords": [] }
+      "filters": { "keywords": [], "exclude": ["spam","promotion", "promo","course"] }
     },
     
     {
