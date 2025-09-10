@@ -228,13 +228,8 @@ jobs:
           }
           NODE
     
-      - name: Run linkedin extract (self-hosted)
-        shell: bash
-        run: |
-          echo "Running linkedin extract from $SCRIPTS"
-          node "${{ steps.detect.outputs.scripts_dir }}/render_linkedin_extract.js" 2>&1 | tee run_linkedin.log
-        env:
-          SCRIPTS: ${{ steps.detect.outputs.scripts_dir }}
+      - name: Run linkedin extractor
+        run: node scripts/render_linkedin_extract.js 'https://www.linkedin.com/groups/5146549/'
 
       - name: Show produced linkedin files
         run: |
@@ -250,8 +245,8 @@ jobs:
       - name: Upload linkedin artifact
         uses: actions/upload-artifact@v4
         with:
-          name: linkedin-output-${{ github.run_id }}-${{ github.run_number }}
-          path: ${{ steps.detect.outputs.scripts_dir }}/output/linkedin.xlsx
+          name: linkedin-output
+          path: scripts/output/linkedin.xlsx
           if-no-files-found: warn
 
     
