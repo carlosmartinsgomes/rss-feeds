@@ -179,20 +179,22 @@ async function renderWithPlaywright(url, options, debugPrefix) {
       }
     }
 
-    // exemplo dentro do async após page.goto(...)
-const containers = [
-  'article, li, .post',   // exemplo: podes usar a string que tens em sites.json
-];
-for (const sel of containers) {
-  try {
-    const count = await page.evaluate(s => {
-      try { return document.querySelectorAll(s).length } catch(e){ return 'ERR' }
-    }, sel);
-    console.log(`Selector "${sel}" => ${count}`);
-  } catch(e){
-    console.log(`Eval failed for selector "${sel}":`, e && e.message);
+    
+     // exemplo dentro do async após page.goto(...)
+  const containers = [
+    'article, li, .post',   // exemplo: podes usar a string que tens em sites.json
+  ];
+  for (const sel of containers) {
+    try {
+      const count = await page.evaluate(s => {
+        try { return document.querySelectorAll(s).length } catch(e){ return 'ERR' }
+      }, sel);
+      console.log(`Selector "${sel}" => ${count}`);
+    } catch(e){
+      console.log(`Eval failed for selector "${sel}":`, e && e.message);
+    }
   }
-}
+
 
     
     const status = resp ? resp.status() : null;
