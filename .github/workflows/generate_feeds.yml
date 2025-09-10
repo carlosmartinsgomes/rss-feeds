@@ -229,7 +229,14 @@ jobs:
           NODE
     
       - name: Run linkedin extractor
-        run: node scripts/render_linkedin_extract.js 'https://www.linkedin.com/groups/5146549/'
+        working-directory: ${{ steps.detect.outputs.scripts_dir }}
+        run: node render_linkedin_extract.js 'https://www.linkedin.com/groups/5146549/'
+        env:
+          # opcional: define secrets no repo se quiseres permitir login automático
+          LINKEDIN_EMAIL: ${{ secrets.LINKEDIN_EMAIL || '' }}
+          LINKEDIN_PASSWORD: ${{ secrets.LINKEDIN_PASSWORD || '' }}
+          HEADLESS: 'true'   # define para 'false' só se quiseres ver o browser quando correr localmente / self-hosted
+
 
       - name: Show produced linkedin files
         run: |
@@ -246,7 +253,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: linkedin-output
-          path: scripts/output/linkedin.xlsx
+          path: ${{ steps.detect.outputs.scripts_dir }}/output/linkedin.xlsx
           if-no-files-found: warn
 
     
