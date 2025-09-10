@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// scripts/render_linkedin_extract.js
+// scripts/render_linkedin_extract.js (VERSÃO DEBUG + AUTO-SCROLL + SAVE HTML/PNG)
 const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
@@ -9,7 +9,6 @@ const Excel = require('exceljs');
   console.log('START render_linkedin_extract.js - cwd=', process.cwd());
   console.log('argv=', process.argv);
 
-  // usa __dirname para garantir paths correctos independentemente do working-dir
   const scriptDir = __dirname;
   const outDir = path.join(scriptDir, 'output');
   fs.mkdirSync(outDir, { recursive: true });
@@ -18,16 +17,13 @@ const Excel = require('exceljs');
   const urls = process.argv.slice(2);
   if (urls.length === 0) {
     console.log('USO: node render_linkedin_extract.js <url1> <url2> ...');
-    console.log('Exemplo de URL: https://www.linkedin.com/groups/5146549/');
     process.exit(1);
   }
 
-  // HEADLESS control: se quiseres ver o browser localmente define HEADLESS=false
   const headless = process.env.HEADLESS !== 'false';
   const browser = await chromium.launch({ headless, args: ['--no-sandbox','--disable-setuid-sandbox'] });
 
   try {
-    // se houver storageState usa logo, senão cria contexto limpo e talvez login automático
     let context;
     if (fs.existsSync(storagePath)) {
       console.log('Using existing storageState:', storagePath);
@@ -38,13 +34,13 @@ const Excel = require('exceljs');
     }
 
     const page = await context.newPage();
-
-    // se não existir storageState e existirem credenciais como env, tentar login e gravar storage
     const email = process.env.LINKEDIN_EMAIL || '';
     const password = process.env.LINKEDIN_PASSWORD || '';
+
+    // tenta login automático se não houver storage e houver credenciais
     if (!fs.existsSync(storagePath) && email && password) {
-      console.log('No storageState -> attempting login using LINKEDIN_EMAIL / LINKEDIN_PASSWORD env vars');
       try {
+        console.log('Tentando login automático...');
         await page.goto('https://www.linkedin.com/login', { waitUntil: 'domcontentloaded', timeout: 30000 });
         await page.fill('input#username, input[name="session_key"]', email).catch(()=>{});
         await page.fill('input#password, input[name="session_password"]', password).catch(()=>{});
@@ -52,68 +48,91 @@ const Excel = require('exceljs');
           page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 20000 }).catch(()=>{}),
           page.click('button[type="submit"], button.sign-in-form__submit-button').catch(()=>{})
         ]);
-        // pequena espera
         await page.waitForTimeout(3000);
-        // confirma se login parece bem (procura um elemento visível do feed)
-        const loggedIn = await page.url().includes('/feed') || await page.$('div.feed-shared-update-v2, div.occludable-update') ? true : false;
-        if (loggedIn) {
+        // tenta gravar storageState caso login tenha funcionado
+        try {
           await context.storageState({ path: storagePath });
-          console.log('Login parece bem — storageState gravado em', storagePath);
-        } else {
-          console.warn('Login automátio tentou mas não detectou feed; continue manual ou execute localmente com HEADLESS=false');
-        }
+          console.log('Gravou storageState em', storagePath);
+        } catch(e){ console.warn('Não conseguiu gravar storageState:', e && e.message); }
       } catch (e) {
         console.warn('Login automatico falhou:', e && e.message);
       }
-    } else if (!fs.existsSync(storagePath) && !email && !password && !headless) {
-      // caso local com headful browser — dá oportunidade de login manual e grava storage
-      console.log('Executando em modo visível sem storageState e sem credenciais — faz o login manualmente no browser (tens 60s) para gravarmos storageState.');
-      await page.goto('https://www.linkedin.com/login', { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(()=>{});
-      // espera 60s para login manual
-      await page.waitForTimeout(60000);
-      try {
-        await context.storageState({ path: storagePath });
-        console.log('Tentativa de salvar storageState após login manual ->', storagePath);
-      } catch(e){ console.warn('Não foi possível salvar storageState:', e && e.message); }
     }
 
     const results = [];
-
-    // função utilitária para filtrar hrefs de navegação/menus/cookies
     const badHrefSubstr = ['help', 'legal', 'cookie', 'privacy', 'terms', 'signin', 'login', 'settings', 'consent', 'preferences', 'policies', 'mailto'];
+
+    // helper: scroll down slowly to load dynamic posts
+    async function autoScroll(page, maxScrolls = 12, delay = 800) {
+      for (let i = 0; i < maxScrolls; i++) {
+        await page.evaluate(() => { window.scrollBy(0, window.innerHeight); });
+        await page.waitForTimeout(delay);
+      }
+    }
 
     for (const url of urls) {
       console.log('>>> Loading', url);
       try {
-        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
-        // small wait for dynamic content
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 }).catch(()=>{});
         await page.waitForTimeout(1500);
 
-        // expand "see more" buttons so descriptions become visíveis
-        const moreButtons = await page.$$(
+        // close cookie / overlays if present
+        const overlaySelectors = [
+          'button[aria-label*="close"]', 'button[aria-label*="Close"]',
+          'button.artdeco-modal__dismiss', 'button[aria-label*="dismiss"]',
+          'button[aria-label*="Accept"]', 'button[aria-label*="Accept cookies"]',
+          'button[data-control-name="accept_cookies"]'
+        ];
+        for (const s of overlaySelectors) {
+          try {
+            const els = await page.$$(s);
+            if (els && els.length) {
+              for (const e of els) { try { await e.click({ timeout: 2000 }); } catch(e){} }
+            }
+          } catch(e){}
+        }
+
+        // expand possible "see more" buttons
+        const moreBtns = await page.$$(
           'button.feed-shared-inline-show-more-text__see-more-less-toggle, button[aria-label*="see more"], button[aria-label*="ver mais"], button[aria-label*="…mais"], button[aria-label*="See more"]'
         );
-        console.log('see-more buttons found:', moreButtons.length);
-        for (const b of moreButtons) {
-          try { await b.click({ timeout: 2000 }); } catch (e) { /* ignorar */ }
-        }
+        console.log('see-more buttons found (initial):', moreBtns.length);
+        for (const b of moreBtns) { try { await b.click({ timeout: 2000 }); } catch(e){} }
         await page.waitForTimeout(800);
 
-        // garante que existe algum post carregado (timeout curto)
-        try {
-          await page.waitForSelector('div.feed-shared-update-v2, div.occludable-update, div.feed-shared-update, div.update-components-actor__container', { timeout: 7000 });
-        } catch (e) {
-          console.log('Aviso: não detectei seletor de posts rapidamente — pode ser conteúdo protegido/necessária sessão.');
+        // auto scroll to load more posts (improves chance to load group feed)
+        await autoScroll(page, 10, 900);
+
+        // attempt to click "Load more" buttons if present (selector examples)
+        const loadMoreSelectors = ['button.load-more', 'button[data-control-name="load_more"]', 'button[aria-label*="Load more"]'];
+        for (const sel of loadMoreSelectors) {
+          try {
+            const btns = await page.$$(sel);
+            for (const b of btns) { try { await b.click({ timeout: 2000 }); await page.waitForTimeout(800); } catch(e){} }
+          } catch(e){}
         }
 
-        // colecta posts
+        // final wait
+        await page.waitForTimeout(1000);
+
+        // SAVE debug HTML & screenshot (úteis para entender o que o runner vê)
+        try {
+          const timestamp = Date.now();
+          const debugHtml = path.join(outDir, `debug-${timestamp}.html`);
+          const debugPng = path.join(outDir, `debug-${timestamp}.png`);
+          const content = await page.content();
+          fs.writeFileSync(debugHtml, content, 'utf8');
+          try { await page.screenshot({ path: debugPng, fullPage: true }); } catch(e){}
+          console.log('Saved debug HTML and PNG:', debugHtml, debugPng);
+        } catch(e){ console.warn('Não conseguiu salvar debug files:', e && e.message); }
+
+        // select candidate post nodes
         const posts = await page.$$eval(
-          'div.feed-shared-update-v2, div.occludable-update, div.feed-shared-update, div.update-components-actor__container',
+          'div.feed-shared-update-v2, div.occludable-update, div.feed-shared-update, div.update-components-actor__container, div.feed-shared-update-v2--wrapped',
           (nodes, badSubstr) => {
             const out = [];
             const text = el => el ? (el.innerText || el.textContent || '').trim() : '';
             for (const n of nodes) {
-              // actor/title link (profile/title)
               const actorAnchor = n.querySelector('a.update-components-actor__meta-link, a[data-test-app-aware-link], a.update-components-actor__image, a.update-components-actor__meta');
               let title = '', link = '';
               if (actorAnchor) {
@@ -121,42 +140,31 @@ const Excel = require('exceljs');
                 title = text(titleNode).replace(/\n+/g,' ').trim();
                 link = actorAnchor.getAttribute('href') || '';
               } else {
-                // find the main anchor inside the post, preferring anchors that look like real article links
                 const anchors = Array.from(n.querySelectorAll('a'));
                 let chosen = null;
                 for (const a of anchors) {
                   const h = a.getAttribute && a.getAttribute('href') || '';
                   if (!h) continue;
                   const low = h.toLowerCase();
-                  // skip bad substrings (navigation, policy, help)
                   if (badSubstr.some(bs => low.includes(bs))) continue;
-                  // prefer anchors that look like content (contain '/in/' or '/groups/' or start with http)
                   if (low.startsWith('http') || low.includes('/in/') || low.includes('/groups/') || low.includes('/posts/') || low.includes('/feed/')) {
-                    chosen = a;
-                    break;
+                    chosen = a; break;
                   }
-                  // fallback to first non-bad anchor
                   if (!chosen) chosen = a;
                 }
                 if (chosen) {
                   title = text(chosen).replace(/\n+/g,' ').trim();
                   link = chosen.getAttribute('href') || '';
                 } else {
-                  // fallback: heading or text inside post
                   const h = n.querySelector('h3, h4, a.title, a');
                   title = text(h);
                   link = h && h.getAttribute ? (h.getAttribute('href')||'') : '';
                 }
               }
-
-              // description (post text)
               const descNode = n.querySelector('.update-components-text, .feed-shared-inline-show-more-text__text, .update-components-commentary, .feed-shared-text, .feed-shared-inline-show-more-text, .commentary, p');
               const description = descNode ? text(descNode).replace(/\n+/g,' ').trim() : '';
-
-              // date (try several)
-              const dateNode = n.querySelector('time, .update-components-actor__sub-description, span[aria-hidden], .timestamp, .feed-shared-actor__sub-description, .feed-shared-actor__sub-description');
+              const dateNode = n.querySelector('time, .update-components-actor__sub-description, span[aria-hidden], .timestamp, .feed-shared-actor__sub-description');
               const date = dateNode ? text(dateNode).replace(/\n+/g,' ').trim() : '';
-
               out.push({
                 title: title || '',
                 link: link || '',
@@ -171,43 +179,30 @@ const Excel = require('exceljs');
         );
 
         console.log('Found posts on page:', posts.length);
-        // normaliza links: transforma relativos em absolutos onde possível (browser vai fornecer relativos)
+
         for (const p of posts) {
-          // small cleanup on link (remove query tracking anchors if needed)
           let href = p.link || '';
-          // se href começar com '/', prefixa o domain da página actual
           if (href && href.startsWith('/')) {
-            try {
-              const base = new URL(url);
-              href = base.origin + href;
-            } catch (e) { /* ignore */ }
+            try { const base = new URL(url); href = base.origin + href; } catch(e){}
           }
-          // ignora links de navegação/internos (ex.: "/help", "/legal")
-          if (!href || badHrefSubstr.some(bs => href.toLowerCase().includes(bs))) {
-            // tentar extrair link alternativo do snippet (regex)
-            // fallback: deixa em branco
-            p.link = '';
-          } else {
-            p.link = href;
-          }
+          if (!href || badHrefSubstr.some(bs => href.toLowerCase().includes(bs))) p.link = '';
+          else p.link = href;
           results.push(Object.assign({ source: url }, p));
         }
 
       } catch (err) {
         console.error('Error processing', url, err && err.message);
       }
-    }
+    } // end urls loop
 
-    // close context & browser
-    try { await context.close(); } catch(e) {}
+    try { await context.close(); } catch(e){}
     await browser.close();
 
-    // grava JSON (debug / canonical)
     const outJson = path.join(outDir, 'linkedin.json');
     fs.writeFileSync(outJson, JSON.stringify(results, null, 2), 'utf8');
-    console.log('Wrote', outJson);
+    console.log('Wrote', outJson, 'items=', results.length);
 
-    // grava XLSX (Excel) usando exceljs
+    // grava XLSX
     try {
       const wb = new Excel.Workbook();
       const ws = wb.addWorksheet('linkedin');
@@ -218,9 +213,7 @@ const Excel = require('exceljs');
         { header: 'description', key: 'description', width: 80 },
         { header: 'source', key: 'source', width: 60 }
       ];
-      results.forEach(r => {
-        ws.addRow({ title: r.title, link: r.link, date: r.date, description: r.description, source: r.source });
-      });
+      results.forEach(r => ws.addRow({ title: r.title, link: r.link, date: r.date, description: r.description, source: r.source }));
       const outXlsx = path.join(outDir, 'linkedin.xlsx');
       await wb.xlsx.writeFile(outXlsx);
       console.log('Wrote', outXlsx);
