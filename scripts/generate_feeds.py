@@ -12,6 +12,11 @@ from urllib.parse import urljoin
 import warnings
 from dateutil import parser as dateparser
 from dateutil import tz as date_tz
+import re
+bad_href_re = re.compile(r'(^#|/help|/legal|cookie|privacy|terms|signin|login|settings|/consent|/preferences|/policies|mailto:)', re.I)
+if not href or bad_href_re.search(href):
+    continue
+
 
 # 1) silencia especificamente o warning que tens visto
 #    (usa a classe interna mas está ok para este uso)
@@ -112,6 +117,7 @@ def extract_items_from_html(html, cfg):
             if a and a.has_attr('href'):
                 link = urljoin(cfg.get('url',''), a.get('href'))
 
+        
         # Description
         if desc_sel:
             for s in [t.strip() for t in desc_sel.split(',')]:
@@ -147,6 +153,8 @@ def extract_items_from_html(html, cfg):
             'full_text': full_text
         })
     return items
+
+
 
 def parse_feed(items):
     # items expected as dicts with keys title, link, description, date, full_text
