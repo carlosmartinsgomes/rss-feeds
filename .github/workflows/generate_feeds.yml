@@ -113,12 +113,12 @@ jobs:
           SCRIPTS: ${{ steps.detect.outputs.scripts_dir }}
         run: |
           echo "Using SCRIPTS='$SCRIPTS' and EXPLICIT_URLS provided"
-
-          if node <<'NODE'
+      
+          node <<'NODE'
           const fs = require('fs');
           const cp = require('child_process');
           const path = require('path');
-
+      
           // WHITELIST: apenas estes hosts serão processados por este passo
           const allowedHosts = [
             'dzone.com',
@@ -128,7 +128,7 @@ jobs:
             'stocktwits.com',
             'journals.lww.com'
           ];
-
+      
           function hostOf(urlString) {
             try {
               const u = new URL(String(urlString));
@@ -138,17 +138,17 @@ jobs:
               return m ? m[1].replace(/^www\./,'') : '';
             }
           }
-
+      
           function hostMatchesAllowed(hostname) {
             if (!hostname) return false;
             return allowedHosts.some(a => hostname === a || hostname.endsWith('.' + a));
           }
-
+      
           // read env provided by the step
           let scriptsDir = process.env.SCRIPTS || '';
           const explicitRaw = process.env.EXPLICIT_URLS || '';
           const explicit = explicitRaw.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
-
+      
           const candidates = ['scripts', 'rss-feeds/scripts', './scripts', './rss-feeds/scripts'];
           if (!scriptsDir) {
             for (const c of candidates) {
@@ -160,19 +160,19 @@ jobs:
               } catch (e) { /* ignore */ }
             }
           }
-
+      
           if (!scriptsDir) {
             console.warn('Could not determine scripts directory. Skipping configured renders.');
             process.exit(0);
           }
-
+      
           scriptsDir = scriptsDir.replace(/\/+$/, '');
           const sitesFile = path.join(scriptsDir, 'sites.json');
           if (!fs.existsSync(sitesFile)) {
             console.warn(`sites.json not found at ${sitesFile} -> skipping configured renders`);
             process.exit(0);
           }
-
+      
           // read & parse sites.json with simple sanitizer (remove // and /* */ and trailing commas)
           let raw = fs.readFileSync(sitesFile, 'utf8');
           let sitesObj = null;
@@ -187,40 +187,38 @@ jobs:
               sitesObj = JSON.parse(s);
               console.log('Parsed sites.json after basic sanitize (node).');
             } catch (e2) {
-              // não abortar o job: apenas logamos e prosseguimos com sitesObj vazio
               console.error('Failed to parse sites.json in Node even after sanitize:', e2 && e2.message ? e2.message : e2);
-              console.warn('Continuing without configured renders (sites.json parse failed).');
-              sitesObj = [];
+              process.exit(1);
             }
           }
-
+      
           let sites = (sitesObj && sitesObj.sites) ? sitesObj.sites : (Array.isArray(sitesObj) ? sitesObj : []);
-
+      
           const renderScript = path.join(scriptsDir, 'render_page.js');
           if (!fs.existsSync(renderScript)) {
             console.warn(`render_page.js not found at ${renderScript} -> skipping`);
             process.exit(0);
           }
-
+      
           try { fs.mkdirSync(path.join(scriptsDir, 'rendered'), { recursive: true }); } catch(e){}
-
+      
           for (const s of sites.filter(s => s.render_file)) {
             const urlRaw = (s.url || '').trim();
             if (!urlRaw) continue;
             const host = hostOf(urlRaw);
-
+      
             // se não estiver na whitelist, ignora
             if (!hostMatchesAllowed(host)) {
               console.log('Skipping (not in configured whitelist):', urlRaw);
               continue;
             }
-
+      
             // se a URL já foi explicitamente tratada na etapa explícita, pula para evitar duplicação
             if (explicit.includes(urlRaw)) {
               console.log('Skipping configured render for (explicit handled):', urlRaw);
               continue;
             }
-
+      
             const url = urlRaw;
             const out = s.render_file;
             console.log('Rendering', url, '->', out);
@@ -232,12 +230,7 @@ jobs:
               console.error('Render failed for', url, '-', err && err.message ? err.message : err);
             }
           }
-NODE
-          then
-            echo "Inline node script finished successfully"
-          else
-            echo "Inline node script failed (non-zero exit) — continuing workflow"
-          fi
+          NODE
 
     
       - name: Run linkedin extractor
