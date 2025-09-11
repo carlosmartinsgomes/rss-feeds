@@ -24,16 +24,18 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Create linkedin_auth.json from secret (if provided)
+      - name: Create linkedin_auth.json from base64 secret (if provided)
         run: |
-          if [ -n "${{ secrets.LINKEDIN_AUTH_JSON }}" ]; then
-            mkdir -p scripts
-            printf '%s' "${{ secrets.LINKEDIN_AUTH_JSON }}" > scripts/linkedin_auth.json
+          mkdir -p scripts
+          if [ -n "${{ secrets.LINKEDIN_AUTH_JSON_B64 }}" ]; then
+            echo "Decoding LINKEDIN_AUTH_JSON_B64 -> scripts/linkedin_auth.json"
+            printf '%s' "${{ secrets.LINKEDIN_AUTH_JSON_B64 }}" | base64 --decode > scripts/linkedin_auth.json
             chmod 600 scripts/linkedin_auth.json || true
             echo "Created scripts/linkedin_auth.json (size: $(wc -c < scripts/linkedin_auth.json) bytes)"
           else
-            echo "No secret LINKEDIN_AUTH_JSON provided — continuing without it."
+            echo "No secret LINKEDIN_AUTH_JSON_B64 provided — continuing without it."
           fi
+
 
 
       - name: Detect scripts dir
