@@ -88,7 +88,6 @@ jobs:
             echo "run_renders.js not found at $SCRIPTS/run_renders.js - skipping render"
             exit 0
           fi
-          echo "Running parallel renders with node -> $SCRIPTS/run_renders.js (concurrency via RENDER_CONCURRENCY env)"
           export RENDER_CONCURRENCY=${{ env.RENDER_CONCURRENCY || '4' }}
           if node "$SCRIPTS/run_renders.js"; then
             echo "run_renders.js finished successfully"
