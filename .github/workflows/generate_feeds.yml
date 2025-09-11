@@ -28,9 +28,9 @@ jobs:
         run: |
           if [ -n "${{ secrets.LINKEDIN_AUTH_JSON }}" ]; then
             mkdir -p scripts
-            echo "${{ secrets.LINKEDIN_AUTH_JSON }}" > scripts/linkedin_auth.json
-            chmod 600 scripts/linkedin_auth.json
-            echo "Created scripts/linkedin_auth.json from secret."
+            printf '%s' "${{ secrets.LINKEDIN_AUTH_JSON }}" > scripts/linkedin_auth.json
+            chmod 600 scripts/linkedin_auth.json || true
+            echo "Created scripts/linkedin_auth.json (size: $(wc -c < scripts/linkedin_auth.json) bytes)"
           else
             echo "No secret LINKEDIN_AUTH_JSON provided — continuing without it."
           fi
