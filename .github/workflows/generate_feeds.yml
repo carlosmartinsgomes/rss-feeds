@@ -24,6 +24,18 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Create linkedin_auth.json from secret (if provided)
+        run: |
+          if [ -n "${{ secrets.LINKEDIN_AUTH_JSON }}" ]; then
+            mkdir -p scripts
+            echo "${{ secrets.LINKEDIN_AUTH_JSON }}" > scripts/linkedin_auth.json
+            chmod 600 scripts/linkedin_auth.json
+            echo "Created scripts/linkedin_auth.json from secret."
+          else
+            echo "No secret LINKEDIN_AUTH_JSON provided — continuing without it."
+          fi
+
+
       - name: Detect scripts dir
         id: detect
         shell: bash
