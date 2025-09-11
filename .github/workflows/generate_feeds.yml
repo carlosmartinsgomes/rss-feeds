@@ -113,12 +113,8 @@ jobs:
           SCRIPTS: ${{ steps.detect.outputs.scripts_dir }}
         run: |
           echo "Using SCRIPTS='$SCRIPTS' and EXPLICIT_URLS provided"
-      
-          if node <<'NODE'; then
-            echo "Inline node script finished successfully"
-          else
-            echo "Inline node script failed (non-zero exit) — continuing workflow"
-          fi
+
+          if node <<'NODE'
           const fs = require('fs');
           const cp = require('child_process');
           const path = require('path');
@@ -191,7 +187,7 @@ jobs:
               sitesObj = JSON.parse(s);
               console.log('Parsed sites.json after basic sanitize (node).');
             } catch (e2) {
-              // <<< ALTERAÇÃO IMPORTANTE: não fazer process.exit(1) aqui
+              // não abortar o job: apenas logamos e prosseguimos com sitesObj vazio
               console.error('Failed to parse sites.json in Node even after sanitize:', e2 && e2.message ? e2.message : e2);
               console.warn('Continuing without configured renders (sites.json parse failed).');
               sitesObj = [];
@@ -236,8 +232,13 @@ jobs:
               console.error('Render failed for', url, '-', err && err.message ? err.message : err);
             }
           }
+NODE
+          then
+            echo "Inline node script finished successfully"
+          else
+            echo "Inline node script failed (non-zero exit) — continuing workflow"
+          fi
 
-          NODE
     
       - name: Run linkedin extractor
         working-directory: ${{ steps.detect.outputs.scripts_dir }}
