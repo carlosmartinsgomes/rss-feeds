@@ -614,7 +614,7 @@
     },
     {
       "name": "ttd-linkedin-group-sample",
-      "url": "https://www.linkedin.com/search/results/content/?datePosted=%22past-week%22&keywords=the%20trade%20desk&origin=FACETED_SEARCH&sid=qu%3A",
+      "url": "https://www.linkedin.com/search/results/content/?datePosted=%22past-week%22&keywords=the%20trade%20desk&origin=FACETED_SEARCH",
       "item_container": "div.feed-shared-update-v2, div.occludable-update[role='article'], div[id^='ember'][role='article']",
       "title": "div.update-components-actor__title span.update-components-actor__single-line-truncate, a.update-components-actor__meta-link",
       "link": "div.update-components-actor__meta a.update-components-actor__meta-link@href, a.update-components-actor__image@href",
@@ -626,7 +626,7 @@
     },
     {
       "name": "pubmatic-linkedin-group-sample",
-      "url": "https://www.linkedin.com/search/results/content/?datePosted=%22past-week%22&keywords=pubmatic&origin=FACETED_SEARCH&sid=6R%7E",
+      "url": "https://www.linkedin.com/search/results/content/?datePosted=%22past-week%22&keywords=pubmatic&origin=FACETED_SEARCH",
       "item_container": "div.feed-shared-update-v2, div.occludable-update[role='article'], div[id^='ember'][role='article']",
       "title": "div.update-components-actor__title span.update-components-actor__single-line-truncate, a.update-components-actor__meta-link",
       "link": "div.update-components-actor__meta a.update-components-actor__meta-link@href, a.update-components-actor__image@href",
