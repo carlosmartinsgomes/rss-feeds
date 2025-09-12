@@ -245,6 +245,23 @@ jobs:
             }
           }
           NODE
+            
+      - name: Show rendered files (debug)
+        working-directory: ${{ steps.detect.outputs.scripts_dir }}
+        run: |
+          echo "Contents of scripts/rendered (if any):"
+          SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
+          ls -la "$SCRIPTS/rendered" || echo "No rendered dir or empty"
+        env:
+          SCRIPTS: ${{ steps.detect.outputs.scripts_dir }}
+
+      - name: Upload rendered HTML as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rendered-html
+          path: ${{ steps.detect.outputs.scripts_dir }}/rendered
+          if-no-files-found: warn
+
 
     
       - name: Run linkedin extractor
