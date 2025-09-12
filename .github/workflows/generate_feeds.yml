@@ -250,15 +250,17 @@ jobs:
       - name: Run linkedin extractor
         working-directory: ${{ steps.detect.outputs.scripts_dir }}
         run: |
-            'https://www.linkedin.com/groups/5146549/' \
-            'https://www.linkedin.com/groups/4682610/' \
-            'https://www.linkedin.com/groups/3875737/' \
-            'https://www.linkedin.com/search/results/content/?datePosted=%22past-week%22&keywords=the%20trade%20desk&origin=FACETED_SEARCH' \
-            'https://www.linkedin.com/search/results/content/?datePosted=%22past-week%22&keywords=pubmatic&origin=FACETED_SEARCH'
+          node ./render_linkedin_extract.js \
+            "https://www.linkedin.com/groups/5146549/" \
+            "https://www.linkedin.com/groups/4682610/" \
+            "https://www.linkedin.com/groups/3875737/" \
+            "https://www.linkedin.com/search/results/content/?datePosted=%22past-week%22&keywords=the%20trade%20desk&origin=FACETED_SEARCH" \
+            "https://www.linkedin.com/search/results/content/?datePosted=%22past-week%22&keywords=pubmatic&origin=FACETED_SEARCH"
         env:
           LINKEDIN_EMAIL: ${{ secrets.LINKEDIN_EMAIL || '' }}
           LINKEDIN_PASSWORD: ${{ secrets.LINKEDIN_PASSWORD || '' }}
           HEADLESS: 'true'
+
 
 
       - name: Show produced linkedin files (debug)
