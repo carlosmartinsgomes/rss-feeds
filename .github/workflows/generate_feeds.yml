@@ -296,11 +296,7 @@ jobs:
 
 
     
-      - name: Upload rendered HTML as artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: rendered-html
-          path: ${{ steps.detect.outputs.scripts_dir }}/rendered
+      
 
   build:
     needs: render-on-selfhosted
@@ -444,12 +440,7 @@ jobs:
           echo "zipname=$ZIPNAME" >> $GITHUB_OUTPUT
         shell: bash
 
-      - name: Upload feeds artifact (zip)
-        uses: actions/upload-artifact@v4
-        with:
-          name: feeds-${{ github.run_id }}-${{ github.run_number }}
-          path: ${{ steps.create_zip.outputs.zipname }}
-          if-no-files-found: warn
+      
 
       - name: Merge feeds (generate dist/merged-feed.xml)
         run: |
