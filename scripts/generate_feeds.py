@@ -1,16 +1,26 @@
-#!/usr/bin/env python3 
+#!/usr/bin/env python3
 # scripts/generate_feeds.py
-import os, json, re, sys
+# Gere feeds RSS simples a partir de sites listados em sites.json
+# Melhorias: procura de datas em ancestrais/irmãos e fallback de description
+# Requisitos: requests, beautifulsoup4, feedgen, python-dateutil
+
+import os
+import json
+import re
+import sys
 from bs4 import BeautifulSoup
 import requests
 from feedgen.feed import FeedGenerator
 from datetime import datetime
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse, urlunparse, parse_qsl, urlencode
+
+# small compatibility shim to silence UnknownTimezoneWarning for "ET"
+# and to give dateutil a sensible tzinfo for "ET" without changing all parse(...) calls.
 import warnings
 from dateutil import parser as dateparser
 from dateutil import tz as date_tz
 
-# silence UnknownTimezoneWarning and map "ET" to America/New_York
+# try to silence UnknownTimezoneWarning specifically if available
 try:
     from dateutil import _parser as _dateutil__parser
     UnknownTimezoneWarning = _dateutil__parser.UnknownTimezoneWarning
@@ -18,22 +28,36 @@ try:
 except Exception:
     warnings.filterwarnings("ignore", message="tzname .* identified but not understood")
 
+# map "ET" -> America/New_York by default for parse
 _default_tzinfos = {"ET": date_tz.gettz("America/New_York")}
+
 _original_parse = dateparser.parse
+
 
 def _parse_with_default_tzinfos(timestr, *args, **kwargs):
     if "tzinfos" not in kwargs or kwargs["tzinfos"] is None:
         kwargs["tzinfos"] = _default_tzinfos
     return _original_parse(timestr, *args, **kwargs)
 
+
 dateparser.parse = _parse_with_default_tzinfos
 
 ROOT = os.path.dirname(__file__)
 SITES_JSON = os.path.join(ROOT, 'sites.json')
 
+# regex para filtrar hrefs inúteis (ajusta conforme necessário)
+_bad_href_re = re.compile(r'(^#|/help|/legal|cookie|privacy|terms|signin|login|settings|/consent|/preferences|/policies|mailto:)', re.I)
+
+
 def load_sites():
-    j = json.load(open(SITES_JSON, 'r', encoding='utf-8'))
-    return j.get('sites', [])
+    try:
+        with open(SITES_JSON, 'r', encoding='utf-8') as fh:
+            j = json.load(fh)
+        return j.get('sites', [])
+    except Exception as e:
+        print('Failed to load sites.json:', e)
+        return []
+
 
 def fetch_html(url, timeout=20):
     headers = {
@@ -44,162 +68,257 @@ def fetch_html(url, timeout=20):
     r.raise_for_status()
     return r.text
 
+
 def text_of_node(node):
     if node is None:
         return ''
     return ' '.join(node.stripped_strings)
 
+
+def normalize_link_for_dedupe(href):
+    """
+    Normaliza um link para dedupe: remove parâmetros UTM, fragmentos, baixa para lowercase,
+    mantém host + path + maybe query essentials. Retorna empty string se href vazio.
+    """
+    if not href:
+        return ''
+    try:
+        p = urlparse(href)
+        # se faltar esquema, assume https
+        if not p.scheme:
+            href = 'https://' + href.lstrip('/')
+            p = urlparse(href)
+        # remove utm* e outros tracking padrão
+        qs = dict(parse_qsl(p.query, keep_blank_values=True))
+        qs = {k: v for k, v in qs.items() if not k.lower().startswith('utm') and k.lower() not in ('fbclid', 'gclid')}
+        # rebuild
+        new_q = urlencode(qs, doseq=True)
+        cleaned = urlunparse((p.scheme.lower(), p.netloc.lower(), p.path.rstrip('/'), '', new_q, ''))
+        return cleaned
+    except Exception:
+        return href.strip().lower()
+
+
 def extract_items_from_html(html, cfg):
+    """
+    Extrai items (title, link, description, date, full_text) de um HTML dado e uma config de site.
+    cfg é um dict com possiveis chaves: item_container, title, link, description, date, url
+    """
     soup = BeautifulSoup(html, 'html.parser')
     container_sel = cfg.get('item_container') or 'article'
     nodes = []
-    for sel in [s.strip() for s in container_sel.split(',') if s.strip()]:
+    for sel in [s.strip() for s in container_sel.split(',')]:
         try:
-            nodes.extend(soup.select(sel))
+            found = soup.select(sel)
+            if found:
+                nodes.extend(found)
         except Exception:
+            # selector inválido -> ignora
             continue
+
+    # fallback generic: se nada encontrado, tenta 'li' e 'article'
+    if not nodes:
+        for fallback in ('li', 'article', 'div'):
+            try:
+                found = soup.select(fallback)
+                if found:
+                    nodes.extend(found)
+            except Exception:
+                continue
+
     items = []
     for node in nodes:
-        title = ''
-        link = ''
-        date = ''
-        desc = ''
-        topic = ''
+        try:
+            title = ''
+            link = ''
+            date = ''
+            desc = ''
+            title_sel = cfg.get('title')
+            link_sel = cfg.get('link')
+            desc_sel = cfg.get('description')
 
-        title_sel = cfg.get('title')
-        link_sel = cfg.get('link')
-        desc_sel = cfg.get('description')
-        topic_sel = cfg.get('topic')
-
-        # Title
-        if title_sel:
-            for s in [t.strip() for t in title_sel.split(',') if t.strip()]:
-                try:
-                    el = node.select_one(s)
-                except Exception:
-                    el = None
-                if el:
-                    title = el.get_text(strip=True)
-                    break
-        else:
-            t = node.find(['h1','h2','h3','a'])
-            if t:
-                title = t.get_text(strip=True)
-
-        # Link
-        if link_sel:
-            parts = [p.strip() for p in link_sel.split(',') if p.strip()]
-            for ps in parts:
-                if '@' in ps:
-                    sel, attr = ps.split('@',1)
-                    sel = sel.strip() or 'a'
+            # Title extraction
+            if title_sel:
+                for s in [t.strip() for t in title_sel.split(',')]:
                     try:
-                        el = node.select_one(sel)
-                    except Exception:
-                        el = None
-                    if el and el.has_attr(attr):
-                        link = urljoin(cfg.get('url',''), el.get(attr))
-                        break
-                else:
-                    try:
-                        el = node.select_one(ps)
+                        el = node.select_one(s)
                     except Exception:
                         el = None
                     if el:
-                        link = urljoin(cfg.get('url',''), el.get('href') or '')
-                        if link:
+                        title = el.get_text(strip=True)
+                        break
+            else:
+                t = node.find(['h1', 'h2', 'h3', 'a'])
+                if t:
+                    title = t.get_text(strip=True)
+
+            # Link extraction
+            # support selectors like "a@href" or ".c-title a@href"
+            if link_sel:
+                parts = [p.strip() for p in link_sel.split(',')]
+                for ps in parts:
+                    if '@' in ps:
+                        sel, attr = ps.split('@', 1)
+                        try:
+                            el = node.select_one(sel.strip())
+                        except Exception:
+                            el = None
+                        if el and el.has_attr(attr):
+                            candidate = el.get(attr) or ''
+                            if candidate and not _bad_href_re.search(candidate):
+                                link = urljoin(cfg.get('url', ''), candidate)
+                                break
+                    else:
+                        try:
+                            el = node.select_one(ps)
+                        except Exception:
+                            el = None
+                        if el:
+                            candidate = el.get('href') or ''
+                            if candidate and not _bad_href_re.search(candidate):
+                                link = urljoin(cfg.get('url', ''), candidate)
+                                break
+            else:
+                a = node.find('a')
+                if a and a.has_attr('href'):
+                    candidate = a.get('href')
+                    if candidate and not _bad_href_re.search(candidate):
+                        link = urljoin(cfg.get('url', ''), candidate)
+
+            # if link still empty, try to find any anchor in node but avoid bad hrefs
+            if not link:
+                try:
+                    for a in node.find_all('a', href=True):
+                        h = a.get('href') or ''
+                        if h and not _bad_href_re.search(h):
+                            link = urljoin(cfg.get('url', ''), h)
                             break
-        else:
-            a = node.find('a')
-            if a and a.has_attr('href'):
-                link = urljoin(cfg.get('url',''), a.get('href'))
-
-        # Description
-        if desc_sel:
-            for s in [t.strip() for t in desc_sel.split(',') if t.strip()]:
-                try:
-                    el = node.select_one(s)
                 except Exception:
-                    el = None
-                if el:
-                    desc = el.get_text(" ", strip=True)
-                    break
-        else:
-            p = node.find('p')
-            if p:
-                desc = p.get_text(" ", strip=True)
+                    pass
 
-        # Topic (optional)
-        if topic_sel:
-            for s in [t.strip() for t in topic_sel.split(',') if t.strip()]:
-                try:
-                    el = node.select_one(s)
-                except Exception:
-                    el = None
-                if el:
-                    topic = el.get_text(strip=True)
-                    break
-
-        # Date (best-effort) - try selectors then try ancestors
-        date_selectors = [s.strip() for s in ((cfg.get('date') or '').split(',')) if s.strip()]
-        date_selectors += ['.article-info .date', 'span.date', '.date', 'time', '.timestamp']
-        # try within node
-        for dsel in date_selectors:
-            try:
-                el = node.select_one(dsel)
-            except Exception:
-                el = None
-            if el:
-                date = el.get_text(strip=True)
-                break
-
-        # try ancestors (up to 3 levels) if not found
-        if not date:
-            ancestor = node
-            for _ in range(3):
-                if not getattr(ancestor, 'parent', None):
-                    break
-                ancestor = ancestor.parent
-                if ancestor is None:
-                    break
-                for dsel in date_selectors:
+            # Description extraction
+            if desc_sel:
+                for s in [t.strip() for t in desc_sel.split(',')]:
                     try:
-                        el = ancestor.select_one(dsel)
+                        el = node.select_one(s)
                     except Exception:
                         el = None
                     if el:
-                        date = el.get_text(strip=True)
+                        desc = el.get_text(" ", strip=True)
                         break
-                if date:
-                    break
+            else:
+                p = node.find('p')
+                if p:
+                    desc = p.get_text(" ", strip=True)
 
-        # fallback: full text
-        full_text = (title or '') + ' ' + (desc or '') + ' ' + text_of_node(node)
+            # If desc == title, try to obtain a better description (fallbacks)
+            if desc and title and desc.strip() == title.strip():
+                try:
+                    a_try = node.select_one('a.link, h4 a.title, a.title, a')
+                    if a_try and a_try.has_attr('title'):
+                        a_title_attr = (a_try.get('title') or '').strip()
+                        if a_title_attr and a_title_attr != title:
+                            desc = a_title_attr
+                    if (not desc or desc.strip() == title.strip()):
+                        pprev = node.find_previous('p')
+                        if pprev:
+                            ptxt = pprev.get_text(" ", strip=True)
+                            if ptxt and ptxt != title:
+                                desc = ptxt
+                    if (not desc or desc.strip() == title.strip()):
+                        pnext = node.find_next('p')
+                        if pnext:
+                            ptxt = pnext.get_text(" ", strip=True)
+                            if ptxt and ptxt != title:
+                                desc = ptxt
+                except Exception:
+                    pass
 
-        items.append({
-            'title': title,
-            'link': link,
-            'description': desc,
-            'date': date,
-            'topic': topic,
-            'full_text': full_text
-        })
+            # Date (best effort)
+            date = ''
+            tried_selectors = []
+            date_selectors = []
+            if cfg.get('date'):
+                date_selectors = [s.strip() for s in cfg.get('date').split(',') if s.strip()]
+            # ensure defaults
+            date_selectors += ['time', '.date', 'span.date', '.timestamp']
+
+            def find_date_in(element):
+                for ds in date_selectors:
+                    tried_selectors.append(ds)
+                    try:
+                        el = element.select_one(ds)
+                    except Exception:
+                        el = None
+                    if el:
+                        txt = el.get_text(strip=True)
+                        if txt:
+                            return txt
+                return None
+
+            # 1) try node itself
+            date = find_date_in(node) or ''
+            # 2) if not found, try up to 3 ancestors
+            if not date:
+                ancestor = node
+                for _ in range(3):
+                    ancestor = getattr(ancestor, 'parent', None)
+                    if ancestor is None:
+                        break
+                    found = find_date_in(ancestor)
+                    if found:
+                        date = found
+                        break
+            # 3) try siblings (previous / next)
+            if not date:
+                try:
+                    prev_sib = node.find_previous_sibling()
+                    if prev_sib:
+                        found = find_date_in(prev_sib)
+                        if found:
+                            date = found
+                    if not date:
+                        next_sib = node.find_next_sibling()
+                        if next_sib:
+                            found = find_date_in(next_sib)
+                            if found:
+                                date = found
+                except Exception:
+                    pass
+
+            # fallback: full text
+            full_text = (title or '') + ' ' + (desc or '') + ' ' + text_of_node(node)
+
+            items.append({
+                'title': title or '',
+                'link': link or '',
+                'description': desc or '',
+                'date': date or '',
+                'full_text': full_text or ''
+            })
+        except Exception:
+            # ignorar item problemático, continuar
+            continue
+
     return items
+
 
 def parse_feed(items):
+    # items expected as dicts with keys title, link, description, date, full_text
     return items
 
+
 def matches_filters_debug(item, cfg):
-    kw = cfg.get('filters', {}).get('keywords', [])
-    exclude = cfg.get('filters', {}).get('exclude', [])
+    kw = cfg.get('filters', {}).get('keywords', []) or []
+    exclude = cfg.get('filters', {}).get('exclude', []) or []
     if not kw and not exclude:
         return True, None
-    text_title = (item.get('title','') or '').lower()
-    text_desc = (item.get('description','') or '').lower()
-    text_full = (item.get('full_text','') or '').lower()
-    text_link = (item.get('link','') or '').lower()
+    text_title = (item.get('title', '') or '').lower()
+    text_desc = (item.get('description', '') or '').lower()
+    text_full = (item.get('full_text', '') or '').lower()
+    text_link = (item.get('link', '') or '').lower()
 
-    # include
+    # include keywords (OR semantics)
     if kw:
         for k in kw:
             kl = k.lower()
@@ -219,50 +338,64 @@ def matches_filters_debug(item, cfg):
             return False, f"exclude '{ex}' matched"
     return True, None
 
+
+# ---- helper: dedupe lista de items (mantem a primeira aparição) ----
 def dedupe_items(items):
+    """
+    Remove duplicados por link normalizado (mantem a primeira ocorrencia).
+    items: lista de dicts com keys 'link' e 'title' (ou similares).
+    Retorna lista preservando ordem de aparicao.
+    """
     unique = {}
     out = []
     for it in (items or []):
-        key = (it.get('link') or '').strip().lower()
+        key = normalize_link_for_dedupe(it.get('link') or '')
         if not key:
-            key = (it.get('title','') or '').strip().lower()[:200]
+            # fallback para título curto
+            key = (it.get('title', '') or '').strip().lower()[:200]
         if not key:
+            # sem chave válida: gera um placeholder incremental
             key = f"__no_key__{len(out)}"
         if key not in unique:
             unique[key] = True
             out.append(it)
     return out
 
+
 def build_feed(name, cfg, items):
     fg = FeedGenerator()
     fg.title(name)
-    fg.link(href=cfg.get('url',''), rel='alternate')
+    fg.link(href=cfg.get('url', ''), rel='alternate')
     fg.description(f'Feed gerado para {name}')
     count = 0
     for it in items:
         fe = fg.add_entry()
         fe.title(it.get('title') or 'No title')
         if it.get('link'):
-            fe.link(href=it.get('link'))
-        fe.description(it.get('description') or it.get('full_text') or '')
-        # add topic as category if present
-        if it.get('topic'):
             try:
-                fe.category(term=it.get('topic'))
+                fe.link(href=it.get('link'))
             except Exception:
                 pass
-        # pubDate: try to leave raw string
+        # description: prefer description, fallback full_text
+        fe.description(it.get('description') or it.get('full_text') or '')
+        # pubDate: try to set raw string if possible (feedgen can accept string)
         if it.get('date'):
             try:
-                fe.pubDate(it.get('date'))
+                # attempt to parse to RFC-2822 by trying dateutil.parse, fallback to raw
+                try:
+                    dt = dateparser.parse(it.get('date'))
+                    fe.pubDate(dt)
+                except Exception:
+                    fe.pubDate(it.get('date'))
             except Exception:
                 pass
         count += 1
-    outdir = os.path.join(ROOT, '..', 'feeds') if os.path.exists(os.path.join(ROOT,'..','feeds')) else os.path.join(ROOT, '..', 'feeds')
+    outdir = os.path.join(ROOT, '..', 'feeds') if os.path.exists(os.path.join(ROOT, '..', 'feeds')) else os.path.join(ROOT, '..', 'feeds')
     os.makedirs(outdir, exist_ok=True)
     outpath = os.path.join(outdir, f'{name}.xml')
     fg.rss_file(outpath)
     print(f'Wrote {outpath}')
+
 
 def main():
     sites = load_sites()
@@ -270,33 +403,41 @@ def main():
     for cfg in sites:
         name = cfg.get('name')
         url = cfg.get('url')
+        if not name or not url:
+            continue
         print(f'--- Processing {name} ({url}) ---')
         html = None
+        # prefer rendered file if exists
         rf = cfg.get('render_file')
         if rf:
-            if not os.path.isabs(rf) and not rf.startswith('scripts'):
-                rf = os.path.join('scripts', rf)
-            if os.path.exists(rf):
+            # normalize path: allow "scripts/rendered/..." or "rendered/..."
+            rf_path = rf
+            if not os.path.isabs(rf_path) and not rf_path.startswith('scripts'):
+                rf_path = os.path.join('scripts', rf_path)
+            if os.path.exists(rf_path):
                 try:
-                    html = open(rf, 'r', encoding='utf-8').read()
-                    print(f'Using rendered file: {rf} for {name}')
+                    html = open(rf_path, 'r', encoding='utf-8').read()
+                    print(f'Using rendered file: {rf_path} for {name}')
                 except Exception as e:
                     print('Failed reading rendered file:', e)
                     html = None
             else:
-                print(f'No rendered file found at {rf} for {name}')
+                print(f'No rendered file found at {rf_path} for {name}')
         if html is None:
+            # fallback to requests
             try:
                 print(f'Fetching {url} via requests...')
                 html = fetch_html(url)
             except Exception as e:
                 print(f'Request error for {url}: {e}')
                 html = ''
+
         items = []
         if html:
             try:
                 items = extract_items_from_html(html, cfg)
                 if not items:
+                    # fallback generic li selector
                     soup = BeautifulSoup(html, 'html.parser')
                     nodes = soup.select('li')
                     if nodes:
@@ -306,8 +447,10 @@ def main():
                             link = ''
                             a = n.find('a')
                             if a and a.has_attr('href'):
-                                link = a.get('href')
-                            items.append({'title': title, 'link': link, 'description': '', 'date': '', 'topic': '', 'full_text': title})
+                                h = a.get('href') or ''
+                                if not _bad_href_re.search(h):
+                                    link = urljoin(cfg.get('url', ''), h)
+                            items.append({'title': title, 'link': link, 'description': '', 'date': '', 'full_text': title})
             except Exception as e:
                 print('Error parsing HTML:', e)
                 items = []
@@ -318,7 +461,7 @@ def main():
 
         # apply filters
         matched = []
-        kw = cfg.get('filters', {}).get('keywords', [])
+        kw = cfg.get('filters', {}).get('keywords', []) or []
         print(f'Applying {len(kw)} keyword filters for {name}: {kw}')
         for it in items:
             keep, reason = matches_filters_debug(it, cfg)
@@ -331,9 +474,14 @@ def main():
             print(f'No items matched filters for {name} — falling back to all {len(items)} items')
             matched = items
 
-        matched = dedupe_items(matched)
+        # dedupe
+        deduped = dedupe_items(matched)
 
-        build_feed(name, cfg, matched)
+        # write feed
+        build_feed(name, cfg, deduped)
+
+    print('All done.')
+
 
 if __name__ == '__main__':
     main()
