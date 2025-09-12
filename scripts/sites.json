@@ -65,11 +65,12 @@
     {
       "name": "mobihealthnews",
       "url": "https://www.mobihealthnews.com/",
-      "item_container": "article, .listing-item, .post",
-      "title": "h1, h2 a, h3 a",
-      "link": "h2 a@href, a@href",
-      "date": "time, .date",
-      "description": "p, .excerpt",
+      "item_container": "article, .views-element-container, .view-content > div, .view-content div.col-md-9",
+      "title": "div.news-title.small, a > div > div > div.news-title.small, a.title",
+      "link": "a@href",
+      "date": "span.day_list, span.time_list, .content-list-meta span, time",
+      "description": "div.body_list, .body_list, p",
+      "render_file": "scripts/rendered/mobihealthnews.html",
       "filters": { "keywords": ["hims","hers","hims&hers"] }
     },
     { 
@@ -522,12 +523,12 @@
     },
     {
       "name": "modernhealthcare",
-      "url": "https://www.modernhealthcare.com/",
-      "item_container": "article, li, div",
-      "title": "a, h2 a, h3 a",
-      "link": "a@href",
-      "date": "time, .date",
-      "description": "p",
+      "url": "https://www.modernhealthcare.com/latest-news/",
+      "item_container": "article, .u-border-b, .u-order-2, .u-flex",
+      "title": "a[data-testid=\"header-story-title\"] span, a > span, a",
+      "link": "a[data-testid=\"header-story-title\"]@href, a@href",
+      "date": ".u-whitespace-nowrap, .u-flex.u-gap-3.u-flex-col > div > div, time, .date",
+      "description": ".u-h-auto.u-w-full.u-font-secondary p, .u-h-auto.u-w-full p, p",
       "render_file": "scripts/rendered/modernhealthcare.html",
       "filters": { "keywords": ["inmode","inmd"] }
     },
