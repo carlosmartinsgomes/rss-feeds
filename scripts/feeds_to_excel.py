@@ -46,26 +46,6 @@ def load_sites_item_container():
                 continue
     return {}
 
-def extract_topic_from_entry(entry):
-    # feedparser maps <category> to entry.get('tags', [])
-    tags = entry.get('tags') or []
-    if isinstance(tags, list) and tags:
-        terms = []
-        for t in tags:
-            if isinstance(t, dict):
-                term = t.get('term') or t.get('label') or t.get('term')
-                if term:
-                    terms.append(term)
-            else:
-                # sometimes tag is just a string
-                try:
-                    terms.append(str(t))
-                except Exception:
-                    pass
-        if terms:
-            return ", ".join(terms)
-    return "N/A"
-
 def main():
     site_item_map = load_sites_item_container()
     rows = []
@@ -82,14 +62,24 @@ def main():
         for e in entries:
             title = e.get("title", "") or ""
             link = e.get("link", "") or ""
-            # pubDate - try common keys
             pub = e.get("published", "") or e.get("pubDate", "") or e.get("updated", "")
-            # description/summary
             desc = e.get("summary", "") or e.get("description", "") or ""
             desc_short = strip_html_short(desc, max_len=300)
+            # topic: from tags/category if present (feedgen wrote as category)
+            topic = "N/A"
+            tags = e.get("tags") or e.get("tags", None)
+            if tags and isinstance(tags, (list,tuple)) and len(tags) > 0:
+                # feedparser tag objects sometimes have 'term' or 'label'
+                t0 = tags[0]
+                if isinstance(t0, dict):
+                    topic = t0.get('term') or t0.get('label') or topic
+                else:
+                    # sometimes it's a simple string representation
+                    try:
+                        topic = str(t0)
+                    except Exception:
+                        topic = topic
             item_container = site_item_map.get(site_name, "")
-            # topic
-            topic = extract_topic_from_entry(e)
             rows.append({
                 "site": site_name,
                 "title": title,
@@ -97,7 +87,7 @@ def main():
                 "pubDate": pub,
                 "description (short)": desc_short,
                 "item_container": item_container,
-                "topic": topic
+                "topic": topic or "N/A"
             })
     if not rows:
         print("No items found across feeds.")
