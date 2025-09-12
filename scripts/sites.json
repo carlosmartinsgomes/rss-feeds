@@ -63,14 +63,14 @@
       "filters": { "keywords": ["inmode","device","acquisition","partnership","fda","clinical trial"], "exclude": ["opinion","review"] }
     },
     {
-        "name": "mobihealthnews",
-        "url": "https://www.mobihealthnews.com/",
-        "item_container": ".view-content > div, article, .views-element-container",
-        "title": "div.news-title.small, a.title",
-        "link": "a@href",
-        "date": "span.day_list, span.time_list, .time_list, time",
-        "description": "div.body_list, .body_list, p",
-        "render_file": "scripts/rendered/mobihealthnews.html",
+      "name": "mobihealthnews",
+      "url": "https://www.mobihealthnews.com/",
+      "item_container": "div.view-content > div, article, .views-row",
+      "title": "div.news-title, a > div.news-title, .news-title.small",
+      "link": "a@href, div.news-title a@href",
+      "date": "span.day_list, span.time_list, .content-list-meta span",
+      "description": "div.body_list, .content-list-meta + p, p",
+      "render_file": "scripts/rendered/mobihealthnews.html",
       "filters": { "keywords": ["a","hims","hers","hims&hers"] }
     },
     { 
@@ -234,14 +234,13 @@
     {
       "name": "digiday",
       "url": "https://digiday.com/",
-      "item_container": "ul.news-list li, .flex-container .news-content, .news-list .news-content, .block-text",
-      "title": "a.link, h4 a.title, a.title, h4 a",
-      "link": "a.link@href, h4 a@href, a.title@href, a@href",
-      "date": ".article-info .date, span.date, .date, time",
-      "description": ".news-content p, p, .excerpt, .dek",
-      "topic": ".eyebrow a, .eyebrow.regular-eyebrow a",
+      "item_container": "ul.news-list li, .flex-container .news-content, .block-text, .home-featured, .news-list .news-content",
+      "title": "a.link, h4 a.title, a.title, h4 a, .news-content a.title, a",
+      "link": "a.link@href, h4 a.title@href, a.title@href, a@href",
+      "date": ".article-info .date, span.date, .date, time, .timestamp",
+      "description": ".news-content p, .block-text p, .excerpt, .dek, p",
       "render_file": "scripts/rendered/digiday.html",
-      "filters": { "keywords": ["a","supply path optimization","connected tv","ctv","programmatic","the trade desk","ttd"] }
+      "filters": { "keywords": ["a","supply path optimization","connected tv","ctv","programmatic","the trade desk","ttd", "exclude": ["sponsored","promo","ad","advertise","advertisement"] }
     },
     {
       "name": "martech-feed",
@@ -525,11 +524,11 @@
     {
       "name": "modernhealthcare",
       "url": "https://www.modernhealthcare.com/latest-news/",
-      "item_container": "article, div.u-border-b, .u-order-2",
-      "title": "a[data-testid=\"header-story-title\"] span, a > span.u-text-text-dark, a",
-      "link": "a[data-testid=\"header-story-title\"]@href, a@href",
+      "item_container": "div.u-flex.u-flex-col.md\\:u-flex-row, article, div.u-border-b",
+      "title": "a > span, a[aria-label^='Title'], span.u-text-text-dark",
+      "link": "a@href",
       "date": ".u-whitespace-nowrap, time, .date",
-      "description": ".u-h-auto.u-w-full p, p",
+      "description": "div.u-h-auto.u-w-full.u-font-secondary p, p",
       "render_file": "scripts/rendered/modernhealthcare.html",
       "filters": { "keywords": ["a","inmode","inmd"] }
     },
