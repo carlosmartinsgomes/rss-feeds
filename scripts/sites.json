@@ -233,14 +233,13 @@
     {
       "name": "digiday",
       "url": "https://digiday.com/",
-      "item_container": "ul.news-list li, .flex-container .news-content, .news-list .news-content, .block-text, .home-featured",
-      "title": "a.link, h4 a.title, h4 a, a.title, h3 a",
-      "link": "a.link@href, h4 a.title@href, h4 a@href, a[href]@href",
-      "date": "span.date, .article-info .date, time, .timestamp",
-      "description": ".news-content p, .block-text p, .excerpt, .dek, p, a.link@title, h4 a.title@title",
-      "topic": ".eyebrow a, .eyebrow",
+      "item_container": "ul.news-list li, #tab1 li, .flex-container .news-content, .block-text, .home-featured, #main .big-part li, .news-list li, .news-content",
+      "title": "a.link, a.title, h4 a.title, h4 a, h3 a, h2 a",
+      "link": "a.link@href, a.title@href, h4 a@href, a@href",
+      "date": ".article-info .date, span.date, time, .date, .article-meta .date",
+      "description": ".news-content p, .block-text p, .news-content .excerpt, .dek, p",
       "render_file": "scripts/rendered/digiday.html",
-      "filters": { "keywords": ["a","supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"], "exclude": ["sponsored", "sponsor", "promoted", "promo", "patrocinad"] }
+      "filters": { "keywords": ["supply path optimization","connected tv","ctv","programmatic","the trade desk","ttd"] }
     },
     {
       "name": "martech-feed",
