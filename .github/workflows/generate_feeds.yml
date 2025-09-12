@@ -203,9 +203,11 @@ jobs:
               console.log('Parsed sites.json after basic sanitize (node).');
             } catch (e2) {
               console.error('Failed to parse sites.json in Node even after sanitize:', e2 && e2.message ? e2.message : e2);
-              process.exit(1);
+              console.warn('Continuing without configured renders (sites.json parse failed).');
+              sitesObj = [];
             }
-          }
+
+          
       
           let sites = (sitesObj && sitesObj.sites) ? sitesObj.sites : (Array.isArray(sitesObj) ? sitesObj : []);
       
