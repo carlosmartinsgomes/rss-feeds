@@ -36,8 +36,6 @@ jobs:
             echo "No secret LINKEDIN_AUTH_JSON_B64 provided — continuing without it."
           fi
 
-
-
       - name: Detect scripts dir
         id: detect
         shell: bash
@@ -133,135 +131,14 @@ jobs:
             echo "No scripts dir detected -> skip configured renders"
             exit 0
           fi
-          # chama o script Node externo (non-fatal)
+
           if [ -f "$SCRIPTS/render_configured.js" ]; then
+            # chama o script externo - não fatal (continua se falhar)
             node "$SCRIPTS/render_configured.js" || echo "render_configured.js failed (non-zero exit) — continuing workflow"
           else
             echo "render_configured.js not found at $SCRIPTS -> skipping"
           fi
 
-      
-          // WHITELIST: apenas estes hosts serão processados por este passo
-          const allowedHosts = [
-            'dzone.com',
-            'eetimes.com',
-            'mdpi.com',
-            'medscape.com',
-            'stocktwits.com',
-            'journals.lww.com'
-          ];
-      
-          function hostOf(urlString) {
-            try {
-              const u = new URL(String(urlString));
-              return (u.hostname || '').toLowerCase().replace(/^www\./,'');
-            } catch (e) {
-              const m = String(urlString || '').toLowerCase().match(/:\/\/([^\/:?#]+)/);
-              return m ? m[1].replace(/^www\./,'') : '';
-            }
-          }
-      
-          function hostMatchesAllowed(hostname) {
-            if (!hostname) return false;
-            return allowedHosts.some(a => hostname === a || hostname.endsWith('.' + a));
-          }
-      
-          // read env provided by the step
-          let scriptsDir = process.env.SCRIPTS || '';
-          const explicitRaw = process.env.EXPLICIT_URLS || '';
-          const explicit = explicitRaw.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
-      
-          const candidates = ['scripts', 'rss-feeds/scripts', './scripts', './rss-feeds/scripts'];
-          if (!scriptsDir) {
-            for (const c of candidates) {
-              try {
-                if (fs.existsSync(path.join(c, 'sites.json')) && fs.existsSync(path.join(c, 'render_page.js'))) {
-                  scriptsDir = c;
-                  break;
-                }
-              } catch (e) { /* ignore */ }
-            }
-          }
-      
-          if (!scriptsDir) {
-            console.warn('Could not determine scripts directory. Skipping configured renders.');
-            process.exit(0);
-          }
-      
-          scriptsDir = scriptsDir.replace(/\/+$/, '');
-          const sitesFile = path.join(scriptsDir, 'sites.json');
-          if (!fs.existsSync(sitesFile)) {
-            console.warn(`sites.json not found at ${sitesFile} -> skipping configured renders`);
-            process.exit(0);
-          }
-      
-          // read & parse sites.json with simple sanitizer (remove // and /* */ and trailing commas)
-          let raw = fs.readFileSync(sitesFile, 'utf8');
-          let sitesObj = null;
-          try {
-            sitesObj = JSON.parse(raw);
-          } catch (e) {
-            // sanitize: remove // comments and /* */ blocks and trailing commas
-            let s = raw.replace(/\/\/.*(?=\n)/g, '');
-            s = s.replace(/\/\*[\s\S]*?\*\//g, '');
-            s = s.replace(/,\s*(\}|])/g, '$1');
-            try {
-              sitesObj = JSON.parse(s);
-              console.log('Parsed sites.json after basic sanitize (node).');
-            } catch (e2) {
-              console.error('Failed to parse sites.json in Node even after sanitize:', e2 && e2.message ? e2.message : e2);
-              // imprime um trecho inicial do raw para debug (até 400 chars)
-              console.warn('>>>> BEGIN sites.json (first 400 chars) >>>>');
-              console.warn(s.slice(0,400).replace(/\r/g,'\\r').replace(/\n/g,'\\n\n'));
-              console.warn('<<<< END snippet >>>>');
-              console.warn('Continuing without configured renders (sites.json parse failed).');
-              sitesObj = [];
-            }
-
-             
-
-          
-      
-          let sites = (sitesObj && sitesObj.sites) ? sitesObj.sites : (Array.isArray(sitesObj) ? sitesObj : []);
-      
-          const renderScript = path.join(scriptsDir, 'render_page.js');
-          if (!fs.existsSync(renderScript)) {
-            console.warn(`render_page.js not found at ${renderScript} -> skipping`);
-            process.exit(0);
-          }
-      
-          try { fs.mkdirSync(path.join(scriptsDir, 'rendered'), { recursive: true }); } catch(e){}
-      
-          for (const s of sites.filter(s => s.render_file)) {
-            const urlRaw = (s.url || '').trim();
-            if (!urlRaw) continue;
-            const host = hostOf(urlRaw);
-      
-            // se não estiver na whitelist, ignora
-            if (!hostMatchesAllowed(host)) {
-              console.log('Skipping (not in configured whitelist):', urlRaw);
-              continue;
-            }
-      
-            // se a URL já foi explicitamente tratada na etapa explícita, pula para evitar duplicação
-            if (explicit.includes(urlRaw)) {
-              console.log('Skipping configured render for (explicit handled):', urlRaw);
-              continue;
-            }
-      
-            const url = urlRaw;
-            const out = s.render_file;
-            console.log('Rendering', url, '->', out);
-            try {
-              const cmd = `node "${renderScript}" "${String(url).replace(/"/g,'\\"')}" "${String(out).replace(/"/g,'\\"')}"`;
-              cp.execSync(cmd, { stdio: 'inherit', timeout: 180000 });
-              console.log('-> Done:', url);
-            } catch (err) {
-              console.error('Render failed for', url, '-', err && err.message ? err.message : err);
-            }
-          }
-          NODE
-            
       - name: Show rendered files (debug)
         working-directory: ${{ steps.detect.outputs.scripts_dir }}
         run: |
@@ -278,8 +155,6 @@ jobs:
           path: ${{ steps.detect.outputs.scripts_dir }}/rendered
           if-no-files-found: warn
 
-
-    
       - name: Run linkedin extractor
         working-directory: ${{ steps.detect.outputs.scripts_dir }}
         run: |
@@ -302,8 +177,6 @@ jobs:
           rm -f "$SCRIPTS/output"/*.html "$SCRIPTS/output"/*.png || true
           ls -la "$SCRIPTS/output" || true
 
-
-
       - name: Show produced linkedin files (debug)
         working-directory: ${{ steps.detect.outputs.scripts_dir }}
         run: |
@@ -319,17 +192,12 @@ jobs:
         env:
           SCRIPTS: ${{ steps.detect.outputs.scripts_dir }}
 
-
       - name: Upload linkedin artifact
         uses: actions/upload-artifact@v4
         with:
           name: linkedin-output
           path: ${{ steps.detect.outputs.scripts_dir }}/output
           if-no-files-found: warn
-
-
-    
-      
 
   build:
     needs: render-on-selfhosted
@@ -451,7 +319,6 @@ jobs:
           path: feeds_summary.xlsx
           if-no-files-found: warn
           retention-days: 7
-    
 
       - name: Ensure output dir exists
         run: |
@@ -472,8 +339,6 @@ jobs:
           fi
           echo "zipname=$ZIPNAME" >> $GITHUB_OUTPUT
         shell: bash
-
-      
 
       - name: Merge feeds (generate dist/merged-feed.xml)
         run: |
