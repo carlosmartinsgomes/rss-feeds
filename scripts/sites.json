@@ -66,7 +66,7 @@
       "name": "mobihealthnews",
       "url": "https://www.mobihealthnews.com/",
       "item_container": "div.view-content > div, article, .views-row",
-      "title": "div.news-title, a > div.news-title, .news-title.small",
+      "title": "div.news-title.small, a.title",
       "link": "a@href, div.news-title a@href",
       "date": "span.day_list, span.time_list, .content-list-meta span",
       "description": "div.body_list, .content-list-meta + p, p",
