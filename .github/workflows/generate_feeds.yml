@@ -203,8 +203,14 @@ jobs:
               console.log('Parsed sites.json after basic sanitize (node).');
             } catch (e2) {
               console.error('Failed to parse sites.json in Node even after sanitize:', e2 && e2.message ? e2.message : e2);
-              process.exit(1);
+              // imprime um trecho inicial do raw para debug (até 400 chars)
+              console.warn('>>>> BEGIN sites.json (first 400 chars) >>>>');
+              console.warn(s.slice(0,400).replace(/\r/g,'\\r').replace(/\n/g,'\\n\n'));
+              console.warn('<<<< END snippet >>>>');
+              console.warn('Continuing without configured renders (sites.json parse failed).');
+              sitesObj = [];
             }
+
              
 
           
