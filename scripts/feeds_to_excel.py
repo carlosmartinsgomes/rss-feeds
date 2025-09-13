@@ -16,14 +16,14 @@ OUT_XLSX = "feeds_summary.xlsx"
 FEEDS_DIR = "feeds"
 SITES_JSON_PATHS = ["scripts/sites.json", "rss-feeds/scripts/sites.json", "sites.json"]
 
-# regex para detectar datas típicas (ex: September 11, 2025 08:17 PM, Sep 11, 2025, 2025-09-11, 11 Sep 2025, etc.)
-# Nota: não cobre absolutamente todos os formatos, mas captura muitos casos comuns.
+# Regex para detectar datas comuns: "September 11, 2025 08:17 PM", "2025-09-11", "11 Sep 2025", etc.
 _DATE_RE = re.compile(
-    r'\b(?:' +
+    r'\b(?:'
     r'(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|'
-    r'Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},\s+\d{4}(?:\s+\d{1,2}:\d{2}(?::\d{2})?(?:\s*(?:AM|PM|am|pm))?)?)'
-    r'|(?:\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?)'
-    r'|(?:\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4})'
+    r'Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)'
+    r'\s+\d{1,2},\s+\d{4}(?:\s+\d{1,2}:\d{2}(?::\d{2})?(?:\s*(?:AM|PM|am|pm))?)?'
+    r'|\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?'
+    r'|\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4}'
     r')',
     flags=re.IGNORECASE
 )
@@ -63,18 +63,26 @@ def find_date_in_text(text):
     if not text:
         return None
     m = _DATE_RE.search(text)
-    if not m:
+    candidate = None
+    if m:
+        candidate = m.group(0)
+    else:
+        # tentativa adicional: usar dateutil fuzzy com todo o texto (mais custoso, mas último recurso)
+        try:
+            dt = dateparser.parse(text, fuzzy=True)
+            if dt:
+                return dt.isoformat(sep=' ')
+        except Exception:
+            pass
         return None
-    candidate = m.group(0)
+
+    # tenta parse com dateutil (fuzzy) para normalizar
     try:
-        # tenta parse inteligente; se conseguir devolve string legível (ISO)
         dt = dateparser.parse(candidate, fuzzy=True)
         if dt:
-            # preferimos string legível curta
             return dt.isoformat(sep=' ')
     except Exception:
-        pass
-    # se parse falhar, devolve o trecho bruto
+        return candidate
     return candidate
 
 def find_date_from_xml_item(xml_soup, entry_title, entry_link):
@@ -82,8 +90,9 @@ def find_date_from_xml_item(xml_soup, entry_title, entry_link):
     Procura no XML (BeautifulSoup xml parser) um <item> que corresponda ao entry
     (por título ou link) e tenta extrair uma data no bloco <description> ou texto do item.
     """
+    if xml_soup is None:
+        return None
     for item in xml_soup.find_all('item'):
-        # tenta extrair title/link dentro do item xml
         t_el = item.find('title')
         d_el = item.find('description')
         link_el = item.find('link')
@@ -91,36 +100,33 @@ def find_date_from_xml_item(xml_soup, entry_title, entry_link):
         d_text = d_el.get_text(" ", strip=True) if d_el else ''
         l_text = link_el.get_text(" ", strip=True) if link_el else ''
 
-        # normalizar e comparar
-        def norm(x):
-            return (x or '').strip().lower()
-        if entry_link and entry_link.strip():
-            if norm(entry_link) == norm(l_text):
-                # match by link -> try description/text for date
-                combined = ' '.join([t_text, d_text])
-                found = find_date_in_text(combined)
-                if found:
-                    return found
-        # fallback match by title (fuzzy)
-        if entry_title and t_text and (norm(entry_title) == norm(t_text) or norm(entry_title) in norm(t_text) or norm(t_text) in norm(entry_title)):
+        def norm(x): return (x or '').strip().lower()
+
+        # match by link exact
+        if entry_link and l_text and norm(entry_link) == norm(l_text):
             combined = ' '.join([t_text, d_text])
             found = find_date_in_text(combined)
             if found:
                 return found
-    # nada encontrado
+
+        # fuzzy match by title
+        if entry_title and t_text:
+            nt = norm(t_text)
+            ne = norm(entry_title)
+            if ne == nt or ne in nt or nt in ne:
+                combined = ' '.join([t_text, d_text])
+                found = find_date_in_text(combined)
+                if found:
+                    return found
     return None
 
 def parse_feed_file_with_fallback(ff):
-    """
-    Faz parse com feedparser e devolve uma lista de rows (dictionaries) com campos:
-    site, title, link (source), pubDate, description (short), item_container, topic
-    """
     rows = []
     base = os.path.basename(ff)
     site_name = os.path.splitext(base)[0]
     parsed = feedparser.parse(ff)
     entries = parsed.entries if hasattr(parsed, "entries") else []
-    # load raw xml once for fallback extraction
+
     raw_xml = ''
     try:
         raw_xml = open(ff, 'r', encoding='utf-8').read()
@@ -135,33 +141,32 @@ def parse_feed_file_with_fallback(ff):
 
     for e in entries:
         title = (e.get("title", "") or "").strip()
-        # link: feedparser sometimes uses 'link' or 'links'
         link = (e.get("link", "") or "")
-        # pubDate candidates
         pub = (e.get("published", "") or e.get("pubDate", "") or e.get("updated", "") or "")
-        # description/summary
         desc = (e.get("summary", "") or e.get("description", "") or "")
         desc_short = strip_html_short(desc, max_len=300)
 
-        # topic: try tags/categories
+        # topic: tags/categories
         topic = "N/A"
         if e.get("tags"):
             try:
                 t = e.get("tags")
-                if isinstance(t, list) and len(t) > 0 and isinstance(t[0], dict) and t[0].get('term'):
-                    topic = t[0].get('term')
-                elif isinstance(t, list) and isinstance(t[0], str):
-                    topic = t[0]
+                if isinstance(t, list) and len(t) > 0:
+                    first = t[0]
+                    if isinstance(first, dict) and first.get('term'):
+                        topic = first.get('term')
+                    elif isinstance(first, str):
+                        topic = first
             except Exception:
                 topic = "N/A"
 
-        # fallback: if no pub found, try to search in raw xml item text
+        # fallback: check raw xml item
         if not pub and xml_soup:
             fallback = find_date_from_xml_item(xml_soup, title, link)
             if fallback:
                 pub = fallback
 
-        # final cleanup: if still no pub, try to extract a date-like substring from description/title
+        # second fallback: search in combined title/desc text
         if not pub:
             combined = " ".join([title or "", desc or ""])
             maybe = find_date_in_text(combined)
@@ -174,7 +179,7 @@ def parse_feed_file_with_fallback(ff):
             "link (source)": link,
             "pubDate": pub,
             "description (short)": desc_short,
-            "item_container": "",  # preenchido depois com mapping se tiver
+            "item_container": "",
             "topic": topic or "N/A"
         })
     return rows
@@ -188,7 +193,6 @@ def main():
     for ff in feed_files:
         try:
             rows = parse_feed_file_with_fallback(ff)
-            # fill item_container from sites.json mapping if available
             base = os.path.basename(ff)
             site_name = os.path.splitext(base)[0]
             ic = site_item_map.get(site_name, "")
@@ -199,7 +203,6 @@ def main():
             print("Error parsing feed", ff, ":", exc)
     if not all_rows:
         print("No items found across feeds.")
-    # order columns and write xlsx
     cols = ["site", "title", "link (source)", "pubDate", "description (short)", "item_container", "topic"]
     df = pd.DataFrame(all_rows, columns=cols)
     df.to_excel(OUT_XLSX, index=False)
