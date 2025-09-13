@@ -68,7 +68,7 @@
       "item_container": "div.view-content > div, article, .views-row",
       "title": "div.news-title.small, a.title",
       "link": "a@href, div.news-title a@href",
-      "date": "span.day_list, span.time_list, .content-list-meta span",
+      "date": "span.day_list, span.time_list, .time_list, time",
       "description": "div.body_list, .content-list-meta + p, p",
       "render_file": "scripts/rendered/mobihealthnews.html",
       "filters": { "keywords": ["a","hims","hers","hims&hers"] }
