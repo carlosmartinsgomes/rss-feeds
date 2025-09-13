@@ -124,15 +124,22 @@ jobs:
             https://www.businesswire.com/newsroom?page=3
             https://www.businesswire.com/newsroom?page=4
             https://www.businesswire.com/newsroom?page=5
-            https://www.digiday.com/
+            https://digiday.com/
           SCRIPTS: ${{ steps.detect.outputs.scripts_dir }}
         run: |
           echo "Using SCRIPTS='$SCRIPTS' and EXPLICIT_URLS provided"
-      
-          node <<'NODE'
-          const fs = require('fs');
-          const cp = require('child_process');
-          const path = require('path');
+          SCRIPTS="${SCRIPTS:-scripts}"
+          if [ -z "$SCRIPTS" ]; then
+            echo "No scripts dir detected -> skip configured renders"
+            exit 0
+          fi
+          # chama o script Node externo (non-fatal)
+          if [ -f "$SCRIPTS/render_configured.js" ]; then
+            node "$SCRIPTS/render_configured.js" || echo "render_configured.js failed (non-zero exit) — continuing workflow"
+          else
+            echo "render_configured.js not found at $SCRIPTS -> skipping"
+          fi
+
       
           // WHITELIST: apenas estes hosts serão processados por este passo
           const allowedHosts = [
