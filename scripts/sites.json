@@ -240,7 +240,7 @@
       "date": ".article-info .date, span.date, .date, time, .timestamp",
       "description": ".news-content p, .block-text p, .excerpt, .dek, p",
       "render_file": "scripts/rendered/digiday.html",
-      "filters": { "keywords": ["a","supply path optimization","connected tv","ctv","programmatic","the trade desk","ttd"] "exclude": ["sponsored","promo","ad","advertise","advertisement"] }
+      "filters": { "keywords": ["a","supply path optimization","connected tv","ctv","programmatic","the trade desk","ttd"], "exclude": ["sponsored","promo","ad","advertise","advertisement"] }
     },
     {
       "name": "martech-feed",
