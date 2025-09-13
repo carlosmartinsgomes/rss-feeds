@@ -1,4 +1,7 @@
-// scripts/save_linkedin_storage.js
+/*
+ scripts/save_linkedin_storage.js
+ Abrir Chromium (visível), fazes login manual no LinkedIn, pressiona ENTER no terminal e guarda storageState em scripts/linkedin_auth.json
+*/
 const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
@@ -12,11 +15,12 @@ const { chromium } = require('playwright');
   const context = await browser.newContext();
   const page = await context.newPage();
 
-  console.log('Opening LinkedIn...');
+  console.log('Opening LinkedIn login page...');
   await page.goto('https://www.linkedin.com/login', { waitUntil: 'domcontentloaded' });
 
-  console.log('Por favor, faz login manualmente na janela do browser que abriu.');
-  console.log('Depois de estares logado e a ver o feed / grupo, espera uns segundos e pressiona ENTER aqui no terminal.');
+  console.log('');
+  console.log('>>> Faz login manualmente na janela do browser que abriu. Depois volta a este terminal e pressiona ENTER para continuar e guardar a sessão.');
+  console.log('');
 
   // espera pela tua confirmação manual
   process.stdin.setEncoding('utf8');
@@ -24,7 +28,7 @@ const { chromium } = require('playwright');
     process.stdin.once('data', () => resolve());
   });
 
-  // salva o estado
+  // salva o estado (cookies + localStorage)
   await context.storageState({ path: out });
   console.log('Saved storage state to', out);
 
