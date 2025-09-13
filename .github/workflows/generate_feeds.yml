@@ -122,7 +122,7 @@ jobs:
             https://www.businesswire.com/newsroom?page=3
             https://www.businesswire.com/newsroom?page=4
             https://www.businesswire.com/newsroom?page=5
-            https://digiday.com/
+            https://www.digiday.com/
           SCRIPTS: ${{ steps.detect.outputs.scripts_dir }}
         run: |
           echo "Using SCRIPTS='$SCRIPTS' and EXPLICIT_URLS provided"
