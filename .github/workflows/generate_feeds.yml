@@ -125,16 +125,14 @@ jobs:
             https://www.digiday.com/
           SCRIPTS: ${{ steps.detect.outputs.scripts_dir }}
         run: |
-          echo "Using SCRIPTS='$SCRIPTS' and EXPLICIT_URLS provided"
+          echo "Using SCRIPTS='${SCRIPTS:-scripts}' and EXPLICIT_URLS provided"
           SCRIPTS="${SCRIPTS:-scripts}"
           if [ -z "$SCRIPTS" ]; then
             echo "No scripts dir detected -> skip configured renders"
             exit 0
           fi
-
           if [ -f "$SCRIPTS/render_configured.js" ]; then
-            # chama o script externo - não fatal (continua se falhar)
-            node "$SCRIPTS/render_configured.js" || echo "render_configured.js failed (non-zero exit) — continuing workflow"
+            node "$SCRIPTS/render_configured.js"
           else
             echo "render_configured.js not found at $SCRIPTS -> skipping"
           fi
