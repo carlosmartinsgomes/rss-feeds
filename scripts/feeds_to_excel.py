@@ -12,11 +12,22 @@ import re
 import requests
 from bs4 import BeautifulSoup
 from dateutil import parser as dateparser
+from dateutil import tz as date_tz
 from urllib.parse import urljoin, urlparse
 
 OUT_XLSX = "feeds_summary.xlsx"
 FEEDS_DIR = "feeds"
 SITES_JSON_PATHS = ["scripts/sites.json", "rss-feeds/scripts/sites.json", "sites.json"]
+
+# --- adicionar mapping tzinfos básico para evitar UnknownTimezoneWarning ---
+_DEFAULT_TZINFOS = {
+    "ET": date_tz.gettz("America/New_York"),
+    "CET": date_tz.gettz("Europe/Paris"),
+    # acrescenta casos que vejas frequentemente
+    "GMT": date_tz.gettz("GMT"),
+    "UTC": date_tz.gettz("UTC"),
+    # podes adicionar mais conforme precisares
+}
 
 # Regex para detectar datas comuns: "September 11, 2025 08:17 PM", "2025-09-11", "11 Sep 2025", etc.
 _DATE_RE = re.compile(
@@ -30,6 +41,7 @@ _DATE_RE = re.compile(
     flags=re.IGNORECASE
 )
 
+
 def strip_html_short(html_text, max_len=300):
     if not html_text:
         return ""
@@ -42,6 +54,7 @@ def strip_html_short(html_text, max_len=300):
     if len(s) > max_len:
         return s[:max_len].rstrip() + "…"
     return s
+
 
 def load_sites_item_container():
     for p in SITES_JSON_PATHS:
@@ -61,6 +74,7 @@ def load_sites_item_container():
                 continue
     return {}
 
+
 def find_date_in_text(text):
     if not text:
         return None
@@ -71,7 +85,7 @@ def find_date_in_text(text):
     else:
         # tentativa adicional: usar dateutil fuzzy com todo o texto (mais custoso, mas último recurso)
         try:
-            dt = dateparser.parse(text, fuzzy=True)
+            dt = dateparser.parse(text, fuzzy=True, tzinfos=_DEFAULT_TZINFOS)
             if dt:
                 return dt.isoformat(sep=' ')
         except Exception:
@@ -80,18 +94,15 @@ def find_date_in_text(text):
 
     # tenta parse com dateutil (fuzzy) para normalizar
     try:
-        dt = dateparser.parse(candidate, fuzzy=True)
+        dt = dateparser.parse(candidate, fuzzy=True, tzinfos=_DEFAULT_TZINFOS)
         if dt:
             return dt.isoformat(sep=' ')
     except Exception:
         return candidate
     return candidate
 
+
 def find_date_from_xml_item(xml_soup, entry_title, entry_link):
-    """
-    Procura no XML (BeautifulSoup xml parser) um <item> que corresponda ao entry
-    (por título ou link) e tenta extrair uma data no bloco <description> ou texto do item.
-    """
     if xml_soup is None:
         return None
     for item in xml_soup.find_all('item'):
@@ -104,14 +115,12 @@ def find_date_from_xml_item(xml_soup, entry_title, entry_link):
 
         def norm(x): return (x or '').strip().lower()
 
-        # match by link exact
         if entry_link and l_text and norm(entry_link) == norm(l_text):
             combined = ' '.join([t_text, d_text])
             found = find_date_in_text(combined)
             if found:
                 return found
 
-        # fuzzy match by title
         if entry_title and t_text:
             nt = norm(t_text)
             ne = norm(entry_title)
@@ -122,7 +131,12 @@ def find_date_from_xml_item(xml_soup, entry_title, entry_link):
                     return found
     return None
 
+
 def parse_feed_file_with_fallback(ff):
+    """
+    Mantém comportamento antigo para todos os sites *exceto* mobihealthnews.
+    Para mobihealthnews, main() substitui e gera linhas diretamente do scraper.
+    """
     rows = []
     base = os.path.basename(ff)
     site_name = os.path.splitext(base)[0]
@@ -186,12 +200,16 @@ def parse_feed_file_with_fallback(ff):
         })
     return rows
 
-# ---- NOVO: scraper que replica a lógica do snippet do console para MobiHealthNews ----
+
+# ---------------------------
+# SCRAPER específico MOBIHEALTH
+# ---------------------------
 def abs_url(href, base):
     try:
         return urljoin(base, href or '')
     except Exception:
         return href or ''
+
 
 def text_of(el):
     try:
@@ -199,14 +217,14 @@ def text_of(el):
     except Exception:
         return ""
 
+
 def scrape_mobihealth_listing(base_url="https://www.mobihealthnews.com/", max_items=11, timeout=10):
     """
-    Faz fetch da homepage de MobiHealthNews e extrai uma lista ordenada
-    de itens {title, link, date, description} até max_items.
-    Implementa a mesma heurística do snippet JS do utilizador.
+    Faz fetch e devolve lista ordenada de items (title, link, date, description) até max_items.
+    Replicamos a lógica do snippet do console para garantir o mesmo resultado.
     """
     try:
-        r = requests.get(base_url, headers={'User-Agent':'Mozilla/5.0'}, timeout=timeout)
+        r = requests.get(base_url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=timeout)
         r.raise_for_status()
         html = r.text
     except Exception as e:
@@ -221,13 +239,12 @@ def scrape_mobihealth_listing(base_url="https://www.mobihealthnews.com/", max_it
                    or soup.select_one('.block-views-blocktop-stories-news-grid-global') \
                    or None
 
-    # top titles
     if topContainer:
         topTitleEls = [el for el in topContainer.select('.news-title.fs-5, .news-title, .overlay .news-title') if el]
     else:
         topTitleEls = [el for el in soup.select('.news-title.fs-5, .news-title') if el]
 
-    # helper para subir e encontrar wrapper
+    # find wrapper for top titles
     def find_top_wrapper(el):
         if el is None:
             return None
@@ -235,11 +252,9 @@ def scrape_mobihealth_listing(base_url="https://www.mobihealthnews.com/", max_it
         for _ in range(8):
             if cur is None:
                 break
-            # if anchor with href -> prefer
             if cur.name == 'a' and cur.get('href'):
                 return cur
             classes = cur.get('class') or []
-            # class check
             if 'col-lg-6' in classes or 'square-one' in classes or 'views-row' in classes or cur.name == 'article':
                 return cur
             if topContainer is not None and cur.parent == topContainer:
@@ -249,7 +264,6 @@ def scrape_mobihealth_listing(base_url="https://www.mobihealthnews.com/", max_it
         art = el.find_parent(['article', 'div'], class_='views-row')
         if art:
             return art
-        # last resort
         closest_a = el.find_parent('a')
         return closest_a or el
 
@@ -259,7 +273,6 @@ def scrape_mobihealth_listing(base_url="https://www.mobihealthnews.com/", max_it
         w = find_top_wrapper(t)
         if not w:
             continue
-        # use identity via object id
         wid = id(w)
         if wid in seen_top:
             continue
@@ -268,26 +281,29 @@ def scrape_mobihealth_listing(base_url="https://www.mobihealthnews.com/", max_it
         if len(topWrappers) >= 5:
             break
 
-    # get regular nodes (candidates)
-    candidates = []
-    # selector approximado (evitar top wrappers later)
-    sel_candidates = '#main-content .view-content > .view-content > div, #main-content .view-content > div, .view-content > div, .view-content .views-row, article'
-    for c in soup.select(sel_candidates):
-        candidates.append(c)
+    # candidates (mais abrangente)
+    sel_candidates = '#main-content .view-content > .view-content > div, #main-content .view-content > div, .view-content > div, .view-content .views-row, article, .views-row'
+    candidates = [c for c in soup.select(sel_candidates)]
 
-    topNodesSet = set([id(w) for (w,_) in topWrappers])
+    topNodesSet = set([id(w) for (w, _) in topWrappers])
 
-    # filter regular nodes excluding those contained in top wrappers
     regularNodes = []
     for n in candidates:
-        if any(id(parent) in topNodesSet for parent in [id(p) for p in (n.find_parents() or [])]):
+        # descartar nós dentro dos top wrappers
+        in_top = False
+        for tw in topWrappers:
+            try:
+                if tw[0] and tw[0].find_all and (n in tw[0].find_all(True) or n == tw[0]):
+                    in_top = True
+                    break
+            except Exception:
+                continue
+        if in_top:
             continue
-        # also avoid nodes equal to top wrappers
         if id(n) in topNodesSet:
             continue
         regularNodes.append(n)
 
-    # helpers for extraction
     def find_link(wrap):
         if wrap is None:
             return ''
@@ -335,7 +351,6 @@ def scrape_mobihealth_listing(base_url="https://www.mobihealthnews.com/", max_it
     def find_date(wrap):
         if wrap is None:
             return ''
-        # try group-author-line pattern used by top layout
         ancArticle = wrap.find_parent('article') or wrap
         try:
             group = ancArticle.select_one('div.group-author-line, div.field.field--name-field-author')
@@ -344,14 +359,12 @@ def scrape_mobihealth_listing(base_url="https://www.mobihealthnews.com/", max_it
         if group:
             spans = [text_of(s) for s in group.select('span') if text_of(s)]
             if len(spans) >= 6:
-                # nth-child(5) -> index 4 ; nth-child(6) -> index 5
                 day = spans[4].lstrip('|').strip()
                 time = spans[5].lstrip('|').strip()
                 if day and time and day != time:
                     return f"{day} | {time}"
                 if day:
                     return day
-        # next, try day_list/time_list or post-date
         dayEl = wrap.select_one('span.day_list, .day_list, span.post-date, .post-date, time')
         timeEl = wrap.select_one('span.time_list, .time_list, time')
         day = text_of(dayEl) if dayEl is not None else ''
@@ -389,8 +402,9 @@ def scrape_mobihealth_listing(base_url="https://www.mobihealthnews.com/", max_it
 
     items = []
     seen = set()
+
     def push_if_new(obj):
-        key = obj.get('link') or (obj.get('title') or '')[:200]
+        key = (obj.get('link') or '').rstrip('/') or (obj.get('title') or '')[:200]
         if not key:
             return False
         if key in seen:
@@ -399,7 +413,7 @@ def scrape_mobihealth_listing(base_url="https://www.mobihealthnews.com/", max_it
         items.append(obj)
         return True
 
-    # process top wrappers
+    # top wrappers
     for (w, titleEl) in topWrappers:
         if len(items) >= max_items:
             break
@@ -409,7 +423,7 @@ def scrape_mobihealth_listing(base_url="https://www.mobihealthnews.com/", max_it
         description = find_description(w) or ''
         push_if_new({'title': title, 'link': link, 'date': date, 'description': description, 'source': 'top'})
 
-    # process regular nodes
+    # regular nodes
     for n in regularNodes:
         if len(items) >= max_items:
             break
@@ -419,7 +433,7 @@ def scrape_mobihealth_listing(base_url="https://www.mobihealthnews.com/", max_it
         description = find_description(n) or ''
         push_if_new({'title': title, 'link': link, 'date': date, 'description': description, 'source': 'list'})
 
-    # final fallback: anchors
+    # fallback anchors
     if len(items) < max_items:
         for a in soup.select('a[href]'):
             if len(items) >= max_items:
@@ -432,11 +446,12 @@ def scrape_mobihealth_listing(base_url="https://www.mobihealthnews.com/", max_it
                 continue
             push_if_new({'title': title, 'link': href, 'date': '', 'description': '', 'source': 'anchor-fallback'})
 
-    # debug print minimal
-    # print("scrape_mobihealth_listing: extracted", len(items), "items")
     return items
 
-# ---- FIM do scraper ----
+
+# ---------------------------
+# FIM DO SCRAPER
+# ---------------------------
 
 def main():
     site_item_map = load_sites_item_container()
@@ -444,86 +459,47 @@ def main():
     feed_files = sorted(glob.glob(os.path.join(FEEDS_DIR, "*.xml")))
     if not feed_files:
         print("No feed files found in", FEEDS_DIR)
-    # We'll lazily fetch the mobihealth listing only if we have entries for that site
-    mobi_scraped = None
-    mobi_base = "https://www.mobihealthnews.com/"
 
     for ff in feed_files:
         try:
-            rows = parse_feed_file_with_fallback(ff)
             base = os.path.basename(ff)
             site_name = os.path.splitext(base)[0]
             ic = site_item_map.get(site_name, "")
-            # If this is mobihealthnews, prepare scrape once
-            if site_name == "mobihealthnews":
-                # perform scrape once (lazy)
-                try:
-                    mobi_scraped = scrape_mobihealth_listing(base_url=mobi_base, max_items=11, timeout=10)
-                    # build lookup maps for matching
-                    mobi_by_link = {}
-                    mobi_by_title = {}
-                    for it in mobi_scraped:
-                        lk = it.get('link') or ''
-                        if lk:
-                            mobi_by_link[lk.rstrip('/')] = it
-                        tnorm = (it.get('title') or '').strip().lower()
-                        if tnorm:
-                            mobi_by_title[tnorm] = it
-                except Exception as e:
-                    print("mobi scrape failed:", e)
-                    mobi_scraped = []
-                    mobi_by_link = {}
-                    mobi_by_title = {}
-            else:
-                mobi_by_link = {}
-                mobi_by_title = {}
 
+            # special: if mobihealthnews, ignore the XML entries and build rows directly
+            if site_name == "mobihealthnews":
+                mobi_items = scrape_mobihealth_listing(base_url="https://www.mobihealthnews.com/", max_items=11, timeout=10)
+                # create rows exactly from the scraped listing (title, link, date, description)
+                for it in mobi_items:
+                    rows = {
+                        "site": site_name,
+                        "title": it.get("title", "") or "",
+                        "link (source)": it.get("link", "") or "",
+                        "pubDate": it.get("date", "") or "",
+                        "description (short)": strip_html_short(it.get("description", "") or "", max_len=300),
+                        "item_container": ic,
+                        "topic": "N/A"
+                    }
+                    all_rows.append(rows)
+                # continue to next feed file (we don't also parse the XML for mobihealth)
+                continue
+
+            # otherwise, behavior unchanged
+            rows = parse_feed_file_with_fallback(ff)
             for r in rows:
                 r["item_container"] = ic
-                # special handling for mobihealth: try to match scraped listing and override pubDate/description
-                if r.get("site") == "mobihealthnews" and mobi_scraped is not None:
-                    linked = r.get("link (source)", "") or ""
-                    linked_norm = linked.rstrip('/')
-                    matched = None
-                    # exact link match
-                    if linked_norm in mobi_by_link:
-                        matched = mobi_by_link[linked_norm]
-                    else:
-                        # try matching by path suffix
-                        try:
-                            lp = urlparse(linked_norm).path or ''
-                            for lk, it in mobi_by_link.items():
-                                if urlparse(lk).path == lp or lk.endswith(lp) or (lp and lk.endswith(lp.strip('/'))):
-                                    matched = it
-                                    break
-                        except Exception:
-                            matched = None
-                    if not matched:
-                        # try title match (normalized)
-                        tnorm = (r.get("title") or "").strip().lower()
-                        if tnorm and tnorm in mobi_by_title:
-                            matched = mobi_by_title[tnorm]
-                        else:
-                            # fuzzy: check substring both ways
-                            for tk, it in mobi_by_title.items():
-                                if tnorm and (tnorm in tk or tk in tnorm):
-                                    matched = it
-                                    break
-                    if matched:
-                        # override pubDate and description (short)
-                        if matched.get('date'):
-                            r['pubDate'] = matched.get('date')
-                        if matched.get('description'):
-                            r['description (short)'] = strip_html_short(matched.get('description'), max_len=300)
-                all_rows.extend([r])
+                all_rows.append(r)
+
         except Exception as exc:
             print("Error parsing feed", ff, ":", exc)
+
     if not all_rows:
         print("No items found across feeds.")
     cols = ["site", "title", "link (source)", "pubDate", "description (short)", "item_container", "topic"]
     df = pd.DataFrame(all_rows, columns=cols)
     df.to_excel(OUT_XLSX, index=False)
     print(f"Wrote {OUT_XLSX} ({len(df)} rows)")
+
 
 if __name__ == "__main__":
     main()
