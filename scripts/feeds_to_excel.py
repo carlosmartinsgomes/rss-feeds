@@ -12,6 +12,52 @@ import re
 from bs4 import BeautifulSoup
 from dateutil import parser as dateparser
 
+# caminho esperado do ficheiro gerado por generate_feeds.py
+DEBUG_JSON = os.path.join(os.path.dirname(__file__), '..', 'feeds_debug.json')
+
+if os.path.exists(DEBUG_JSON):
+    try:
+        import pandas as pd
+    except Exception as e:
+        print("feeds_to_excel: pandas não instalado; instala com: pip install pandas openpyxl")
+        raise
+
+    with open(DEBUG_JSON, 'r', encoding='utf-8') as fh:
+        data = json.load(fh)
+
+    rows = []
+    for site in data.get('sites', []):
+        site_name = site.get('site') or site.get('name') or ''
+        for it in site.get('items', []):
+            # ajusta os nomes de coluna conforme quiseres no Excel
+            rows.append({
+                'site': site_name,
+                'title': it.get('title', ''),
+                'link': it.get('link', ''),
+                'pubDate': it.get('date', ''),
+                'description': it.get('description', ''),
+                # Excel tem limites para célula; corta se muito grande
+                'item_container': (it.get('full_text') or '')[:32000]
+            })
+
+    if not rows:
+        print("feeds_to_excel: DEBUG JSON encontrado mas sem items.")
+    df = pd.DataFrame(rows)
+
+    out_xlsx = os.path.join(os.path.dirname(__file__), '..', 'feeds_summary.xlsx')
+    try:
+        # escreve o ficheiro Excel (openpyxl usado por pandas)
+        df.to_excel(out_xlsx, index=False)
+        print(f"feeds_to_excel: escrito {out_xlsx} a partir de {DEBUG_JSON} ({len(rows)} rows)")
+    except Exception as e:
+        print("feeds_to_excel: erro a escrever Excel:", e)
+        raise
+
+    # termina aqui para não executar a lógica original que lê XMLs
+    import sys
+    sys.exit(0)
+# --- END: fallback debug JSON ---
+
 OUT_XLSX = "feeds_summary.xlsx"
 FEEDS_DIR = "feeds"
 SITES_JSON_PATHS = ["scripts/sites.json", "rss-feeds/scripts/sites.json", "sites.json"]
