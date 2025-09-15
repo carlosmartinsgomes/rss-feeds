@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 # scripts/generate_feeds.py
 # Gere feeds RSS simples a partir de sites listados em sites.json
-# Melhorias: procura de datas em ancestrais/irmãos, fallback de description,
-# escreve feeds_debug.json com items (inclui tentativa de fetch do artigo para full_text).
+# Melhorias: procura de datas em ancestrais/irmãos e fallback de description
+# Requisitos: requests, beautifulsoup4, feedgen, python-dateutil
 
 import os
 import json
 import re
 import sys
-import time
 from bs4 import BeautifulSoup
 import requests
 from feedgen.feed import FeedGenerator
@@ -45,11 +44,9 @@ dateparser.parse = _parse_with_default_tzinfos
 
 ROOT = os.path.dirname(__file__)
 SITES_JSON = os.path.join(ROOT, 'sites.json')
-# debug JSON path (one level up from scripts/)
-DEBUG_JSON = os.path.join(ROOT, '..', 'feeds_debug.json')
 
 # regex para filtrar hrefs inúteis (ajusta conforme necessário)
-_bad_href_re = re.compile(r'(^#|^javascript:|mailto:|/help|/legal|cookie|privacy|terms|signin|login|settings|/consent|/preferences|/policies)', re.I)
+_bad_href_re = re.compile(r'(^#|/help|/legal|cookie|privacy|terms|signin|login|settings|/consent|/preferences|/policies|mailto:)', re.I)
 
 
 def load_sites():
@@ -400,69 +397,9 @@ def build_feed(name, cfg, items):
     print(f'Wrote {outpath}')
 
 
-# Heurística: tenta buscar o artigo completo e extrair corpo principal
-def try_fetch_article_body(link, site_base_url=None, timeout=12):
-    if not link:
-        return ''
-    try:
-        # evita fetchs óbvios para domínios externos (opcional)
-        if site_base_url:
-            try:
-                base_host = urlparse(site_base_url).netloc.lower()
-                link_host = urlparse(link).netloc.lower()
-                # se ambos definidos e diferentes -> ainda assim tentamos (alguns artigos redirecionam)
-                # mas podes optar por evitar fetchs a domains externos: uncomment next lines to block
-                # if base_host and link_host and base_host != link_host:
-                #     return ''
-            except Exception:
-                pass
-        html = fetch_html(link, timeout=timeout)
-        soup = BeautifulSoup(html, 'html.parser')
-        # selectors comuns para corpo do artigo
-        selectors = [
-            'article',
-            'div[data-component-id*="body"]',
-            '.field--name-body',
-            '.field.field--name-body',
-            '.article-body',
-            '.article-content',
-            '.post-content',
-            '.entry-content',
-            '.content-body',
-            '.field--name-field-article-body',
-            '#content'
-        ]
-        for sel in selectors:
-            try:
-                el = soup.select_one(sel)
-            except Exception:
-                el = None
-            if el:
-                # remove scripts/iframes/styles
-                for bad in el.select('script, style, iframe, noscript'):
-                    bad.decompose()
-                txt = el.get_text(" ", strip=True)
-                if txt and len(txt) > 80:
-                    return txt
-        # fallback: igreja de body text (limpa)
-        body = soup.body
-        if body:
-            for bad in body.select('script, style, iframe, noscript'):
-                bad.decompose()
-            txt = body.get_text(" ", strip=True)
-            return txt[:20000] if txt else ''
-        return ''
-    except Exception:
-        return ''
-
-
 def main():
     sites = load_sites()
     print(f'Loaded {len(sites)} site configurations from {SITES_JSON}')
-
-    # collect debug info to write feeds_debug.json
-    debug_sites = []
-
     for cfg in sites:
         name = cfg.get('name')
         url = cfg.get('url')
@@ -540,47 +477,8 @@ def main():
         # dedupe
         deduped = dedupe_items(matched)
 
-        # Try to improve full_text by fetching article page when the list-item full_text is small
-        for idx, it in enumerate(deduped):
-            try:
-                ft = (it.get('full_text') or '').strip()
-                # if short or empty, attempt to fetch the article page body (but only for same-site links typically)
-                if (not ft or len(ft) < 200) and it.get('link'):
-                    u_base = cfg.get('url') or url
-                    # only try fetch for http(s) links
-                    try:
-                        parsed = urlparse(it.get('link'))
-                        if parsed.scheme in ('http', 'https'):
-                            print(f'Attempting article fetch for item {idx} -> {it.get("link")}')
-                            body = try_fetch_article_body(it.get('link'), site_base_url=u_base, timeout=10)
-                            if body and len(body) > 80:
-                                it['full_text'] = body
-                                print(' -> fetched full article text (len=%d)' % len(body))
-                                # small polite pause to avoid hammering
-                                time.sleep(0.2)
-                    except Exception:
-                        pass
-            except Exception:
-                pass
-
         # write feed
         build_feed(name, cfg, deduped)
-
-        # append debug info
-        debug_sites.append({
-            'site': name,
-            'url': url,
-            'items': deduped
-        })
-
-    # write debug JSON for feeds_to_excel fallback
-    try:
-        out_debug = os.path.abspath(os.path.join(DEBUG_JSON))
-        with open(out_debug, 'w', encoding='utf-8') as fh:
-            json.dump({'sites': debug_sites}, fh, ensure_ascii=False, indent=2)
-        print(f'Wrote debug JSON: {out_debug}')
-    except Exception as e:
-        print('Failed to write debug JSON:', e)
 
     print('All done.')
 
