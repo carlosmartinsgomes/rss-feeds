@@ -1,8 +1,7 @@
-#!/usr/bin/env python3 
+#!/usr/bin/env python3
 # scripts/generate_feeds.py
 # Gere feeds RSS simples a partir de sites listados em sites.json
-# Melhorias: procura de datas em ancestrais/irmãos, fallback de description,
-# e (novo) tentativa de fetch da página do artigo para obter full_text/date quando necessário.
+# Melhorias: procura de datas em ancestrais/irmãos e fallback de description
 # Requisitos: requests, beautifulsoup4, feedgen, python-dateutil
 
 import os
@@ -14,7 +13,6 @@ import requests
 from feedgen.feed import FeedGenerator
 from datetime import datetime
 from urllib.parse import urljoin, urlparse, urlunparse, parse_qsl, urlencode
-import time
 
 # small compatibility shim to silence UnknownTimezoneWarning for "ET"
 # and to give dateutil a sensible tzinfo for "ET" without changing all parse(...) calls.
@@ -48,7 +46,7 @@ ROOT = os.path.dirname(__file__)
 SITES_JSON = os.path.join(ROOT, 'sites.json')
 
 # regex para filtrar hrefs inúteis (ajusta conforme necessário)
-_bad_href_re = re.compile(r'(^#|^javascript:|mailto:|/help|/legal|cookie|privacy|terms|signin|login|settings|/consent|/preferences|/policies|fbclid=|gclid=)', re.I)
+_bad_href_re = re.compile(r'(^#|/help|/legal|cookie|privacy|terms|signin|login|settings|/consent|/preferences|/policies|mailto:)', re.I)
 
 
 def load_sites():
@@ -101,171 +99,6 @@ def normalize_link_for_dedupe(href):
         return href.strip().lower()
 
 
-def clean_date_text(dt_text):
-    """
-    Limpeza simples da string de data/hora: remove pipes, trims,
-    junta partes se necessário.
-    """
-    if not dt_text:
-        return ''
-    s = dt_text.strip()
-    # remover pipes soltos
-    s = s.replace('\xa0', ' ')
-    s = re.sub(r'\s*\|\s*', ' | ', s)
-    s = re.sub(r'\s{2,}', ' ', s)
-    return s.strip()
-
-
-def fetch_article_details(link, cfg):
-    """
-    Tenta buscar a página do artigo e extrair title, date, description, full_text.
-    Usa vários seletores comuns e também as configurações passadas em cfg (title, date, description).
-    Retorna dict com keys possivelmente vazias.
-    """
-    out = {'title': '', 'date': '', 'description': '', 'full_text': ''}
-    if not link:
-        return out
-    # apenas tenta em hosts semelhantes (evita sair para domínios externos)
-    try:
-        page_html = fetch_html(link, timeout=12)
-    except Exception:
-        return out
-
-    soup = BeautifulSoup(page_html, 'html.parser')
-
-    # title: tentar selectors do cfg mas no contexto global
-    title_sel = cfg.get('title') or ''
-    if title_sel:
-        for s in [t.strip() for t in title_sel.split(',')]:
-            try:
-                el = soup.select_one(s)
-            except Exception:
-                el = None
-            if el:
-                t = el.get_text(" ", strip=True)
-                if t:
-                    out['title'] = t
-                    break
-    if not out['title']:
-        # comuns
-        for s in ('h1', 'header h1', '.article-title', 'title', '.content h1'):
-            el = soup.select_one(s)
-            if el and el.get_text(strip=True):
-                out['title'] = el.get_text(" ", strip=True)
-                break
-
-    # date: selectors do cfg, depois comuns
-    date_sel = cfg.get('date') or ''
-    date_candidates = []
-    if date_sel:
-        date_candidates += [s.strip() for s in date_sel.split(',') if s.strip()]
-    date_candidates += ['.post-date', '.day_list', '.time_list', '.entry-date', '.published', 'time', '.date', '.timestamp', '.u-whitespace-nowrap']
-
-    # tentar elementos que estejam próximos e concatenar quando tiver time+date em spans adjacentes
-    found_date_text = ''
-    for ds in date_candidates:
-        try:
-            el = soup.select_one(ds)
-        except Exception:
-            el = None
-        if el:
-            txt = el.get_text(" ", strip=True)
-            if txt:
-                found_date_text = txt
-                # checar siblings (caso mobihealthnews com span:nth-child separadas)
-                try:
-                    # juntar texto de spans irmãos imediatos que pareçam conter hora ou date
-                    sibs = []
-                    parent = el.parent
-                    if parent:
-                        for child in parent.find_all(recursive=False):
-                            if child == el:
-                                sibs.append(child.get_text(" ", strip=True))
-                            elif child.name and child.get_text(strip=True):
-                                sibs.append(child.get_text(" ", strip=True))
-                        # heurística: se há mais de 1 parte e uma contém "pm" ou "am" juntar com '|'
-                        parts = [p for p in [x.strip() for x in sibs] if p]
-                        if len(parts) >= 2:
-                            combined = ' | '.join(parts)
-                            if len(combined) > len(found_date_text):
-                                found_date_text = combined
-                except Exception:
-                    pass
-                break
-    out['date'] = clean_date_text(found_date_text)
-
-    # description: try cfg description selectors or first paragraph inside known body selectors
-    desc_sel = cfg.get('description') or ''
-    if desc_sel:
-        for s in [t.strip() for t in desc_sel.split(',')]:
-            try:
-                el = soup.select_one(s)
-            except Exception:
-                el = None
-            if el:
-                d = el.get_text(" ", strip=True)
-                if d:
-                    out['description'] = d
-                    break
-
-    # full_text: procurar por seletores de body comuns (inclui selector cfg.item_container como possível)
-    body_cands = []
-    ic = cfg.get('item_container') or ''
-    # se item_container for um selector e não demasiado genérico, adiciona
-    if ic:
-        for s in [t.strip() for t in ic.split(',') if t.strip()]:
-            body_cands.append(s)
-    # selectors comuns
-    body_cands += [
-        'div.field--name-body',
-        'div.field.field--name-body',
-        'div.article-body',
-        'article',
-        'main',
-        '#main-content',
-        '.content',
-        '.page-content',
-        '.node__content',
-        '.body'
-    ]
-    body_text = ''
-    for sel in body_cands:
-        try:
-            el = soup.select_one(sel)
-        except Exception:
-            el = None
-        if el:
-            # extrair só texto e ignorar se muito curto
-            txt = el.get_text("\n", strip=True)
-            if txt and len(txt) > 80:
-                body_text = txt
-                break
-    # fallback: pegar o primeiro <p> grande
-    if not body_text:
-        try:
-            ps = soup.find_all('p')
-            for p in ps:
-                t = p.get_text(" ", strip=True)
-                if t and len(t) > 80:
-                    body_text = t
-                    break
-        except Exception:
-            pass
-
-    out['full_text'] = body_text
-
-    # se não houver description, derive do início do full_text
-    if not out['description'] and out['full_text']:
-        out['description'] = out['full_text'].split('\n', 1)[0][:400]
-
-    # final cleanup
-    for k in out:
-        if isinstance(out[k], str):
-            out[k] = out[k].strip()
-
-    return out
-
-
 def extract_items_from_html(html, cfg):
     """
     Extrai items (title, link, description, date, full_text) de um HTML dado e uma config de site.
@@ -304,7 +137,7 @@ def extract_items_from_html(html, cfg):
             link_sel = cfg.get('link')
             desc_sel = cfg.get('description')
 
-            # Title extraction (no contexto do node)
+            # Title extraction
             if title_sel:
                 for s in [t.strip() for t in title_sel.split(',')]:
                     try:
@@ -320,6 +153,7 @@ def extract_items_from_html(html, cfg):
                     title = t.get_text(strip=True)
 
             # Link extraction
+            # support selectors like "a@href" or ".c-title a@href"
             if link_sel:
                 parts = [p.strip() for p in link_sel.split(',')]
                 for ps in parts:
@@ -407,7 +241,7 @@ def extract_items_from_html(html, cfg):
             if cfg.get('date'):
                 date_selectors = [s.strip() for s in cfg.get('date').split(',') if s.strip()]
             # ensure defaults
-            date_selectors += ['time', '.date', 'span.date', '.timestamp', '.post-date', '.day_list', '.time_list']
+            date_selectors += ['time', '.date', 'span.date', '.timestamp']
 
             def find_date_in(element):
                 for ds in date_selectors:
@@ -417,25 +251,9 @@ def extract_items_from_html(html, cfg):
                     except Exception:
                         el = None
                     if el:
-                        txt = el.get_text(" ", strip=True)
+                        txt = el.get_text(strip=True)
                         if txt:
-                            # tentar juntar siblings próximos que possam conter hora
-                            txt_full = txt
-                            try:
-                                parent = el.parent
-                                if parent:
-                                    # pegar spans irmãos que contenham pm/am ou pipes
-                                    parts = []
-                                    for ch in parent.find_all(recursive=False):
-                                        if ch and ch.get_text(strip=True):
-                                            parts.append(ch.get_text(" ", strip=True))
-                                    if parts and len(parts) > 1:
-                                        combined = ' | '.join([p.strip() for p in parts if p.strip()])
-                                        if combined:
-                                            txt_full = combined
-                            except Exception:
-                                pass
-                            return clean_date_text(txt_full)
+                            return txt
                 return None
 
             # 1) try node itself
@@ -470,7 +288,6 @@ def extract_items_from_html(html, cfg):
 
             # fallback: full text
             full_text = (title or '') + ' ' + (desc or '') + ' ' + text_of_node(node)
-            full_text = full_text.strip()
 
             items.append({
                 'title': title or '',
@@ -483,38 +300,7 @@ def extract_items_from_html(html, cfg):
             # ignorar item problemático, continuar
             continue
 
-    # ---- novo: tentar enriquecer items com fetch da página do artigo quando necessário ----
-    enriched = []
-    for it in items:
-        need_fetch = False
-        # critérios simples para tentar buscar a página do artigo:
-        # - se full_text for curto (<=120) ou vazio
-        # - ou se date estiver vazio
-        # - ou se title vazio (raro)
-        if (not it.get('full_text') or len(it.get('full_text', '')) < 120) or (not it.get('date')) or (not it.get('title')):
-            if it.get('link'):
-                need_fetch = True
-
-        if need_fetch:
-            try:
-                details = fetch_article_details(it.get('link'), cfg)
-                # use valores obtidos se existirem (não sobrescreve campos já melhores)
-                if details.get('title') and (not it.get('title') or len(it.get('title')) < 60):
-                    it['title'] = details['title']
-                if details.get('date') and not it.get('date'):
-                    it['date'] = details['date']
-                # preferir description existente, mas se não houver pega do artigo
-                if details.get('description') and (not it.get('description') or len(it.get('description')) < 50):
-                    it['description'] = details['description']
-                # preferir full_text do artigo se for maior que o current
-                if details.get('full_text') and len(details.get('full_text')) > len(it.get('full_text', '')):
-                    it['full_text'] = details['full_text']
-            except Exception:
-                pass
-        enriched.append(it)
-
-    # limitar items razoavelmente (se houver milhares não queremos processar tudo)
-    return enriched
+    return items
 
 
 def parse_feed(items):
@@ -592,22 +378,15 @@ def build_feed(name, cfg, items):
                 pass
         # description: prefer description, fallback full_text
         fe.description(it.get('description') or it.get('full_text') or '')
-        # pubDate: try to set parsed datetime; fallback write raw string (feedgen accepts string)
+        # pubDate: try to set raw string if possible (feedgen can accept string)
         if it.get('date'):
             try:
+                # attempt to parse to RFC-2822 by trying dateutil.parse, fallback to raw
                 try:
                     dt = dateparser.parse(it.get('date'))
-                    # feedgen expects datetime
                     fe.pubDate(dt)
                 except Exception:
-                    # fallback: try to parse parts (if contains '|', take last part maybe date)
-                    raw = it.get('date').replace('|', ' ').strip()
-                    try:
-                        dt = dateparser.parse(raw)
-                        fe.pubDate(dt)
-                    except Exception:
-                        # lastly, try to set as text (feedgen can accept string)
-                        fe.pubDate(it.get('date'))
+                    fe.pubDate(it.get('date'))
             except Exception:
                 pass
         count += 1
