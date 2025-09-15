@@ -2,12 +2,9 @@
 # scripts/feeds_to_excel.py
 # Requisitos: feedparser, pandas, beautifulsoup4, openpyxl, python-dateutil, requests
 #
-# Este ficheiro foi adaptado para, no caso do site "modernhealthcare",
-# reproduzir em Python a mesma lógica do snippet JS que correste no console:
-# - fetch da página https://www.modernhealthcare.com/latest-news/
-# - remoção tentativa de modais/overlays
-# - detecção de títulos em ordem DOM, subida de wrapper, extração de link/date/description
-# - até MAX items (10)
+# Função: lê feeds/*.xml, converte para .xlsx. Para dois sites específicos
+# (mobihealthnews, modernhealthcare) tenta extrair diretamente da página live
+# usando BeautifulSoup para reproduzir os snippets JS que testaste no console.
 
 import os
 import glob
@@ -25,7 +22,6 @@ OUT_XLSX = "feeds_summary.xlsx"
 FEEDS_DIR = "feeds"
 SITES_JSON_PATHS = ["scripts/sites.json", "rss-feeds/scripts/sites.json", "sites.json"]
 
-# Regex para detectar datas comuns: "September 11, 2025 08:17 PM", "2025-09-11", "11 Sep 2025", etc.
 _DATE_RE = re.compile(
     r'\b(?:'
     r'(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|'
@@ -76,7 +72,6 @@ def find_date_in_text(text):
     if m:
         candidate = m.group(0)
     else:
-        # tentativa adicional: usar dateutil fuzzy com todo o texto (mais custoso, mas último recurso)
         try:
             dt = dateparser.parse(text, fuzzy=True)
             if dt:
@@ -84,8 +79,6 @@ def find_date_in_text(text):
         except Exception:
             pass
         return None
-
-    # tenta parse com dateutil (fuzzy) para normalizar
     try:
         dt = dateparser.parse(candidate, fuzzy=True)
         if dt:
@@ -95,10 +88,6 @@ def find_date_in_text(text):
     return candidate
 
 def find_date_from_xml_item(xml_soup, entry_title, entry_link):
-    """
-    Procura no XML (BeautifulSoup xml parser) um <item> que corresponda ao entry
-    (por título ou link) e tenta extrair uma data no bloco <description> ou texto do item.
-    """
     if xml_soup is None:
         return None
     for item in xml_soup.find_all('item'):
@@ -108,17 +97,12 @@ def find_date_from_xml_item(xml_soup, entry_title, entry_link):
         t_text = t_el.get_text(" ", strip=True) if t_el else ''
         d_text = d_el.get_text(" ", strip=True) if d_el else ''
         l_text = link_el.get_text(" ", strip=True) if link_el else ''
-
         def norm(x): return (x or '').strip().lower()
-
-        # match by link exact
         if entry_link and l_text and norm(entry_link) == norm(l_text):
             combined = ' '.join([t_text, d_text])
             found = find_date_in_text(combined)
             if found:
                 return found
-
-        # fuzzy match by title
         if entry_title and t_text:
             nt = norm(t_text)
             ne = norm(entry_title)
@@ -129,59 +113,36 @@ def find_date_from_xml_item(xml_soup, entry_title, entry_link):
                     return found
     return None
 
-# ---- novo: scraping moderno do modernhealthcare (replicar snippet JS) ----
-def scrape_modernhealthcare_items(max_items=10, base_url='https://www.modernhealthcare.com/latest-news/'):
-    """
-    Tenta reproduzir em Python o comportamento do snippet JS usado no console.
-    Retorna lista de dicts: { title, link, date, description }
-    """
+# ----------------- site-specific scrapers -----------------
+
+def _safe_get(url, timeout=12):
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36',
         'Accept-Language': 'en-US,en;q=0.9'
     }
+    r = requests.get(url, headers=headers, timeout=timeout)
+    r.raise_for_status()
+    return r.text
+
+def scrape_modernhealthcare_items(max_items=10, base_url='https://www.modernhealthcare.com/latest-news/'):
     try:
-        r = requests.get(base_url, headers=headers, timeout=15)
-        r.raise_for_status()
-        html_text = r.text
+        html = _safe_get(base_url)
     except Exception as e:
-        print("scrape_modernhealthcare: fetch failed:", e)
+        print("modernhealthcare: fetch failed:", e)
         return []
 
-    soup = BeautifulSoup(html_text, 'html.parser')
+    soup = BeautifulSoup(html, 'html.parser')
 
-    # tentativa de "remover" modais/overlays estáticos do HTML
-    modal_selectors = [
-        'div[class*="subscribe"]', 'div[id*="subscribe"]', '.newsletter-popup', '.newsletter-modal',
-        '.subscription-overlay', '.newsletter', '.modal', '.modal-backdrop', '[role="dialog"]'
-    ]
-    for sel in modal_selectors:
+    # try to remove obvious modals/subscribe containers present in static HTML
+    for sel in ['div[class*="subscribe"]', '.newsletter-popup', '.modal', '[role="dialog"]']:
         for n in soup.select(sel):
-            try:
-                n.decompose()
-            except Exception:
-                try:
-                    n.extract()
-                except Exception:
-                    pass
-
-    # também tenta remover iframes com subscribe/eventos
-    for f in soup.find_all('iframe'):
-        src = (f.get('src') or '').lower()
-        if ('subscribe' in src) or ('newsletter' in src) or ('events' in src):
-            try:
-                f.decompose()
-            except Exception:
-                pass
+            try: n.decompose()
+            except: pass
 
     main = soup.select_one('#main-content') or soup
 
-    # encontrar title elements em ordem DOM: span.u-text-text-dark, etc.
-    title_selectors = 'span.u-text-text-dark, a[aria-label^="Title"] span, .news-title.fs-5, .news-title'
-    title_els = main.select(title_selectors)
-
     def txt(el):
-        if not el:
-            return ''
+        if not el: return ''
         return ' '.join(el.get_text(" ", strip=True).split())
 
     def is_bad_title(t):
@@ -195,39 +156,31 @@ def scrape_modernhealthcare_items(max_items=10, base_url='https://www.modernheal
     def find_wrapper(el):
         cur = el
         for _ in range(8):
-            if cur is None:
-                break
-            if cur.name == 'article':
-                return cur
+            if cur is None: break
+            if cur.name == 'article': return cur
             classes = ' '.join(cur.get('class') or [])
             if any(c in classes for c in ('u-border-b', 'views-row', 'col-lg-6', 'square-one', 'view-content')):
                 return cur
             cur = cur.parent
-        # fallback: closest article or views-row
         a = el.find_parent(['article'])
-        if a:
-            return a
+        if a: return a
         v = el.find_parent(class_='views-row')
-        if v:
-            return v
+        if v: return v
         return el.parent or el
 
     def find_link(wrapper, title_el=None):
-        # prefer anchor that wraps title_el
         if title_el:
             a = title_el.find_parent('a', href=True)
             if a:
                 h = a.get('href') or ''
                 if h and not re.search(r'(^#|/subscribe|mailto:|javascript:)', h, re.I):
                     return urljoin(base_url, h)
-        # try a.content-list-title[href], a[aria-label^="Title"], any a[href]
         for sel in ('a.content-list-title[href]', 'a[aria-label^="Title"]', 'a[href].overlay', '.content-list-title a[href]', 'a[href]'):
             a = wrapper.select_one(sel)
             if a and a.get('href'):
                 h = a.get('href')
                 if h and not re.search(r'(^#|/subscribe|mailto:|javascript:)', h, re.I):
                     return urljoin(base_url, h)
-        # fallback: any anchor
         a = wrapper.find('a', href=True)
         if a:
             h = a.get('href') or ''
@@ -236,29 +189,24 @@ def scrape_modernhealthcare_items(max_items=10, base_url='https://www.modernheal
         return ''
 
     def find_date(wrapper):
-        # try group-author-line spans
         anc_article = wrapper.find_parent('article') or wrapper
         group = anc_article.select_one('div.group-author-line, div.field.field--name-field-author, .group-author-line')
         if group:
             spans = [txt(s) for s in group.select('span') if txt(s)]
             if len(spans) >= 2:
-                # join reasonable spans, protect against 'subscribe' texts
                 joined = ' | '.join(spans).strip()
                 if joined and not re.search(r'subscribe|homepage|member', joined, re.I):
                     return re.sub(r'\s*\|\s*', ' | ', joined)
-        # common date selectors
-        for sel in ('.u-whitespace-nowrap', 'time', 'time[datetime]', '.date', '.timestamp', '.post-date', '.day_list', '.time_list'):
+        for sel in ('.u-whitespace-nowrap', 'time', '.date', '.timestamp', '.post-date', '.day_list', '.time_list'):
             el = wrapper.select_one(sel)
             if el:
                 t = txt(el).lstrip('|').strip()
                 if t and not re.search(r'subscribe|image', t, re.I):
                     return t
-        # fallback: search for date-like text in wrapper text
         raw = txt(wrapper)
         m = re.search(r'\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|'
                       r'Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},\s+\d{4}(?:\s+\d{1,2}:\d{2}\s*(?:AM|PM))?', raw, re.I)
-        if m:
-            return m.group(0)
+        if m: return m.group(0)
         return ''
 
     def find_description(wrapper):
@@ -268,7 +216,6 @@ def scrape_modernhealthcare_items(max_items=10, base_url='https://www.modernheal
                 t = txt(el)
                 if t and not re.search(r'subscribe|image', t, re.I):
                     return t
-        # fallback: first paragraph
         p = wrapper.find('p')
         if p:
             t = txt(p)
@@ -276,58 +223,46 @@ def scrape_modernhealthcare_items(max_items=10, base_url='https://www.modernheal
                 return t
         return ''
 
+    title_els = main.select('span.u-text-text-dark, a[aria-label^="Title"] span, .news-title.fs-5, .news-title')
     items = []
     seen = set()
 
-    # iterate title elements in DOM order
     for el in title_els:
         ttext = txt(el)
-        if is_bad_title(ttext):
-            continue
+        if is_bad_title(ttext): continue
         wrapper = find_wrapper(el)
-        if not wrapper:
-            continue
+        if not wrapper: continue
         link = find_link(wrapper, el)
-        if link and re.search(r'(/subscribe|subscribe)', link, re.I):
-            continue
+        if link and re.search(r'(/subscribe|subscribe)', link, re.I): continue
         key = (link or ttext).rstrip('/')
-        if not key or key in seen:
-            continue
+        if not key or key in seen: continue
         date = find_date(wrapper) or ''
         desc = find_description(wrapper) or ''
         items.append({'title': ttext, 'link': link, 'date': date, 'description': desc})
         seen.add(key)
-        if len(items) >= max_items:
-            break
+        if len(items) >= max_items: break
 
-    # if not enough items, scan wrapper candidates
     if len(items) < max_items:
         candidates = main.select('article, .u-border-b, .views-row, .view-content > div, .col-lg-6') or []
         for wrapper in candidates:
-            if len(items) >= max_items:
-                break
-            # try to extract title
+            if len(items) >= max_items: break
             tsel = wrapper.select_one('span.u-text-text-dark, a[aria-label^="Title"] span, .news-title, .content-list-title a, a.title, h2, h3')
             ttext = txt(tsel) if tsel else ''
-            if is_bad_title(ttext):
-                continue
+            if is_bad_title(ttext): continue
             link = find_link(wrapper, tsel)
             key = (link or ttext).rstrip('/')
-            if not key or key in seen:
-                continue
+            if not key or key in seen: continue
             date = find_date(wrapper) or ''
             desc = find_description(wrapper) or ''
             items.append({'title': ttext, 'link': link, 'date': date, 'description': desc})
             seen.add(key)
 
-    # final anchor fallback to reach max
+    # anchor fallback
     if len(items) < max_items:
         for a in main.select('a[href]'):
-            if len(items) >= max_items:
-                break
+            if len(items) >= max_items: break
             h = (a.get('href') or '').strip()
-            if not h: continue
-            if re.search(r'(^#|/subscribe|mailto:|javascript:)', h, re.I): continue
+            if not h or re.search(r'(^#|/subscribe|mailto:|javascript:)', h, re.I): continue
             full = urljoin(base_url, h)
             if full in seen: continue
             t = txt(a)
@@ -336,6 +271,154 @@ def scrape_modernhealthcare_items(max_items=10, base_url='https://www.modernheal
             seen.add(full)
 
     return items[:max_items]
+
+def scrape_mobihealth_items(max_items=11, base_url='https://www.mobihealthnews.com/'):
+    try:
+        html = _safe_get(base_url)
+    except Exception as e:
+        print("mobihealthnews: fetch failed:", e)
+        return []
+
+    soup = BeautifulSoup(html, 'html.parser')
+    # remove obvious forms/modals
+    for sel in ['.mktoForm', '.newsletter-popup', '.modal', '[role="dialog"]']:
+        for n in soup.select(sel):
+            try: n.decompose()
+            except: pass
+
+    main = soup.select_one('#main-content') or soup
+
+    def txt(el):
+        if not el: return ''
+        return ' '.join(el.get_text(" ", strip=True).split())
+
+    def find_top_wrappers():
+        top = (main.select_one('.views-element-container.block-views-blocktop-stories-news-grid-global')
+               or main.select_one('.block--mhn-top-stories-news-grid-global')
+               or main.select_one('.block-views-blocktop-stories-news-grid-global')
+               or None)
+        if top:
+            els = top.select('.news-title.fs-5, .news-title, .overlay .news-title, a > .news-title')
+            wrappers = []
+            seen = set()
+            for t in els:
+                # climb to a wrapper that is meaningful
+                cur = t
+                for _ in range(8):
+                    if not cur: break
+                    if cur.name == 'a' and cur.get('href'): break
+                    classes = ' '.join(cur.get('class') or [])
+                    if any(c in classes for c in ('col-lg-6', 'square-one', 'views-row', 'article')):
+                        break
+                    cur = cur.parent
+                wrap = cur or t
+                if wrap in seen: continue
+                seen.add(wrap)
+                wrappers.append((wrap, t))
+                if len(wrappers) >= 5: break
+            return wrappers
+        return []
+
+    def find_wrapper_for_list_item(el):
+        # climb until views-row or article
+        cur = el
+        for _ in range(6):
+            if not cur: break
+            if cur.name == 'article': return cur
+            if 'views-row' in (cur.get('class') or []): return cur
+            cur = cur.parent
+        return el
+
+    def find_link(wrap):
+        # prefer content-list-title anchor, else first anchor
+        for sel in ('a.content-list-title[href]', 'a[href].overlay', '.content-list-title a[href]', 'a[href]'):
+            a = wrap.select_one(sel)
+            if a and a.get('href'):
+                h = a.get('href')
+                if h and not re.search(r'(^#|/subscribe|mailto:|javascript:)', h, re.I):
+                    return urljoin(base_url, h)
+        return ''
+
+    def find_date(wrap):
+        # group-author-line spans or day_list/time_list
+        group = wrap.select_one('div.group-author-line, div.field.field--name-field-author')
+        if group:
+            spans = [txt(s) for s in group.select('span') if txt(s)]
+            if len(spans) >= 2:
+                # often format has '|' separators
+                joined = ' | '.join(spans).strip()
+                return re.sub(r'\s*\|\s*', ' | ', joined)
+        for sel in ('span.post-date', 'span.day_list', 'span.time_list', 'time'):
+            el = wrap.select_one(sel)
+            if el:
+                t = txt(el).lstrip('|').strip()
+                if t: return t
+        raw = txt(wrap)
+        m = re.search(r'\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|'
+                      r'Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},\s+\d{4}', raw, re.I)
+        if m: return m.group(0)
+        return ''
+
+    def find_description(wrap):
+        for sel in ('div.field.field--name-field-subheader.field--item', 'div.body_list', '.content-list-meta + p', '.news-content p', '.dek', 'p'):
+            el = wrap.select_one(sel)
+            if el:
+                t = txt(el)
+                if t: return t
+        return ''
+
+    items = []
+    seen = set()
+
+    # top wrappers first
+    top_wrappers = find_top_wrappers()
+    for wrap, title_el in top_wrappers:
+        if len(items) >= max_items: break
+        title = txt(title_el) or ''
+        if not title or len(title) < 4: continue
+        wrapper = find_wrapper_for_list_item(wrap)
+        link = find_link(wrapper) or ''
+        if link and re.search(r'(/subscribe|/home)', link, re.I): continue
+        key = (link or title).rstrip('/')
+        if key in seen: continue
+        date = find_date(wrapper) or ''
+        desc = find_description(wrapper) or ''
+        items.append({'title': title, 'link': link, 'date': date, 'description': desc})
+        seen.add(key)
+
+    # regular list items
+    if len(items) < max_items:
+        list_nodes = main.select('div.view-content > div, .view-content > div, .views-row, article') or []
+        for n in list_nodes:
+            if len(items) >= max_items: break
+            wrapper = find_wrapper_for_list_item(n)
+            title_el = wrapper.select_one('.news-title, a.title, .content-list-title a, a > .news-title, .news-title.fs-5')
+            title = txt(title_el) if title_el else txt(wrapper.select_one('a'))
+            if not title or len(title) < 4: continue
+            link = find_link(wrapper) or ''
+            key = (link or title).rstrip('/')
+            if key in seen: continue
+            date = find_date(wrapper) or ''
+            desc = find_description(wrapper) or ''
+            items.append({'title': title, 'link': link, 'date': date, 'description': desc})
+            seen.add(key)
+
+    # final anchor fallback
+    if len(items) < max_items:
+        for a in main.select('a[href]'):
+            if len(items) >= max_items: break
+            h = (a.get('href') or '').strip()
+            if not h or re.search(r'(^#|/subscribe|mailto:|javascript:)', h, re.I): continue
+            full = urljoin(base_url, h)
+            if full in seen: continue
+            t = txt(a)
+            if not t or len(t) < 6: continue
+            items.append({'title': t, 'link': full, 'date': '', 'description': ''})
+            seen.add(full)
+
+    return items[:max_items]
+
+# ----------------- end site-specific scrapers -----------------
 
 def parse_feed_file_with_fallback(ff):
     rows = []
@@ -356,9 +439,8 @@ def parse_feed_file_with_fallback(ff):
         except Exception:
             xml_soup = None
 
-    # special-case: modernhealthcare -> scrape the site and build rows from that (replica JS snippet)
+    # site-specific overrides: try scrapers that mimic the console snippets
     if site_name == 'modernhealthcare':
-        print("parse_feed_file_with_fallback: detected modernhealthcare feed -> scraping live page for items")
         try:
             items = scrape_modernhealthcare_items(max_items=10)
             if items:
@@ -369,17 +451,32 @@ def parse_feed_file_with_fallback(ff):
                         "link (source)": it.get('link',''),
                         "pubDate": it.get('date',''),
                         "description (short)": strip_html_short(it.get('description','')),
-                        "item_container": "",  # left blank; you can fill if needed
+                        "item_container": "",
                         "topic": "N/A"
                     })
                 return rows
-            else:
-                print("scrape_modernhealthcare_items returned no items, falling back to feed parsing.")
         except Exception as e:
-            print("Error scraping modernhealthcare:", e)
-            # fallback to feed parsing below
+            print("modernhealthcare scraper error:", e)
 
-    # default behavior: parse feed entries with fallbacks
+    if site_name == 'mobihealthnews':
+        try:
+            items = scrape_mobihealth_items(max_items=11)
+            if items:
+                for it in items:
+                    rows.append({
+                        "site": site_name,
+                        "title": it.get('title',''),
+                        "link (source)": it.get('link',''),
+                        "pubDate": it.get('date',''),
+                        "description (short)": strip_html_short(it.get('description','')),
+                        "item_container": "",
+                        "topic": "N/A"
+                    })
+                return rows
+        except Exception as e:
+            print("mobihealthnews scraper error:", e)
+
+    # default: read feed entries (fallback)
     for e in entries:
         title = (e.get("title", "") or "").strip()
         link = (e.get("link", "") or "")
@@ -387,7 +484,6 @@ def parse_feed_file_with_fallback(ff):
         desc = (e.get("summary", "") or e.get("description", "") or "")
         desc_short = strip_html_short(desc, max_len=300)
 
-        # topic: tags/categories
         topic = "N/A"
         if e.get("tags"):
             try:
@@ -401,13 +497,11 @@ def parse_feed_file_with_fallback(ff):
             except Exception:
                 topic = "N/A"
 
-        # fallback: check raw xml item
         if not pub and xml_soup:
             fallback = find_date_from_xml_item(xml_soup, title, link)
             if fallback:
                 pub = fallback
 
-        # second fallback: search in combined title/desc text
         if not pub:
             combined = " ".join([title or "", desc or ""])
             maybe = find_date_in_text(combined)
