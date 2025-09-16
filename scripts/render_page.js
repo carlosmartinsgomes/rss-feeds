@@ -1,149 +1,191 @@
 #!/usr/bin/env node
-// scripts/render_page.js
-// Uso: node scripts/render_page.js <url> <out_html_path>
-// Renderiza a página com Playwright e grava HTML (e screenshot debug).
+/**
+ * scripts/render_page.js
+ *
+ * Uso:
+ *   node scripts/render_page.js <url> <outPath>
+ *   node scripts/render_page.js <url1> <url2> ...
+ *
+ * - Se passares <outPath> (ex: scripts/rendered/modernhealthcare.html) irá gravar
+ *   o HTML renderizado nesse ficheiro.
+ * - Se passares apenas URLs, irá gravar ficheiros automáticos em ./scripts/rendered/
+ *
+ * Não gera screenshots. Tenta evitar detecção básica (user agent, navigator.webdriver).
+ */
 
 const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
 
-async function ensureDirFor(filePath){
-  const dir = path.dirname(filePath);
-  fs.mkdirSync(dir, { recursive: true });
-}
+function log(...a){ console.log(...a); }
+function warn(...a){ console.warn(...a); }
+function err(...a){ console.error(...a); }
 
-async function removeOverlays(page){
-  try {
-    await page.evaluate(() => {
-      const sel = [
-        '[role="dialog"]', '.newsletter-popup', '.newsletter-modal', '.modal-backdrop',
-        'div[class*="subscribe"]', 'div[id*="subscribe"]',
-        '.subscription-overlay', '.overlay--newsletter', '.paywall', '.cookie-banner'
-      ];
-      sel.forEach(s => {
-        document.querySelectorAll(s).forEach(n => {
-          try { n.remove(); } catch(e){ try { n.style.display='none'; } catch(e){} }
-        });
-      });
-      // hide large fixed subscribe nodes
-      document.querySelectorAll('div').forEach(d => {
-        try {
-          const cs = getComputedStyle(d);
-          if (!cs) return;
-          if ((cs.position === 'fixed' || cs.position === 'sticky') && cs.zIndex && parseInt(cs.zIndex||0) > 1000) {
-            const t = (d.innerText||'').toLowerCase();
-            if (t.includes('subscribe') || t.includes('become a member') || t.includes('sign in') || t.includes('accept cookies')) {
-              d.remove();
-            }
-          }
-        } catch(e){}
-      });
-    });
-  } catch(e){ /* ignore */ }
+function sanitizeFilename(s) {
+  return String(s || '').replace(/[^a-z0-9\-_.]/gi, '_').replace(/_+/g, '_').slice(0, 200);
 }
 
 (async () => {
-  // --- Accept either: node render_page.js <url> <outPath>
-  // --- or: node render_page.js <url1> <url2> ...
-  const argv = process.argv.slice(2);
-  let outPath = null;
-  let urls = [];
-  
-  if (argv.length >= 2 && argv[1] && (argv[1].endsWith('.html') || argv[1].startsWith('scripts/') || argv[1].startsWith('./') || argv[1].startsWith('/'))) {
-    // Called as: node render_page.js <url> <outPath>
-    urls = [argv[0]];
-    outPath = path.resolve(process.cwd(), argv[1]);
-  } else {
-    // Called with one-or-more URLs only
-    urls = argv;
-  }
-  if (urls.length === 0) {
-    console.log('USO: node render_page.js <url> <outPath>   OR   node render_page.js <url1> <url2> ...');
-    process.exit(1);
-  }
-  const url = argv[0];
-  const outPath = argv[1] || `scripts/rendered/${(new URL(url)).hostname.replace(/[:\/]/g,'')}.html`;
   try {
-    ensureDirFor(outPath);
-  } catch(e){}
-  const headless = (process.env.HEADLESS === 'false') ? false : true;
-  const browser = await chromium.launch({ headless, args:['--no-sandbox','--disable-setuid-sandbox'] });
-  try {
-    const context = await browser.newContext();
-    const page = await context.newPage();
-    page.setDefaultNavigationTimeout(45000);
-    // user agent típico Chrome
-    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-    // headers
-    await page.setExtraHTTPHeaders({'accept-language': 'en-US,en;q=0.9'});
-    
-    // evitar navigator.webdriver e simular languages/plugins básicos
-    await page.addInitScript(() => {
-      Object.defineProperty(navigator, 'webdriver', { get: () => false });
-      Object.defineProperty(navigator, 'languages', { get: () => ['en-US','en'] });
-      Object.defineProperty(navigator, 'plugins', { get: () => [1,2,3,4,5] });
-      window.chrome = window.chrome || { runtime: {} };
-    });
+    const argv = process.argv.slice(2);
+    let outPath = null;
+    let urls = [];
 
-    console.log('Rendering', url, '->', outPath);
-    await page.goto(url, { waitUntil: 'domcontentloaded' }).catch(()=>{});
-    // wait a little to let JS run
-    await page.waitForTimeout(1500);
-    // try to close cookie dialogs / overlays
-    const clickSelectors = [
-      'button[aria-label*="close"]', 'button[aria-label*="Close"]', 'button[aria-label*="dismiss"]',
-      'button[data-testid*="close"]', 'button[class*="close"]', 'button[title*="Close"]',
-      'button[aria-label*="accept"]', 'button[aria-label*="Accept cookies"]'
-    ];
-    for (const s of clickSelectors) {
-      try {
-        const els = await page.$$(s);
-        if (els && els.length) {
-          for (const e of els) { try { await e.click({ timeout: 1000 }); } catch(e){} }
-        }
-      } catch(e){}
-    }
-    // remove overlays programmatically
-    await removeOverlays(page);
-    // scroll slowly to lazy-load
-    await page.evaluate(async () => {
-      await new Promise(r => {
-        let i = 0;
-        const max = 6;
-        function step(){
-          window.scrollBy(0, window.innerHeight);
-          i++;
-          if (i >= max) return r();
-          setTimeout(step, 400);
-        }
-        step();
-      });
-    }).catch(()=>{});
-    await page.waitForTimeout(800);
-    // save content
-    const content = await page.content();
-    // grava o HTML final no outPath se o caller forneceu um path
-    if (outPath) {
-      try {
-        const outDirForPath = path.dirname(outPath);
-        fs.mkdirSync(outDirForPath, { recursive: true });
-        fs.writeFileSync(outPath, content, 'utf8');
-        console.log('Saved rendered ->', outPath);
-      } catch (e) {
-        console.warn('Failed to save rendered to outPath:', e && e.message);
-      }
+    // Determina se caller forneceu outPath (segundo arg é um path tipo .html)
+    if (argv.length >= 2 && argv[1] && (argv[1].endsWith('.html') || argv[1].startsWith('scripts/') || argv[1].startsWith('./') || argv[1].startsWith('/'))) {
+      urls = [argv[0]];
+      outPath = path.resolve(process.cwd(), argv[1]);
     } else {
-      // se não houver outPath, podes gravar num debug temp se quiseres (opcional)
-      console.log('No outPath provided; rendered content not saved to file (but page content available).');
+      urls = argv.slice();
     }
 
-    console.log('Wrote', outPath);
-    await context.close();
-    await browser.close();
-    process.exit(0);
+    if (!urls || urls.length === 0) {
+      console.log('USO: node render_page.js <url> <outPath>   OR   node render_page.js <url1> <url2> ...');
+      process.exit(1);
+    }
+
+    // cria pasta para outputs automáticos se necessário
+    const renderedDir = path.resolve(process.cwd(), 'scripts', 'rendered');
+    try { fs.mkdirSync(renderedDir, { recursive: true }); } catch(e){}
+
+    const headless = process.env.HEADLESS !== 'false';
+    const browser = await chromium.launch({ headless, args: ['--no-sandbox','--disable-setuid-sandbox'] });
+
+    let anyFailed = false;
+
+    try {
+      // opcões de context podem ser adicionadas (cookies, storageState)
+      const context = await browser.newContext({
+        // viewport: { width: 1280, height: 800 },
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      });
+
+      // init script para reduzir detecção básica
+      await context.addInitScript(() => {
+        Object.defineProperty(navigator, 'webdriver', { get: () => false });
+        Object.defineProperty(navigator, 'languages', { get: () => ['en-US','en'] });
+        Object.defineProperty(navigator, 'plugins', { get: () => [1,2,3,4,5] });
+        window.chrome = window.chrome || { runtime: {} };
+      });
+
+      const page = await context.newPage();
+      // extra headers
+      await page.setExtraHTTPHeaders({ 'accept-language': 'en-US,en;q=0.9' });
+      // small navigation timeout protection
+      const NAV_TIMEOUT = 45000;
+
+      for (const url of urls) {
+        const start = Date.now();
+        let targetOut = outPath;
+        if (!targetOut) {
+          // create automatic file name
+          const u = (() => { try { return new URL(url); } catch(e) { return null; } })();
+          const hostpart = u ? sanitizeFilename(u.hostname + (u.pathname || '')) : sanitizeFilename(url);
+          const ts = Date.now();
+          targetOut = path.join(renderedDir, `${hostpart}-${ts}.html`);
+        }
+
+        log(`Starting render for: ${url}`);
+        try {
+          // goto
+          await page.goto(url, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT }).catch(()=>{});
+          // small wait for dynamic content
+          await page.waitForTimeout(1200);
+
+          // try to close common overlays/cookies/dialogs (non-click fallback to hide)
+          const overlaySelectors = [
+            'button[aria-label*="close"]', 'button[aria-label*="Close"]',
+            'button[aria-label*="dismiss"]', 'button[aria-label*="Dismiss"]',
+            'button[aria-label*="Accept"]', 'button[aria-label*="Accept cookies"]',
+            'button[data-control-name="accept_cookies"]', '.cookie-consent', '.consent-banner',
+            '.newsletter-popup', '.newsletter-modal', '.overlay--newsletter'
+          ];
+          for (const sel of overlaySelectors) {
+            try {
+              const els = await page.$$(sel);
+              for (const e of els) {
+                try { await e.click({ timeout: 1500 }); } catch(e2) { /* ignore click errors */ }
+              }
+            } catch(e){}
+          }
+          // small wait after clicks
+          await page.waitForTimeout(400);
+
+          // expand "see more" / "read more" type buttons
+          const seeMoreButtons = [
+            'button[aria-label*="see more"]', 'button[aria-label*="ver mais"]', 'button.feed-shared-inline-show-more-text__see-more-less-toggle',
+            'button[aria-label*="See more"]', 'button[data-more-button]'
+          ];
+          for (const sel of seeMoreButtons) {
+            try {
+              const btns = await page.$$(sel);
+              for (const b of btns) {
+                try { await b.click({ timeout: 1200 }); } catch(e) {}
+              }
+            } catch(e){}
+          }
+          await page.waitForTimeout(400);
+
+          // auto scroll a bit to load lazy content
+          async function autoScroll(maxScrolls = 8, delay = 700) {
+            for (let i = 0; i < maxScrolls; i++) {
+              await page.evaluate(() => window.scrollBy(0, window.innerHeight));
+              await page.waitForTimeout(delay);
+            }
+          }
+          await autoScroll(8, 700);
+
+          // attempt to click "load more" if present
+          const loadMoreSelectors = ['button.load-more', 'button[data-control-name="load_more"]', 'button[aria-label*="Load more"]'];
+          for (const sel of loadMoreSelectors) {
+            try {
+              const btns = await page.$$(sel);
+              for (const b of btns) {
+                try { await b.click({ timeout: 1500 }); await page.waitForTimeout(500); } catch(e) {}
+              }
+            } catch(e){}
+          }
+
+          // final short wait
+          await page.waitForTimeout(700);
+
+          // grab final content
+          const content = await page.content();
+
+          // write to requested outPath
+          try {
+            const dir = path.dirname(targetOut);
+            fs.mkdirSync(dir, { recursive: true });
+            fs.writeFileSync(targetOut, content, 'utf8');
+            log(`Rendered ${url} -> ${targetOut} (status: saved)`);
+          } catch (e) {
+            warn(`Failed to save rendered content to ${targetOut}:`, e && e.message ? e.message : e);
+            anyFailed = true;
+          }
+
+          const elapsed = Math.round((Date.now() - start) / 1000);
+          log(`-> Done: ${url} (elapsed ${elapsed}s)`);
+        } catch (pageErr) {
+          warn(`Render failed for ${url} - ${pageErr && pageErr.message ? pageErr.message : pageErr}`);
+          anyFailed = true;
+        }
+      } // end for urls
+
+      try { await context.close(); } catch(e){}
+    } finally {
+      try { await browser.close(); } catch(e){}
+    }
+
+    if (anyFailed) {
+      warn('Some renders failed (see logs). Exiting with code 2.');
+      process.exit(2);
+    } else {
+      log('All renders completed successfully.');
+      process.exit(0);
+    }
+
   } catch (err) {
-    console.error('Render error:', err && (err.stack||err.message||err));
-    try { await browser.close(); } catch(e){}
-    process.exit(1);
+    err('Fatal error in render_page.js:', err && (err.message || err));
+    try { process.exit(1); } catch(e){}
   }
 })();
