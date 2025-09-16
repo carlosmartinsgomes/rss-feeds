@@ -167,6 +167,11 @@ def parse_feed_file_with_fallback(ff):
     for e in entries:
         title = (e.get("title", "") or "").strip()
         link = (e.get("link", "") or "")
+        # --- filtro defensivo específico para modernhealthcare (evitar ruído) ---
+        if title and title.lower().strip() in ("no title", "return to homepage"): 
+            continue
+        if not title and (link.endswith("modernhealthcare.com") or link.rstrip('/') == "https://www.modernhealthcare.com"):
+            continue
         pub = (e.get("published", "") or e.get("pubDate", "") or e.get("updated", "") or "")
         desc = (e.get("summary", "") or e.get("description", "") or "")
         desc_short = strip_html_short(desc, max_len=300)
