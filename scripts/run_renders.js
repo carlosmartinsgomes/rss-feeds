@@ -18,6 +18,7 @@ const RENDER_TARGETS = [
   ["https://www.businesswire.com/newsroom?page=5", `${SCRIPTS}/rendered/businesswire-page5.html`],
   ["https://inmodeinvestors.com/press-release", `${SCRIPTS}/rendered/inmode-press.html`],
   ["https://www.darkreading.com/", `${SCRIPTS}/rendered/darkreading.html`],
+  ["https://www.modernhealthcare.com/latest-news/", `${SCRIPTS}/rendered/modernhealthcare.html`],
   ["https://www.iotworldtoday.com/", `${SCRIPTS}/rendered/iotworldtoday.html`]
 ];
 
