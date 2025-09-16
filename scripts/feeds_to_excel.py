@@ -10,10 +10,19 @@ import pandas as pd
 import html
 import re
 import requests
+import warnings
 from bs4 import BeautifulSoup
 from dateutil import parser as dateparser
 from dateutil import tz as date_tz
 from urllib.parse import urljoin, urlparse
+
+# evitar UnknownTimezoneWarning do dateutil (mensagem do runner)
+try:
+    from dateutil import _parser as _dateutil__parser
+    UnknownTimezoneWarning = _dateutil__parser.UnknownTimezoneWarning
+    warnings.filterwarnings("ignore", category=UnknownTimezoneWarning)
+except Exception:
+    warnings.filterwarnings("ignore", message="tzname .* identified but not understood")
 
 OUT_XLSX = "feeds_summary.xlsx"
 FEEDS_DIR = "feeds"
@@ -453,13 +462,17 @@ def scrape_mobihealth_listing(base_url="https://www.mobihealthnews.com/", max_it
 # ---------------------------
 from urllib.parse import urljoin
 
+# ---------------------------
+# SCRAPER específico MODERNHEALTHCARE (rendered HTML)
+# ---------------------------
+from urllib.parse import urljoin
+
 def scrape_modernhealth_rendered(html_path="scripts/rendered/modernhealthcare.html",
                                  base_url="https://www.modernhealthcare.com/latest-news/",
                                  max_items=10):
     """
     Extrai até max_items a partir do HTML já renderizado de modernhealthcare.
     Retorna lista de dicts com keys: title, link, date, description, source.
-    Mantém heurísticas do snippet do console fornecido.
     """
     items = []
     try:
@@ -471,7 +484,6 @@ def scrape_modernhealth_rendered(html_path="scripts/rendered/modernhealthcare.ht
 
     soup = BeautifulSoup(html, "html.parser")
 
-    # util helpers (compat com o resto do ficheiro)
     def text_of(el):
         try:
             return (el.get_text(" ", strip=True) if el else "").strip()
@@ -527,15 +539,13 @@ def scrape_modernhealth_rendered(html_path="scripts/rendered/modernhealthcare.ht
     except Exception:
         pass
 
-    # title element selectors (do teu snippet)
-    title_selectors = 'span.u-text-text-dark, a[aria-label^="Title"] span, .news-title.fs-5, .news-title'
-    titleEls = []
+    # primary title selectors (como o snippet)
+    title_selectors = 'span.u-text-text-dark, a[aria-label^="Title"] span, .news-title.fs-5, .news-title, h2 a, h3 a'
     try:
         titleEls = soup.select(title_selectors)
     except Exception:
-        titleEls = soup.find_all(['h1', 'h2', 'h3', 'a'])
+        titleEls = soup.find_all(['h2','h3','a'])
 
-    # find wrapper (climb ancestors)
     def find_wrapper(el):
         cur = el
         for _ in range(8):
@@ -548,7 +558,6 @@ def scrape_modernhealth_rendered(html_path="scripts/rendered/modernhealthcare.ht
             if any(c in ('u-border-b','views-row','col-lg-6','square-one','view-content') for c in cls):
                 return cur
             cur = cur.parent
-        # fallback: closest article
         art = el.find_parent('article')
         if art:
             return art
@@ -557,7 +566,6 @@ def scrape_modernhealth_rendered(html_path="scripts/rendered/modernhealthcare.ht
     def find_link(wrapper, titleEl):
         if wrapper is None:
             return ''
-        # prefer parent anchor of titleEl
         try:
             a_parent = titleEl.find_parent('a') if titleEl else None
             if a_parent and a_parent.get('href'):
@@ -566,7 +574,6 @@ def scrape_modernhealth_rendered(html_path="scripts/rendered/modernhealthcare.ht
                     return abs_url(h)
         except Exception:
             pass
-        # check ordered selectors inside wrapper
         order = ['a.content-list-title[href]', 'a[aria-label^="Title"]', 'a[href].overlay', '.content-list-title a[href]', 'a[href]']
         for sel in order:
             try:
@@ -577,7 +584,6 @@ def scrape_modernhealth_rendered(html_path="scripts/rendered/modernhealthcare.ht
                 h = el.get('href')
                 if h and not BAD_HREF_RE.search(h):
                     return abs_url(h)
-        # any anchor fallback
         anyA = wrapper.find('a', href=True)
         if anyA:
             h = anyA.get('href') or ''
@@ -599,7 +605,6 @@ def scrape_modernhealth_rendered(html_path="scripts/rendered/modernhealthcare.ht
                         return cand.replace(' | ', ' | ').strip()
             candidates = ['.u-whitespace-nowrap', 'time', 'time[datetime]', '.date', '.timestamp', '.post-date', '.day_list', '.time_list']
             for s in candidates:
-                el = None
                 try:
                     el = wrapper.select_one(s)
                 except Exception:
@@ -608,7 +613,6 @@ def scrape_modernhealth_rendered(html_path="scripts/rendered/modernhealthcare.ht
                     t = text_of(el).lstrip('|').strip()
                     if t and not re.search(r'subscribe|image', t, re.I):
                         return t
-            # fallback: regex date in wrapper text (reuse your _DATE_RE if accessible, else a simple regex)
             raw = text_of(wrapper)
             m = re.search(r'\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},\s+\d{4}', raw, re.I)
             if m:
@@ -630,7 +634,6 @@ def scrape_modernhealth_rendered(html_path="scripts/rendered/modernhealthcare.ht
                 t = text_of(el)
                 if t and not re.search(r'subscribe|image', t, re.I):
                     return t
-        # fallback first paragraph
         p = wrapper.find('p')
         if p:
             t = text_of(p)
@@ -649,7 +652,7 @@ def scrape_modernhealth_rendered(html_path="scripts/rendered/modernhealthcare.ht
         items.append(d)
         return True
 
-    # titleEls first pass
+    # 1) title elements pass
     for el in titleEls:
         if len(items) >= max_items:
             break
@@ -665,13 +668,18 @@ def scrape_modernhealth_rendered(html_path="scripts/rendered/modernhealthcare.ht
                 continue
             if BAD_HREF_RE.search(link):
                 continue
-            date = find_date(wrapper) or ''
+            date_raw = find_date(wrapper) or ''
+            # tentar normalizar a data com find_date_in_text se existir no ficheiro
+            try:
+                parsed_date = find_date_in_text(date_raw) if 'find_date_in_text' in globals() else date_raw
+            except Exception:
+                parsed_date = date_raw
             desc = find_description(wrapper) or ''
-            push_if_new({'title': title_text, 'link': link, 'date': date, 'description': desc, 'source': 'title-el'})
+            push_if_new({'title': title_text, 'link': link, 'date': parsed_date, 'description': desc, 'source': 'title-el'})
         except Exception:
             continue
 
-    # wrapper-scan fallback
+    # 2) wrapper-scan fallback
     if len(items) < max_items:
         candidates = soup.select('article, .u-border-b, .views-row, .view-content > div, .col-lg-6')
         for wrapper in candidates:
@@ -682,7 +690,6 @@ def scrape_modernhealth_rendered(html_path="scripts/rendered/modernhealthcare.ht
                 anyLink = abs_url(anyA.get('href')) if anyA else ''
                 if anyLink and anyLink in seen:
                     continue
-                # try to find title element
                 tsel = None
                 for sel in ['span.u-text-text-dark', 'a[aria-label^="Title"] span', '.news-title', '.content-list-title a', 'a.title', 'h2', 'h3']:
                     try:
@@ -697,20 +704,24 @@ def scrape_modernhealth_rendered(html_path="scripts/rendered/modernhealthcare.ht
                 link = find_link(wrapper, tsel) or anyLink
                 if BAD_HREF_RE.search(link):
                     continue
-                push_if_new({'title': title_text, 'link': link, 'date': find_date(wrapper) or '', 'description': find_description(wrapper) or '', 'source': 'wrapper-scan'})
+                date_raw = find_date(wrapper) or ''
+                try:
+                    parsed_date = find_date_in_text(date_raw) if 'find_date_in_text' in globals() else date_raw
+                except Exception:
+                    parsed_date = date_raw
+                desc = find_description(wrapper) or ''
+                push_if_new({'title': title_text, 'link': link, 'date': parsed_date, 'description': desc, 'source': 'wrapper-scan'})
             except Exception:
                 continue
 
-    # anchor fallback
+    # 3) anchor fallback
     if len(items) < max_items:
         for a in soup.select('#main-content a[href]'):
             if len(items) >= max_items:
                 break
             try:
                 h = a.get('href') or ''
-                if not h:
-                    continue
-                if BAD_HREF_RE.search(h):
+                if not h or BAD_HREF_RE.search(h):
                     continue
                 abs_h = abs_url(h)
                 if abs_h in seen:
@@ -722,7 +733,6 @@ def scrape_modernhealth_rendered(html_path="scripts/rendered/modernhealthcare.ht
             except Exception:
                 continue
 
-    # final: items is list of dicts with title, link, date, description
     print(f"scrape_modernhealth_rendered: found {len(items)} items from {html_path}")
     return items
 
@@ -732,12 +742,11 @@ def scrape_modernhealth_rendered(html_path="scripts/rendered/modernhealthcare.ht
 # ---------------------------
 
 def main():
-        # --- special: include modernhealthcare rendered HTML if exists ---
+            # --- special: include modernhealthcare rendered HTML if exists ---
     mh_rendered_path = "scripts/rendered/modernhealthcare.html"
     if os.path.exists(mh_rendered_path):
         try:
             mh_items = scrape_modernhealth_rendered(mh_rendered_path, base_url="https://www.modernhealthcare.com/latest-news/", max_items=10)
-            # transforma para o mesmo formato de rows que usas para mobihealth
             for it in mh_items:
                 all_rows.append({
                     "site": "modernhealthcare",
@@ -751,6 +760,7 @@ def main():
             print(f"Added {len(mh_items)} modernhealthcare items from rendered HTML")
         except Exception as e:
             print("Error scraping modernhealthcare rendered html:", e)
+
 
     site_item_map = load_sites_item_container()
     all_rows = []
