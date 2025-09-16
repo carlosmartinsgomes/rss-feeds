@@ -354,9 +354,21 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "actions@github.com"
           git add dist/merged-feed.xml || echo "no merged feed to add"
-          git commit -m "Update merged feed" || echo "no changes to commit"
-          git push
-
+          # commit if there are staged changes
+          if ! git diff --cached --quiet; then
+            git commit -m "Update merged feed" || echo "commit failed"
+            # fetch remote and rebase onto origin/main to avoid non-fast-forward
+            git fetch origin main --depth=1 || true
+            if git rebase origin/main; then
+              git push origin HEAD:main || echo "git push failed"
+            else
+              echo "Rebase failed; aborting push"
+              git rebase --abort || true
+            fi
+          else
+            echo "no changes to commit"
+          fi
+          
       - name: Show produced feeds
         run: |
           echo "Feeds dir listing:"
