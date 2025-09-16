@@ -470,276 +470,163 @@ from urllib.parse import urljoin
 # ---------------------------
 # SCRAPER específico MODERNHEALTHCARE (rendered HTML)
 # ---------------------------
-from urllib.parse import urljoin
-
-def scrape_modernhealth_rendered(html_path="scripts/rendered/modernhealthcare.html",
-                                 base_url="https://www.modernhealthcare.com/latest-news/",
-                                 max_items=10):
+def scrape_modern_rendered(rendered_path, base_url="https://www.modernhealthcare.com/latest-news/", max_items=10):
     """
-    Extrai até max_items a partir do HTML já renderizado de modernhealthcare.
-    Retorna lista de dicts com keys: title, link, date, description, source.
+    Parse a rendered modernhealthcare HTML (produzido por playwright) and return
+    a list of items: dicts {title, link, date, description, source}.
+    Não mexe em variáveis externas — devolve a lista para o chamador adicionar a all_rows.
     """
-    items = []
-    try:
-        with open(html_path, 'r', encoding='utf-8', errors='ignore') as fh:
-            html = fh.read()
-    except Exception as e:
-        print(f"scrape_modernhealth_rendered: failed to read {html_path}: {e}")
-        return items
+    from bs4 import BeautifulSoup
+    import re
 
-    soup = BeautifulSoup(html, "html.parser")
-
-    def text_of(el):
+    def txt(el):
         try:
             return (el.get_text(" ", strip=True) if el else "").strip()
         except Exception:
             return ""
 
-    def abs_url(href):
-        try:
-            if not href:
-                return ""
-            href = href.strip()
-            if re.match(r'^https?://', href):
-                return href
-            return urljoin(base_url, href)
-        except Exception:
-            return href or ""
+    badHrefRe = re.compile(r'(^#|^javascript:|mailto:|/help|/legal|cookie|privacy|terms|signin|login|settings|/consent|/preferences|/policies|/subscribe)', re.I)
+    blacklistTitle = [re.compile(r'^\s*category\s*$', re.I), re.compile(r'^\s*healthcare news\s*$', re.I),
+                      re.compile(r'^\s*latest news\s*$', re.I), re.compile(r'^\s*image\s*$', re.I),
+                      re.compile(r'^\s*read more\s*$', re.I)]
 
-    BAD_HREF_RE = re.compile(r'(^#|^javascript:|mailto:|/help|/legal|cookie|privacy|terms|signin|login|settings|/consent|/preferences|/policies|/subscribe)', re.I)
-    BLACKLIST_TITLE = [re.compile(r'^\s*category\s*$', re.I),
-                       re.compile(r'^\s*healthcare news\s*$', re.I),
-                       re.compile(r'^\s*latest news\s*$', re.I),
-                       re.compile(r'^\s*image\s*$', re.I),
-                       re.compile(r'^\s*read more\s*$', re.I)]
+    try:
+        raw = open(rendered_path, 'r', encoding='utf-8').read()
+    except Exception as e:
+        print("scrape_modern_rendered: failed to read rendered_path:", e)
+        return []
+
+    soup = BeautifulSoup(raw, 'html.parser')
+    main = soup.select_one('#main-content') or soup
+
+    # selectors inspirados no snippet do console
+    titleEls = list(main.select('span.u-text-text-dark, a[aria-label^="Title"] span, .news-title.fs-5, .news-title'))
+    items = []
+    seen = set()
 
     def is_bad_title(t):
-        if not t:
-            return True
-        if len(t.strip()) < 6:
-            return True
-        for re_ in BLACKLIST_TITLE:
-            if re_.search(t):
-                return True
+        if not t: return True
+        if len(t.strip()) < 6: return True
+        for re_ in blacklistTitle:
+            if re_.match(t): return True
         if re.match(r'^(category|image|home|latest|subscribe|return)$', t.strip(), re.I):
             return True
         return False
 
-    # remove modals / overlays (best-effort)
-    try:
-        modal_selectors = [
-            'div[class*="subscribe"]', 'div[id*="subscribe"]', '.newsletter-popup', '.newsletter-modal',
-            '.subscription-overlay', '.overlay--newsletter', '[data-testid*="modal"]', '[role="dialog"]',
-            '.modal-backdrop', '.modal', '.paywall', '.newsletter'
-        ]
-        for sel in modal_selectors:
-            for n in soup.select(sel):
-                try:
-                    n.decompose()
-                except Exception:
-                    try:
-                        n.extract()
-                    except Exception:
-                        pass
-    except Exception:
-        pass
-
-    # primary title selectors (como o snippet)
-    title_selectors = 'span.u-text-text-dark, a[aria-label^="Title"] span, .news-title.fs-5, .news-title, h2 a, h3 a'
-    try:
-        titleEls = soup.select(title_selectors)
-    except Exception:
-        titleEls = soup.find_all(['h2','h3','a'])
-
     def find_wrapper(el):
         cur = el
         for _ in range(8):
-            if cur is None:
-                break
-            if getattr(cur, 'name', '').lower() == 'article':
+            if cur is None: break
+            if cur.name == 'article':
                 return cur
-            cls = cur.get('class') or []
-            cls = [c for c in cls] if cls else []
-            if any(c in ('u-border-b','views-row','col-lg-6','square-one','view-content') for c in cls):
+            classes = cur.get('class') or []
+            if any(c in ('u-border-b','views-row','col-lg-6','square-one','view-content') for c in classes):
                 return cur
             cur = cur.parent
-        art = el.find_parent('article')
-        if art:
-            return art
-        return el
+        # fallback
+        return el.closest('article, .views-row, .u-border-b, .col-lg-6, .square-one') or el
+
+    def abs_href(h):
+        try:
+            from urllib.parse import urljoin
+            return urljoin(base_url, h or '')
+        except Exception:
+            return (h or '').strip()
 
     def find_link(wrapper, titleEl):
-        if wrapper is None:
-            return ''
-        try:
-            a_parent = titleEl.find_parent('a') if titleEl else None
-            if a_parent and a_parent.get('href'):
-                h = a_parent.get('href')
-                if not BAD_HREF_RE.search(h):
-                    return abs_url(h)
-        except Exception:
-            pass
+        if not wrapper: return ''
+        if titleEl:
+            a = titleEl.find_parent('a')
+            if a and a.has_attr('href'):
+                h = a.get('href') or ''
+                if h and not badHrefRe.search(h): return abs_href(h)
+        # prefer anchors inside wrapper
         order = ['a.content-list-title[href]', 'a[aria-label^="Title"]', 'a[href].overlay', '.content-list-title a[href]', 'a[href]']
         for sel in order:
-            try:
-                el = wrapper.select_one(sel)
-            except Exception:
-                el = None
-            if el and el.get('href'):
-                h = el.get('href')
-                if h and not BAD_HREF_RE.search(h):
-                    return abs_url(h)
-        anyA = wrapper.find('a', href=True)
+            a = wrapper.select_one(sel)
+            if a and a.has_attr('href'):
+                h = a.get('href') or ''
+                if h and not badHrefRe.search(h): return abs_href(h)
+        anyA = wrapper.select_one('a[href]')
         if anyA:
             h = anyA.get('href') or ''
-            if h and not BAD_HREF_RE.search(h):
-                return abs_url(h)
+            if h and not badHrefRe.search(h): return abs_href(h)
         return ''
 
     def find_date(wrapper):
-        if wrapper is None:
-            return ''
-        try:
-            anc = wrapper.find_parent('article') or wrapper
-            group = anc.select_one('div.group-author-line, div.field.field--name-field-author, .group-author-line')
-            if group:
-                spans = [text_of(s) for s in group.select('span') if text_of(s)]
-                if len(spans) >= 2:
-                    cand = " | ".join(spans)
-                    if cand and not re.search(r'subscribe|member|homepage', cand, re.I):
-                        return cand.replace(' | ', ' | ').strip()
-            candidates = ['.u-whitespace-nowrap', 'time', 'time[datetime]', '.date', '.timestamp', '.post-date', '.day_list', '.time_list']
-            for s in candidates:
-                try:
-                    el = wrapper.select_one(s)
-                except Exception:
-                    el = None
-                if el:
-                    t = text_of(el).lstrip('|').strip()
-                    if t and not re.search(r'subscribe|image', t, re.I):
-                        return t
-            raw = text_of(wrapper)
-            m = re.search(r'\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},\s+\d{4}', raw, re.I)
-            if m:
-                return m.group(0)
-        except Exception:
-            pass
+        if not wrapper: return ''
+        cand = wrapper.select_one('.u-whitespace-nowrap, time, time[datetime], .date, .timestamp, .post-date, .day_list, .time_list')
+        if cand:
+            t = txt(cand).lstrip('|').strip()
+            if t and 'subscribe' not in t.lower():
+                return t
+        # fallback: regex in wrapper text
+        m = re.search(r'\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},\s+\d{4}', txt(wrapper))
+        if m:
+            return m.group(0)
         return ''
 
     def find_description(wrapper):
-        if wrapper is None:
-            return ''
-        sels = ['div.u-h-auto.u-w-full.u-font-secondary p', 'div.field.field--name-field-subheader.field--item', '.dek', '.summary', '.body_list', '.news-content p', '.content-list-meta + p', 'p']
-        for s in sels:
-            try:
-                el = wrapper.select_one(s)
-            except Exception:
-                el = None
+        if not wrapper: return ''
+        for sel in ['div.u-h-auto.u-w-full.u-font-secondary p', 'div.field.field--name-field-subheader.field--item', '.dek', '.summary', '.news-content p', '.content-list-meta + p', 'p']:
+            el = wrapper.select_one(sel)
             if el:
-                t = text_of(el)
-                if t and not re.search(r'subscribe|image', t, re.I):
+                t = txt(el)
+                if t and 'subscribe' not in t.lower():
                     return t
-        p = wrapper.find('p')
-        if p:
-            t = text_of(p)
-            if t and not re.search(r'subscribe', t, re.I):
-                return t
         return ''
 
-    seen = set()
-    def push_if_new(d):
-        key = (d.get('link') or '').rstrip('/') or (d.get('title') or '')[:200]
-        if not key:
-            return False
-        if key in seen:
-            return False
-        seen.add(key)
-        items.append(d)
-        return True
-
-    # 1) title elements pass
     for el in titleEls:
-        if len(items) >= max_items:
-            break
         try:
-            title_text = text_of(el)
-            if is_bad_title(title_text):
+            title_text = txt(el)
+            if is_bad_title(title_text): 
                 continue
             wrapper = find_wrapper(el)
-            if wrapper is None:
+            if not wrapper:
                 continue
-            link = find_link(wrapper, el) or ''
-            if (not link) and (not title_text):
+            link = find_link(wrapper, el)
+            if badHrefRe.search(link): 
                 continue
-            if BAD_HREF_RE.search(link):
+            key = (link or title_text).rstrip('/')
+            if not key or key in seen: 
                 continue
-            date_raw = find_date(wrapper) or ''
-            # tentar normalizar a data com find_date_in_text se existir no ficheiro
-            try:
-                parsed_date = find_date_in_text(date_raw) if 'find_date_in_text' in globals() else date_raw
-            except Exception:
-                parsed_date = date_raw
+            seen.add(key)
+            date = find_date(wrapper) or ''
             desc = find_description(wrapper) or ''
-            push_if_new({'title': title_text, 'link': link, 'date': parsed_date, 'description': desc, 'source': 'title-el'})
+            # small heuristic: prefer links that contain '/latest-news/' or else OK but keep note
+            if '/latest-news/' in (link or '') or True:
+                items.append({'title': title_text, 'link': link, 'date': date, 'description': desc, 'source': 'rendered'})
+            if len(items) >= max_items:
+                break
         except Exception:
             continue
 
-    # 2) wrapper-scan fallback
+    # If not enough, a fallback: anchors in main content
     if len(items) < max_items:
-        candidates = soup.select('article, .u-border-b, .views-row, .view-content > div, .col-lg-6')
-        for wrapper in candidates:
-            if len(items) >= max_items:
-                break
-            try:
-                anyA = wrapper.find('a', href=True)
-                anyLink = abs_url(anyA.get('href')) if anyA else ''
-                if anyLink and anyLink in seen:
-                    continue
-                tsel = None
-                for sel in ['span.u-text-text-dark', 'a[aria-label^="Title"] span', '.news-title', '.content-list-title a', 'a.title', 'h2', 'h3']:
-                    try:
-                        tsel = wrapper.select_one(sel)
-                    except Exception:
-                        tsel = None
-                    if tsel:
-                        break
-                title_text = text_of(tsel) if tsel else ''
-                if is_bad_title(title_text):
-                    continue
-                link = find_link(wrapper, tsel) or anyLink
-                if BAD_HREF_RE.search(link):
-                    continue
-                date_raw = find_date(wrapper) or ''
-                try:
-                    parsed_date = find_date_in_text(date_raw) if 'find_date_in_text' in globals() else date_raw
-                except Exception:
-                    parsed_date = date_raw
-                desc = find_description(wrapper) or ''
-                push_if_new({'title': title_text, 'link': link, 'date': parsed_date, 'description': desc, 'source': 'wrapper-scan'})
-            except Exception:
-                continue
+        for a in main.select('a[href]'):
+            if len(items) >= max_items: break
+            h = a.get('href') or ''
+            abs_h = abs_href(h)
+            t = txt(a)
+            if not t or len(t) < 6: continue
+            if badHrefRe.search(abs_h): continue
+            key = abs_h.rstrip('/')
+            if key in seen: continue
+            seen.add(key)
+            items.append({'title': t, 'link': abs_h, 'date': '', 'description': '', 'source': 'anchor-fallback'})
+    # normalize simple fields and return
+    out = []
+    for it in items:
+        out.append({
+            'title': (it.get('title') or '').strip(),
+            'link': (it.get('link') or '').strip(),
+            'date': (it.get('date') or '').strip(),
+            'description': (it.get('description') or '').strip(),
+            'source': it.get('source', '')
+        })
+    print(f"scrape_modern_rendered: found {len(out)} items from {rendered_path}")
+    return out
 
-    # 3) anchor fallback
-    if len(items) < max_items:
-        for a in soup.select('#main-content a[href]'):
-            if len(items) >= max_items:
-                break
-            try:
-                h = a.get('href') or ''
-                if not h or BAD_HREF_RE.search(h):
-                    continue
-                abs_h = abs_url(h)
-                if abs_h in seen:
-                    continue
-                t = text_of(a)
-                if not t or len(t.strip()) < 6:
-                    continue
-                push_if_new({'title': t, 'link': abs_h, 'date': '', 'description': '', 'source': 'anchor-fallback'})
-            except Exception:
-                continue
-
-    print(f"scrape_modernhealth_rendered: found {len(items)} items from {html_path}")
-    return items
 
 
 # ---------------------------
@@ -778,6 +665,34 @@ def main():
             base = os.path.basename(ff)
             site_name = os.path.splitext(base)[0]
             ic = site_item_map.get(site_name, "")
+
+            # dentro do loop for ff in feed_files: ... após base/site_name/ic definidos
+            if site_name == "modernhealthcare":
+                rendered_path = os.path.join('scripts', 'rendered', 'modernhealthcare.html')
+                try:
+                    if os.path.exists(rendered_path):
+                        mh_items = scrape_modern_rendered(rendered_path, base_url="https://www.modernhealthcare.com/latest-news/", max_items=11)
+                        for it in mh_items:
+                            # filtro defensivo extra:
+                            t = it.get('title','').strip()
+                            link = it.get('link','').strip()
+                            if not t or t.lower() in ("no title", "return to homepage", "category"):
+                                continue
+                            all_rows.append({
+                                "site": site_name,
+                                "title": t,
+                                "link (source)": link,
+                                "pubDate": it.get('date',''),
+                                "description (short)": strip_html_short(it.get('description',''), max_len=300),
+                                "item_container": ic,
+                                "topic": "N/A"
+                            })
+                        # skip parsing XML feed for this site (we already added rows)
+                        continue
+                except Exception as e:
+                    print("Error scraping modernhealthcare rendered html:", e)
+                    # fallthrough to XML parsing fallback below
+
 
             # special: if mobihealthnews, ignore the XML entries and build rows directly
             if site_name == "mobihealthnews":
