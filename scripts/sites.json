@@ -487,7 +487,7 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/medtechdive.html",
-      "filters": { "keywords": ["inmode","inmd"] }
+      "filters": { "keywords": ["a","inmode","inmd"] }
     },
     {
       "name": "medtechdive-devices",
@@ -498,7 +498,7 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/medtechdive-devices.html",
-      "filters": { "keywords": ["inmode","inmd"] }
+      "filters": { "keywords": ["a","inmode","inmd"] }
     },
     {
       "name": "fiercebiotech",
