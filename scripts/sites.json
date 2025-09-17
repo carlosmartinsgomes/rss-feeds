@@ -254,7 +254,7 @@
     },
     {
       "name": "mediapost",
-      "url": "https://www.mediapost.com/",
+      "url": "https://www.mediapost.com/news/",
       "item_container": "article, li, div",
       "title": "a, h2 a, h3 a",
       "link": "a@href, h2 a@href",
