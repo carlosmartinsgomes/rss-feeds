@@ -697,7 +697,214 @@ def scrape_modern_rendered(rendered_path, base_url="https://www.modernhealthcare
         })
     print(f"scrape_modern_rendered: found {len(out)} items from {rendered_path}")
     return out
+# ---------------------------
+# SCRAPER específico MEDIAPOST (novo)
+# ---------------------------
+def scrape_mediapost_listing(base_url="https://www.mediapost.com/news/", max_items=30, timeout=10):
+    """
+    Fetch the Mediapost /news/ page and return items list with fields:
+    {title, link, date, description, source}
+    Heuristics mirror the console snippet you tested.
+    """
+    try:
+        r = requests.get(base_url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=timeout)
+        r.raise_for_status()
+        html = r.text
+    except Exception as e:
+        print("scrape_mediapost_listing: fetch failed:", e)
+        return []
 
+    soup = BeautifulSoup(html, "html.parser")
+
+    def txt(el):
+        try:
+            return (el.get_text(" ", strip=True) if el else "").strip()
+        except Exception:
+            return ""
+
+    def is_in_header_footer(el):
+        if not el:
+            return False
+        cur = el
+        for _ in range(8):
+            if cur is None:
+                break
+            tag = getattr(cur, 'name', '').lower()
+            cls = " ".join(cur.get('class') or []).lower()
+            role = cur.get('role') if cur and hasattr(cur, 'get') else None
+            if tag in ('header', 'footer'):
+                return True
+            if role and re.search(r'navigation|banner|menu|search|complementary', str(role), re.I):
+                return True
+            if re.search(r'nav|breadcrumb|masthead|site-header|menu|toolbar|subnav|topbar|footer', cls):
+                return True
+            cur = cur.parent
+        return False
+
+    def looks_like_article_href(h):
+        if not h:
+            return False
+        h = h.lower()
+        if not ('/publications/' in h or '/news/' in h):
+            return False
+        # look for numeric id segments like /760257/ or /409171/
+        if re.search(r'/\d{3,}/?$', h) or re.search(r'/article/\d{3,}', h):
+            return True
+        # allow /publications/.../some-slug.html often contains article pages (fallback)
+        if '/publications/' in h and (h.endswith('.html') or re.search(r'/[^/]+\.html$', h)):
+            return True
+        return False
+
+    anchors = soup.select('a[href]')
+    article_anchors = []
+    for a in anchors:
+        try:
+            if is_in_header_footer(a):
+                continue
+            h = a.get('href') or ''
+            if not h:
+                continue
+            if looks_like_article_href(h):
+                article_anchors.append(a)
+        except Exception:
+            continue
+
+    seen = set()
+    items = []
+
+    def canonicalize(href):
+        try:
+            u = urlparse(href)
+            clean = u.scheme + "://" + u.netloc + u.path
+            return clean.rstrip('/')
+        except Exception:
+            return href.split('?')[0].rstrip('/')
+
+    for a in article_anchors:
+        if len(items) >= max_items:
+            break
+        try:
+            raw_href = a.get('href') or ''
+            href = urljoin(base_url, raw_href)
+            canon = canonicalize(href)
+            if canon in seen:
+                continue
+            title = txt(a)
+            if not title or len(title) < 6:
+                continue
+            # wrapper: prefer article, li, div with article classes
+            wrapper = a.find_parent(['article', 'li'])
+            if wrapper is None:
+                # look for nearby div parent
+                wrapper = a.parent
+
+            # --- DESCRIPTION (várias heurísticas) ---
+            description = ''
+            for sel in ['p.short', 'p.lede', '.short', '.summary', '.dek', '.article-teaser', '.feed__description', '.teaser', 'p']:
+                try:
+                    el = wrapper.select_one(sel) if wrapper else None
+                except Exception:
+                    el = None
+                if el:
+                    t = txt(el)
+                    if t and not re.search(r'subscribe|advertis|read more', t, re.I):
+                        description = t
+                        break
+
+            # if still empty, try nearby siblings (sometimes description sits next to wrapper)
+            if not description:
+                try:
+                    # next siblings inside same container
+                    sib = None
+                    # prefer nextElementSibling-like search
+                    cur = wrapper
+                    for _ in range(3):
+                        if cur is None:
+                            break
+                        sib = cur.find_next_sibling()
+                        if sib:
+                            p = sib.select_one('p, .short, .lede, .dek, .summary')
+                            if p:
+                                dd = txt(p)
+                                if dd and not re.search(r'subscribe|advertis|read more', dd, re.I):
+                                    description = dd
+                                    break
+                        cur = cur.parent
+                except Exception:
+                    pass
+
+            # --- DATE (várias heurísticas) ---
+            date = ''
+            for ds in ['time', '.byline', '.date', '.published', '.timestamp']:
+                try:
+                    el = wrapper.select_one(ds) if wrapper else None
+                except Exception:
+                    el = None
+                if el:
+                    t = txt(el)
+                    if t:
+                        # limpa "By Name - " se existir
+                        date = re.sub(r'^\s*By\s+[^-]+-\s*', '', t).strip()
+                        # remove "By Name" if no dash
+                        date = re.sub(r'^\s*By\s+[^-]+\s*$', '', date).strip()
+                        if date:
+                            break
+
+            # fallback regex in wrapper text for relative times or full dates
+            if not date:
+                rawtxt = txt(wrapper or a)
+                m = re.search(r'\b\d+\s+(?:hours?|days?|minutes?)\s+ago\b', rawtxt, re.I) \
+                    or re.search(r'\b(?:Jan(?:uary)?|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s+\d{4}\b', rawtxt)
+                if m:
+                    date = m.group(0)
+
+            # --- última opção: fetch da página do artigo para obter meta description / time ---
+            # (só faz requests se faltar descrição ou data)
+            if (not description or not date) and href and len(items) < max_items:
+                try:
+                    resp = requests.get(href, headers={'User-Agent': 'Mozilla/5.0'}, timeout=6)
+                    if resp.status_code == 200 and resp.text:
+                        sa = BeautifulSoup(resp.text, 'html.parser')
+                        if not description:
+                            md = sa.select_one('meta[property="og:description"], meta[name="description"]')
+                            if md and md.get('content'):
+                                dd = md.get('content').strip()
+                                if dd and not re.search(r'subscribe|advertis|read more', dd, re.I):
+                                    description = dd
+                        if not date:
+                            ttag = sa.select_one('time[datetime], time')
+                            if ttag:
+                                date = txt(ttag).strip()
+                            else:
+                                by = sa.select_one('.byline, .article-byline, .published')
+                                if by:
+                                    dclean = re.sub(r'^\s*By\s+[^-]+-\s*', '', txt(by)).strip()
+                                    if dclean:
+                                        date = dclean
+                except Exception:
+                    # não falhar a execução por causa do fetch
+                    pass
+
+            # última limpeza: truncar e normalizar
+            if description:
+                description = description.replace('\n', ' ').strip()
+            if date:
+                date = date.replace('\n', ' ').strip()
+
+
+            seen.add(canon)
+            items.append({
+                'title': title.strip(),
+                'link': href,
+                'date': date.strip(),
+                'description': description.strip(),
+                'source': 'mediapost'
+            })
+        except Exception:
+            continue
+
+    print(f"scrape_mediapost_listing: found {len(items)} items from {base_url}")
+    return items[:max_items]
 
 # ---------------------------
 # FIM DO SCRAPERS
@@ -735,6 +942,30 @@ def main():
             base = os.path.basename(ff)
             site_name = os.path.splitext(base)[0]
             ic = site_item_map.get(site_name, "")
+
+            # special: if mediapost, ignore the XML and scrape the listing page directly
+            if site_name == "mediapost":
+                try:
+                    mp_items = scrape_mediapost_listing(base_url="https://www.mediapost.com/news/", max_items=30)
+                    for it in mp_items:
+                        t = it.get('title','').strip()
+                        link = it.get('link','').strip()
+                        if not t or t.lower() in ("no title", "return to homepage", "category"):
+                            continue
+                        all_rows.append({
+                            "site": site_name,
+                            "title": t,
+                            "link (source)": link,
+                            "pubDate": it.get('date',''),
+                            "description (short)": strip_html_short(it.get('description',''), max_len=300),
+                            "item_container": ic,
+                            "topic": "N/A"
+                        })
+                    # skip parsing XML for mediapost
+                    continue
+                except Exception as e:
+                    print("Error scraping mediapost listing:", e)
+                    # fall through to XML parsing as fallback    
 
             # special: modernhealthcare - prefer rendered HTML (if present)
             if site_name == "modernhealthcare":
