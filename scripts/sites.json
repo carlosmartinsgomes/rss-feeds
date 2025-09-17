@@ -261,7 +261,7 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/mediapost.html",
-      "filters": { "keywords": ["supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id","pinterest"] }
+      "filters": { "keywords": ["a","supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id","pinterest"] }
     },
     {
       "name": "exchangewire",
