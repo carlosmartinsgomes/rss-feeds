@@ -505,12 +505,19 @@ def scrape_medtech_topic(base_url="https://www.medtechdive.com/topic/medical-dev
 
     list_root = soup.select_one('#main-content > ul') or soup.select_one('#main-content ul') or soup.select_one('#main-content')
     if not list_root:
+        # fallback amplo se não encontrarmos o nó esperado
         candidates = soup.select('ul li, article, .feed__item, .result')
     else:
         if list_root.name == 'ul':
-            candidates = list_root.select('> li') if list_root.select('> li') else list_root.find_all('li')
+            # obter os <li> filhos directos (sem usar selectors que comecem por '>')
+            candidates = list_root.find_all('li', recursive=False)
+            # se não houver filhos directos, aceitar qualquer li dentro do nó
+            if not candidates:
+                candidates = list_root.find_all('li')
         else:
+            # procurar itens dentro do nó (mais genérico)
             candidates = list_root.select('li') or list_root.select('article') or list_root.select('.feed__item')
+
 
     items = []
     seen = set()
