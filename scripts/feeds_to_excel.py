@@ -410,7 +410,7 @@ def scrape_mediapost_listing(base_url="https://www.mediapost.com/news/", max_ite
     """
     Fetch the Mediapost /news/ page and return items list with fields:
     {title, link, date, description, source}
-    Heuristics mirror the console snippet you tested.
+    Prefer article wrappers (featured / article / li) to reliably get date & description.
     """
     try:
         r = requests.get(base_url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=timeout)
@@ -428,126 +428,154 @@ def scrape_mediapost_listing(base_url="https://www.mediapost.com/news/", max_ite
         except Exception:
             return ""
 
-    def is_in_header_footer(el):
-        if not el:
-            return False
-        cur = el
-        for _ in range(8):
-            if cur is None:
-                break
-            tag = getattr(cur, 'name', '').lower()
-            cls = " ".join(cur.get('class') or []).lower()
-            role = cur.get('role') if cur and hasattr(cur, 'get') else None
-            if tag in ('header', 'footer'):
-                return True
-            if role and re.search(r'navigation|banner|menu|search|complementary', str(role), re.I):
-                return True
-            if re.search(r'nav|breadcrumb|masthead|site-header|menu|toolbar|subnav|topbar|footer', cls):
-                return True
-            cur = cur.parent
-        return False
-
-    def looks_like_article_href(h):
-        if not h:
-            return False
-        h = h.lower()
-        if not ('/publications/' in h or '/news/' in h):
-            return False
-        # look for numeric id segments like /760257/ or /409171/
-        if re.search(r'/\d{3,}/?$', h) or re.search(r'/article/\d{3,}', h):
-            return True
-        # allow /publications/.../some-slug.html often contains article pages (fallback)
-        if '/publications/' in h and (h.endswith('.html') or re.search(r'/[^/]+\.html$', h)):
-            return True
-        return False
-
-    anchors = soup.select('a[href]')
-    article_anchors = []
-    for a in anchors:
-        try:
-            if is_in_header_footer(a):
-                continue
-            h = a.get('href') or ''
-            if not h:
-                continue
-            if looks_like_article_href(h):
-                article_anchors.append(a)
-        except Exception:
-            continue
-
-    seen = set()
-    items = []
-
     def canonicalize(href):
         try:
             u = urlparse(href)
-            clean = u.scheme + "://" + u.netloc + u.path
+            clean = (u.scheme or "https") + "://" + (u.netloc or urlparse(base_url).netloc) + (u.path or "")
             return clean.rstrip('/')
         except Exception:
-            return href.split('?')[0].rstrip('/')
+            return (href.split('?')[0] if href else '').rstrip('/')
 
-    for a in article_anchors:
+    items = []
+    seen = set()
+
+    # 1) Prefer explicit featured container (#featured-articles)
+    featured = soup.select_one('#featured-articles')
+    if featured:
+        blocks = featured.select('> div')
+        # iterate in DOM order
+        for b in blocks:
+            if len(items) >= max_items:
+                break
+            try:
+                title_el = b.select_one('div.headline a, h2 a, h3 a, a')
+                if not title_el:
+                    continue
+                title = txt(title_el)
+                if not title or len(title) < 6:
+                    continue
+                href = title_el.get('href') or ''
+                link = urljoin(base_url, href)
+                canon = canonicalize(link)
+                if canon in seen:
+                    continue
+                # description and date using expected relative selectors
+                desc_el = b.select_one('p.short, p.lede, div > p, p')
+                desc = txt(desc_el) if desc_el else ''
+                date_el = b.select_one('div.byline, time, .date, .published')
+                date = txt(date_el) if date_el else ''
+                # tidy date like "By X - 8 hours ago"
+                if date:
+                    date = re.sub(r'^\s*By\s+[^-]+-\s*', '', date).strip()
+                seen.add(canon)
+                items.append({'title': title.strip(), 'link': link, 'date': date.strip(), 'description': desc.strip(), 'source': 'mediapost-featured'})
+            except Exception:
+                continue
+        if items:
+            print(f"scrape_mediapost_listing: used #featured-articles, found {len(items)} items")
+            return items[:max_items]
+
+    # 2) Fallback: find article-like wrappers under #main-content
+    main = soup.select_one('#main-content') or soup
+    # candidates: articles, list items, or divs with likely classes
+    candidates = main.select('article, li, .news-list li, .listing-item, .article, .post') or []
+
+    # if none found, fallback to scanning anchors but try to pick wrappers
+    if not candidates:
+        candidates = main.select('#main-content > div > div, #main-content > div > article, #main-content > ul > li') or []
+
+    for c in candidates:
         if len(items) >= max_items:
             break
         try:
-            raw_href = a.get('href') or ''
-            href = urljoin(base_url, raw_href)
-            canon = canonicalize(href)
-            if canon in seen:
+            # skip header/footer-like nodes
+            # find a title anchor within wrapper
+            title_el = c.select_one('h2 a, h3 a, a.headline, a.analytics, a.title, a')
+            if not title_el:
                 continue
-            title = txt(a)
+            title = txt(title_el)
             if not title or len(title) < 6:
                 continue
-            # wrapper: prefer article, li, div with article classes
-            wrapper = a.find_parent(['article', 'li'])
-            if wrapper is None:
-                # look for nearby div parent
-                wrapper = a.parent
-            # description heuristics
-            description = ''
-            for sel in ['p.short', 'p.lede', '.short', '.summary', '.dek', '.article-teaser', '.feed__description', '.teaser', 'p']:
+            href = title_el.get('href') or ''
+            link = urljoin(base_url, href)
+            canon = canonicalize(link)
+            if canon in seen:
+                continue
+            # description heuristics: prefer p.short, p.lede, .short, .dek, .summary, p
+            desc = ''
+            for sel in ('p.short', 'p.lede', '.short', '.summary', '.dek', '.article-teaser', 'p'):
+                el = None
                 try:
-                    el = wrapper.select_one(sel) if wrapper else None
+                    el = c.select_one(sel)
                 except Exception:
                     el = None
                 if el:
                     t = txt(el)
                     if t and not re.search(r'subscribe|advertis|read more', t, re.I):
-                        description = t
+                        desc = t
                         break
             # date heuristics
             date = ''
-            for ds in ['time', '.byline', '.date', '.published', '.timestamp']:
+            for sel in ('time', '.byline', '.date', '.published', '.timestamp'):
+                el = None
                 try:
-                    el = wrapper.select_one(ds) if wrapper else None
+                    el = c.select_one(sel)
                 except Exception:
                     el = None
                 if el:
-                    t = txt(el)
-                    if t:
-                        date = re.sub(r'^\s*By\s+[^-]+-\s*', '', t).strip()
+                    date = txt(el)
+                    if date:
+                        date = re.sub(r'^\s*By\s+[^-]+-\s*', '', date).strip()
                         break
-            # fallback regex in wrapper text
+            # fallback: regex in wrapper text
             if not date:
-                rawtxt = txt(wrapper or a)
+                rawtxt = txt(c)
                 m = re.search(r'\b\d+\s+(?:hours?|days?|minutes?)\s+ago\b', rawtxt, re.I) or re.search(
                     r'\b(?:Jan(?:uary)?|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s+\d{4}\b', rawtxt)
                 if m:
                     date = m.group(0)
-
             seen.add(canon)
-            items.append({
-                'title': title.strip(),
-                'link': href,
-                'date': date.strip(),
-                'description': description.strip(),
-                'source': 'mediapost'
-            })
+            items.append({'title': title.strip(), 'link': link, 'date': (date or '').strip(), 'description': (desc or '').strip(), 'source': 'mediapost-list'})
         except Exception:
             continue
 
-    print(f"scrape_mediapost_listing: found {len(items)} items from {base_url}")
+    # 3) Last resort: anchors fallback but try to use closest wrapper for desc/date
+    if len(items) < max_items:
+        for a in main.select('a[href]'):
+            if len(items) >= max_items:
+                break
+            try:
+                h = a.get('href') or ''
+                href = urljoin(base_url, h)
+                if not re.search(r'/news/|/publications/', href, re.I):
+                    continue
+                canon = canonicalize(href)
+                if canon in seen:
+                    continue
+                title = txt(a)
+                if not title or len(title) < 6:
+                    continue
+                wrapper = a.find_parent(['article', 'li', 'div']) or a.parent
+                desc = ''
+                for sel in ('p.short', 'p.lede', '.short', '.summary', '.dek', 'p'):
+                    el = wrapper.select_one(sel) if wrapper else None
+                    if el:
+                        desc = txt(el)
+                        break
+                date = ''
+                for sel in ('time', '.byline', '.date', '.published'):
+                    el = wrapper.select_one(sel) if wrapper else None
+                    if el:
+                        date = txt(el)
+                        break
+                seen.add(canon)
+                items.append({'title': title.strip(), 'link': href, 'date': (date or '').strip(), 'description': (desc or '').strip(), 'source': 'mediapost-anchor'})
+            except Exception:
+                continue
+
+    print(f"scrape_mediapost_listing: found {len(items)} items (final)")
     return items[:max_items]
+
 
 
 # ---------------------------
