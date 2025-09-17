@@ -36,6 +36,7 @@ _DEFAULT_TZINFOS = {
     "UTC": date_tz.gettz("UTC"),
 }
 
+# Regex para detectar datas comuns
 _DATE_RE = re.compile(
     r'\b(?:'
     r'(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|'
@@ -96,6 +97,7 @@ def find_date_in_text(text):
         except Exception:
             pass
         return None
+
     try:
         dt = dateparser.parse(candidate, fuzzy=True, tzinfos=_DEFAULT_TZINFOS)
         if dt:
@@ -160,7 +162,7 @@ def parse_feed_file_with_fallback(ff):
     for e in entries:
         title = (e.get("title", "") or "").strip()
         link = (e.get("link", "") or "")
-        # defensive filter for modernhealthcare noise
+        # defensive modernhealthcare filtering in case feed contains noisy items
         if title and title.lower().strip() in ("no title", "return to homepage"):
             continue
         if not title and (link.endswith("modernhealthcare.com") or link.rstrip('/') == "https://www.modernhealthcare.com"):
@@ -169,7 +171,6 @@ def parse_feed_file_with_fallback(ff):
         desc = (e.get("summary", "") or e.get("description", "") or "")
         desc_short = strip_html_short(desc, max_len=300)
 
-        # topic
         topic = "N/A"
         if e.get("tags"):
             try:
@@ -183,13 +184,11 @@ def parse_feed_file_with_fallback(ff):
             except Exception:
                 topic = "N/A"
 
-        # fallback: check raw xml item
         if not pub and xml_soup:
             fallback = find_date_from_xml_item(xml_soup, title, link)
             if fallback:
                 pub = fallback
 
-        # second fallback: search in combined title/desc text
         if not pub:
             combined = " ".join([title or "", desc or ""])
             maybe = find_date_in_text(combined)
@@ -209,7 +208,7 @@ def parse_feed_file_with_fallback(ff):
 
 
 # ---------------------------
-# SCRAPER específico MOBIHEALTH (já existente)
+# SCRAPER específico MOBIHEALTH
 # ---------------------------
 def abs_url(href, base):
     try:
@@ -227,7 +226,7 @@ def text_of(el):
 
 def scrape_mobihealth_listing(base_url="https://www.mobihealthnews.com/", max_items=11, timeout=10):
     """
-    Igual ao que já tinhas: fetch directo da página e heurísticas.
+    Faz fetch e devolve lista ordenada de items (title, link, date, description) até max_items.
     """
     try:
         r = requests.get(base_url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=timeout)
@@ -238,27 +237,327 @@ def scrape_mobihealth_listing(base_url="https://www.mobihealthnews.com/", max_it
         return []
 
     soup = BeautifulSoup(html, "html.parser")
-    # ... (mantém a tua implementação existente, omitida aqui por brevidade)
-    # Para não duplicar poluição, usa a função que já tinhas.
-    # (assume-se que a tua versão anterior permanece aqui)
-    # -- fallback simple: tentar extrair títulos h2/h3 e anchors --
-    items = []
-    for a in soup.select('a[href]')[:max_items]:
-        t = text_of(a)
-        h = a.get('href') or ''
-        if not t or not h:
+
+    # localizar topContainer (várias alternativas)
+    topContainer = soup.select_one('.views-element-container.block-views-blocktop-stories-news-grid-global') \
+                   or soup.select_one('.block--mhn-top-stories-news-grid-global') \
+                   or soup.select_one('.block-views-blocktop-stories-news-grid-global') \
+                   or None
+
+    if topContainer:
+        topTitleEls = [el for el in topContainer.select('.news-title.fs-5, .news-title, .overlay .news-title') if el]
+    else:
+        topTitleEls = [el for el in soup.select('.news-title.fs-5, .news-title') if el]
+
+    # find wrapper for top titles
+    def find_top_wrapper(el):
+        if el is None:
+            return None
+        cur = el
+        for _ in range(8):
+            if cur is None:
+                break
+            if cur.name == 'a' and cur.get('href'):
+                return cur
+            classes = cur.get('class') or []
+            if 'col-lg-6' in classes or 'square-one' in classes or 'views-row' in classes or cur.name == 'article':
+                return cur
+            if topContainer is not None and cur.parent == topContainer:
+                return cur
+            cur = cur.parent
+        art = el.find_parent(['article', 'div'], class_='views-row')
+        if art:
+            return art
+        closest_a = el.find_parent('a')
+        return closest_a or el
+
+    topWrappers = []
+    seen_top = set()
+    for t in topTitleEls:
+        w = find_top_wrapper(t)
+        if not w:
             continue
-        items.append({'title': t.strip(), 'link': abs_url(h, base_url), 'date': '', 'description': '', 'source': 'fallback'})
-    return items[:max_items]
+        wid = id(w)
+        if wid in seen_top:
+            continue
+        seen_top.add(wid)
+        topWrappers.append((w, t))
+        if len(topWrappers) >= 5:
+            break
+
+    sel_candidates = '#main-content .view-content > .view-content > div, #main-content .view-content > div, .view-content > div, .view-content .views-row, article, .views-row'
+    candidates = [c for c in soup.select(sel_candidates)]
+
+    topNodesSet = set([id(w) for (w, _) in topWrappers])
+
+    regularNodes = []
+    for n in candidates:
+        in_top = False
+        for tw in topWrappers:
+            try:
+                if tw[0] and tw[0].find_all and (n in tw[0].find_all(True) or n == tw[0]):
+                    in_top = True
+                    break
+            except Exception:
+                continue
+        if in_top:
+            continue
+        if id(n) in topNodesSet:
+            continue
+        regularNodes.append(n)
+
+    def find_link(wrap):
+        if wrap is None:
+            return ''
+        if wrap.name == 'a' and wrap.get('href'):
+            return abs_url(wrap.get('href'), base_url)
+        sel_order = ['a.content-list-title[href]', 'a[href].overlay', 'a[href]', '.content-list-title a[href]']
+        for s in sel_order:
+            try:
+                a = wrap.select_one(s)
+            except Exception:
+                a = None
+            if a and a.get('href'):
+                return abs_url(a.get('href'), base_url)
+        any_a = wrap.select_one('a[href]')
+        if any_a and any_a.get('href'):
+            return abs_url(any_a.get('href'), base_url)
+        return ''
+
+    def find_description(wrap):
+        if wrap is None:
+            return ''
+        sels = [
+            'div.field.field--name-field-subheader.field--item',
+            'div.body_list',
+            '.content-list-meta + p',
+            '.news-content p',
+            '.dek',
+            '.field--name-field-subheader',
+            '.content-list-meta .field--item'
+        ]
+        for s in sels:
+            try:
+                el = wrap.select_one(s)
+            except Exception:
+                el = None
+            if el:
+                t = text_of(el)
+                if t:
+                    return t
+        p = wrap.select_one('p')
+        if p:
+            return text_of(p)
+        return ''
+
+    def find_date(wrap):
+        if wrap is None:
+            return ''
+        ancArticle = wrap.find_parent('article') or wrap
+        try:
+            group = ancArticle.select_one('div.group-author-line, div.field.field--name-field-author')
+        except Exception:
+            group = None
+        if group:
+            spans = [text_of(s) for s in group.select('span') if text_of(s)]
+            if len(spans) >= 6:
+                day = spans[4].lstrip('|').strip()
+                time = spans[5].lstrip('|').strip()
+                if day and time and day != time:
+                    return f"{day} | {time}"
+                if day:
+                    return day
+        dayEl = wrap.select_one('span.day_list, .day_list, span.post-date, .post-date, time')
+        timeEl = wrap.select_one('span.time_list, .time_list, time')
+        day = text_of(dayEl) if dayEl is not None else ''
+        time = text_of(timeEl) if timeEl is not None else ''
+        if day:
+            day = day.lstrip('|').strip()
+        if time:
+            time = time.lstrip('|').strip()
+        if day and time and day != time:
+            return f"{day} | {time}"
+        if day:
+            return day
+        if time:
+            return time
+        anyTime = wrap.select_one('time, .timestamp, .date')
+        if anyTime:
+            return text_of(anyTime).lstrip('|').strip()
+        return ''
+
+    def find_title(wrapper, knownTitleEl=None):
+        if knownTitleEl is not None and text_of(knownTitleEl):
+            return text_of(knownTitleEl)
+        sels = ['.news-title.fs-5', '.news-title', '.content-list-title a', 'a.title', '.content-list-title', 'h2', 'h3', 'h4']
+        for s in sels:
+            try:
+                el = wrapper.select_one(s)
+            except Exception:
+                el = None
+            if el and text_of(el):
+                return text_of(el)
+        a = wrapper.select_one('a[href]')
+        if a and text_of(a):
+            return text_of(a)
+        return ''
+
+    items = []
+    seen = set()
+
+    def push_if_new(obj):
+        key = (obj.get('link') or '').rstrip('/') or (obj.get('title') or '')[:200]
+        if not key:
+            return False
+        if key in seen:
+            return False
+        seen.add(key)
+        items.append(obj)
+        return True
+
+    # top wrappers
+    for (w, titleEl) in topWrappers:
+        if len(items) >= max_items:
+            break
+        title = find_title(w, titleEl) or ''
+        link = find_link(w) or ''
+        date = find_date(w) or ''
+        description = find_description(w) or ''
+        push_if_new({'title': title, 'link': link, 'date': date, 'description': description, 'source': 'top'})
+
+    # regular nodes
+    for n in regularNodes:
+        if len(items) >= max_items:
+            break
+        title = find_title(n) or ''
+        link = find_link(n) or ''
+        date = find_date(n) or ''
+        description = find_description(n) or ''
+        push_if_new({'title': title, 'link': link, 'date': date, 'description': description, 'source': 'list'})
+
+    # fallback anchors
+    if len(items) < max_items:
+        for a in soup.select('a[href]'):
+            if len(items) >= max_items:
+                break
+            href = abs_url(a.get('href'), base_url)
+            if not href or href in seen:
+                continue
+            title = text_of(a) or ''
+            if not title:
+                continue
+            push_if_new({'title': title, 'link': href, 'date': '', 'description': '', 'source': 'anchor-fallback'})
+
+    return items
+
+
+# ---------------------------
+# SCRAPERS específicos MEDTECHDIVE
+# ---------------------------
+def scrape_medtech_home(base_url="https://www.medtechdive.com/", timeout=10):
+    """
+    Extrai o 'hero' article (um item) da homepage.
+    """
+    try:
+        r = requests.get(base_url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=timeout)
+        r.raise_for_status()
+        html = r.text
+    except Exception as e:
+        print("scrape_medtech_home: fetch failed:", e)
+        return []
+
+    soup = BeautifulSoup(html, "html.parser")
+
+    titleEl = soup.select_one("#hero-item-title > a") or soup.select_one(".hero .hero-title a") or soup.select_one("a.analytics.t-dash-hero-title")
+    descEl = soup.select_one("#skip-link-target > section > div > div > div > div:nth-child(1) > section > p") \
+             or soup.select_one(".hero-article__teaser") \
+             or soup.select_one(".hero .dek, .hero p")
+
+    def clean_text(node):
+        if not node:
+            return ""
+        tmp = BeautifulSoup(str(node), "html.parser")
+        for a in tmp.select("a"):
+            a.extract()
+        return tmp.get_text(" ", strip=True)
+
+    title = titleEl.get_text(" ", strip=True) if titleEl else ""
+    link = urljoin(base_url, titleEl.get("href")) if titleEl and titleEl.get("href") else ""
+    description = clean_text(descEl) if descEl else ""
+    date = ""  # hero summary frequentemente não tem data
+
+    return [{"title": title, "link": link, "date": date, "description": description, "source": "hero"}]
+
+
+def scrape_medtech_topic(base_url="https://www.medtechdive.com/topic/medical-devices/", max_items=7, timeout=10):
+    """
+    Extrai primeiros max_items do topic medical-devices.
+    """
+    try:
+        r = requests.get(base_url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=timeout)
+        r.raise_for_status()
+        html = r.text
+    except Exception as e:
+        print("scrape_medtech_topic: fetch failed:", e)
+        return []
+
+    soup = BeautifulSoup(html, "html.parser")
+
+    list_root = soup.select_one('#main-content > ul') or soup.select_one('#main-content ul') or soup.select_one('#main-content')
+    if not list_root:
+        # fallback amplo se não encontrarmos o nó esperado
+        candidates = soup.select('ul li, article, .feed__item, .result')
+    else:
+        if list_root.name == 'ul':
+            # obter os <li> filhos directos (sem usar selectors que comecem por '>')
+            candidates = list_root.find_all('li', recursive=False)
+            # se não houver filhos directos, aceitar qualquer li dentro do nó
+            if not candidates:
+                candidates = list_root.find_all('li')
+        else:
+            # procurar itens dentro do nó (mais genérico)
+            candidates = list_root.select('li') or list_root.select('article') or list_root.select('.feed__item')
+
+
+    items = []
+    seen = set()
+    for node in candidates:
+        if len(items) >= max_items:
+            break
+        titleEl = node.select_one('div.medium-8.columns > h3 > a') or node.select_one('h3 a') or node.select_one('a')
+        descEl = node.select_one('div.medium-8.columns > p') or node.select_one('p.feed__description') or node.select_one('p')
+
+        if not titleEl:
+            continue
+        title = titleEl.get_text(" ", strip=True)
+        href = titleEl.get("href") or ""
+        link = urljoin(base_url, href)
+        desc_html = ""
+        try:
+            tmp = BeautifulSoup(str(descEl), "html.parser") if descEl else None
+            if tmp:
+                for a in tmp.select("a"):
+                    a.extract()
+                desc_html = tmp.get_text(" ", strip=True)
+        except Exception:
+            desc_html = descEl.get_text(" ", strip=True) if descEl else ""
+
+        key = (link or title).rstrip('/')
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        items.append({"title": title, "link": link, "date": "", "description": desc_html, "source": "topic-list"})
+
+    return items
 
 
 # ---------------------------
 # SCRAPER específico MODERNHEALTHCARE (rendered HTML)
 # ---------------------------
 def scrape_modern_rendered(rendered_path, base_url="https://www.modernhealthcare.com/latest-news/", max_items=10):
-    from bs4 import BeautifulSoup
-    import re
-
+    """
+    Parse a rendered modernhealthcare HTML and return a list of items.
+    """
     def txt(el):
         try:
             return (el.get_text(" ", strip=True) if el else "").strip()
@@ -299,10 +598,10 @@ def scrape_modern_rendered(rendered_path, base_url="https://www.modernhealthcare
             if cur.name == 'article':
                 return cur
             classes = cur.get('class') or []
-            if any(c in ('u-border-b','views-row','col-lg-6','square-one','view-content') for c in classes):
+            if any(c in ('u-border-b', 'views-row', 'col-lg-6', 'square-one', 'view-content') for c in classes):
                 return cur
             cur = cur.parent
-        return el.find_parent(['article']) or el
+        return el.closest('article, .views-row, .u-border-b, .col-lg-6, .square-one') or el
 
     def abs_href(h):
         try:
@@ -377,18 +676,15 @@ def scrape_modern_rendered(rendered_path, base_url="https://www.modernhealthcare
     if len(items) < max_items:
         for a in main.select('a[href]'):
             if len(items) >= max_items: break
-            try:
-                h = a.get('href') or ''
-                abs_h = abs_href(h)
-                t = txt(a)
-                if not t or len(t) < 6: continue
-                if re.search(r'(^#|^javascript:|mailto:)', abs_h, re.I): continue
-                key = abs_h.rstrip('/')
-                if key in seen: continue
-                seen.add(key)
-                items.append({'title': t, 'link': abs_h, 'date': '', 'description': '', 'source': 'anchor-fallback'})
-            except Exception:
-                continue
+            h = a.get('href') or ''
+            abs_h = abs_href(h)
+            t = txt(a)
+            if not t or len(t) < 6: continue
+            if badHrefRe.search(abs_h): continue
+            key = abs_h.rstrip('/')
+            if key in seen: continue
+            seen.add(key)
+            items.append({'title': t, 'link': abs_h, 'date': '', 'description': '', 'source': 'anchor-fallback'})
 
     out = []
     for it in items:
@@ -401,8 +697,6 @@ def scrape_modern_rendered(rendered_path, base_url="https://www.modernhealthcare
         })
     print(f"scrape_modern_rendered: found {len(out)} items from {rendered_path}")
     return out
-
-
 # ---------------------------
 # SCRAPER específico MEDIAPOST (novo)
 # ---------------------------
@@ -612,31 +906,30 @@ def scrape_mediapost_listing(base_url="https://www.mediapost.com/news/", max_ite
     print(f"scrape_mediapost_listing: found {len(items)} items from {base_url}")
     return items[:max_items]
 
-
 # ---------------------------
-# FIM DOS SCRAPERS
+# FIM DO SCRAPERS
 # ---------------------------
 
 def main():
     site_item_map = load_sites_item_container()
     all_rows = []
 
-    # --- special: include modernhealthcare rendered HTML if exists ---
-    mh_rendered_path = "scripts/rendered/modernhealthcare.html"
+    # --- special: include modernhealthcare rendered HTML (se existir) no topo ---
+    mh_rendered_path = os.path.join("scripts", "rendered", "modernhealthcare.html")
     if os.path.exists(mh_rendered_path):
         try:
             mh_items = scrape_modern_rendered(mh_rendered_path, base_url="https://www.modernhealthcare.com/latest-news/", max_items=10)
             for it in mh_items:
                 all_rows.append({
                     "site": "modernhealthcare",
-                    "title": it.get("title","") or "",
-                    "link (source)": it.get("link","") or "",
-                    "pubDate": it.get("date","") or "",
-                    "description (short)": strip_html_short(it.get("description","") or "", max_len=300),
-                    "item_container": site_item_map.get("modernhealthcare",""),
+                    "title": it.get("title", "") or "",
+                    "link (source)": it.get("link", "") or "",
+                    "pubDate": it.get("date", "") or "",
+                    "description (short)": strip_html_short(it.get("description", "") or "", max_len=300),
+                    "item_container": site_item_map.get("modernhealthcare", ""),
                     "topic": "N/A"
                 })
-            print(f"Added {len(mh_items)} modernhealthcare items from rendered HTML")
+            print(f"Added {len(mh_items)} modernhealthcare items from rendered HTML (preload)")
         except Exception as e:
             print("Error scraping modernhealthcare rendered html:", e)
 
@@ -672,7 +965,66 @@ def main():
                     continue
                 except Exception as e:
                     print("Error scraping mediapost listing:", e)
-                    # fall through to XML parsing as fallback
+                    # fall through to XML parsing as fallback    
+
+            # special: modernhealthcare - prefer rendered HTML (if present)
+            if site_name == "modernhealthcare":
+                rendered_path = os.path.join('scripts', 'rendered', 'modernhealthcare.html')
+                try:
+                    if os.path.exists(rendered_path):
+                        mh_items = scrape_modern_rendered(rendered_path, base_url="https://www.modernhealthcare.com/latest-news/", max_items=11)
+                        for it in mh_items:
+                            t = it.get('title', '').strip()
+                            link = it.get('link', '').strip()
+                            if not t or t.lower() in ("no title", "return to homepage", "category"):
+                                continue
+                            all_rows.append({
+                                "site": site_name,
+                                "title": t,
+                                "link (source)": link,
+                                "pubDate": it.get('date', ''),
+                                "description (short)": strip_html_short(it.get('description', ''), max_len=300),
+                                "item_container": ic,
+                                "topic": "N/A"
+                            })
+                        # skip parsing XML feed for this site
+                        print(f"Using rendered HTML for {site_name}: added {len(mh_items)} items")
+                        continue
+                except Exception as e:
+                    print("Error scraping modernhealthcare rendered html (per-file):", e)
+                    # fallthrough to XML parsing fallback below
+
+            # special: medtechdive homepage (hero)
+            if site_name == "medtechdive":
+                med_items = scrape_medtech_home(base_url="https://www.medtechdive.com/", timeout=10)
+                for it in med_items:
+                    all_rows.append({
+                        "site": site_name,
+                        "title": it.get("title", "") or "",
+                        "link (source)": it.get("link", "") or "",
+                        "pubDate": it.get("date", "") or "",
+                        "description (short)": strip_html_short(it.get("description", "") or "", max_len=300),
+                        "item_container": ic,
+                        "topic": "N/A"
+                    })
+                print(f"Added {len(med_items)} medtechdive (home hero) items")
+                continue
+
+            # special: medtechdive topic medical-devices (first 7)
+            if site_name == "medtechdive-devices":
+                med_items = scrape_medtech_topic(base_url="https://www.medtechdive.com/topic/medical-devices/", max_items=7, timeout=10)
+                for it in med_items:
+                    all_rows.append({
+                        "site": site_name,
+                        "title": it.get("title", "") or "",
+                        "link (source)": it.get("link", "") or "",
+                        "pubDate": it.get("date", "") or "",
+                        "description (short)": strip_html_short(it.get("description", "") or "", max_len=300),
+                        "item_container": ic,
+                        "topic": "N/A"
+                    })
+                print(f"Added {len(med_items)} medtechdive-devices items")
+                continue
 
             # special: if mobihealthnews, ignore the XML entries and build rows directly
             if site_name == "mobihealthnews":
@@ -688,6 +1040,7 @@ def main():
                         "topic": "N/A"
                     }
                     all_rows.append(rows)
+                print(f"Added {len(mobi_items)} mobihealthnews items (scraped live)")
                 continue
 
             # otherwise, behavior unchanged
