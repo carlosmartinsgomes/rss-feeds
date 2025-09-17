@@ -793,73 +793,87 @@ def scrape_mediapost_listing(base_url="https://www.mediapost.com/news/", max_ite
             if not title or len(title) < 6:
                 continue
             # wrapper: prefer article, li, div with article classes
-            wrapper = a.find_parent(['article', 'li'])
-            if wrapper is None:
-                # look for nearby div parent
-                wrapper = a.parent
+            # Encontrar o ancestral mais apropriado que contenha a âncora
+            def find_best_wrapper_for_anchor(a):
+                cur = a
+                best = None
+                for _ in range(8):
+                    if cur is None:
+                        break
+                    if cur.name in ('li', 'article'):
+                        best = cur
+                    # se este ancestor já contiver um parágrafo/descrip/time, preferimos escolhê-lo
+                    try:
+                        if cur.select_one('p.short, p.lede, .short, .summary, .dek, .feed__description, .article-teaser, time, .byline'):
+                            return cur
+                    except Exception:
+                        pass
+                    cur = cur.parent
+                return best or a.find_parent(['article', 'li']) or a.parent
+
+            wrapper = find_best_wrapper_for_anchor(a)
 
             # --- DESCRIPTION (várias heurísticas) ---
             description = ''
-            for sel in ['p.short', 'p.lede', '.short', '.summary', '.dek', '.article-teaser', '.feed__description', '.teaser', 'p']:
-                try:
+            try:
+                # procura apenas DENTRO do wrapper — evita "roubar" do próximo artigo
+                for sel in ['p.short', 'p.lede', '.short', '.summary', '.dek', '.article-teaser', '.feed__description', '.teaser', 'p']:
                     el = wrapper.select_one(sel) if wrapper else None
-                except Exception:
-                    el = None
-                if el:
-                    t = txt(el)
-                    if t and not re.search(r'subscribe|advertis|read more', t, re.I):
-                        description = t
-                        break
+                    if el:
+                        t = txt(el)
+                        if t and not re.search(r'subscribe|advertis|read more', t, re.I):
+                            description = t.strip()
+                            break
+            except Exception:
+                description = ''
 
-            # if still empty, try nearby siblings (sometimes description sits next to wrapper)
+            # fallback restrito: se nada dentro do wrapper, procura em um possível elemento irmão ANTERIOR (não o próximo)
             if not description:
                 try:
-                    # next siblings inside same container
-                    sib = None
-                    # prefer nextElementSibling-like search
-                    cur = wrapper
-                    for _ in range(3):
-                        if cur is None:
-                            break
-                        sib = cur.find_next_sibling()
-                        if sib:
-                            p = sib.select_one('p, .short, .lede, .dek, .summary')
-                            if p:
-                                dd = txt(p)
-                                if dd and not re.search(r'subscribe|advertis|read more', dd, re.I):
-                                    description = dd
-                                    break
-                        cur = cur.parent
+                    prev = wrapper.find_previous_sibling() if wrapper else None
+                    if prev:
+                        p = prev.select_one('p.short, p, .summary, .dek')
+                        if p:
+                            dd = txt(p)
+                            if dd and not re.search(r'subscribe|advertis|read more', dd, re.I):
+                                description = dd.strip()
                 except Exception:
                     pass
 
             # --- DATE (várias heurísticas) ---
             date = ''
-            for ds in ['time', '.byline', '.date', '.published', '.timestamp']:
-                try:
+            try:
+                # procura dentro do wrapper por elementos óbvios de data/byline/time
+                for ds in ['time', '.byline', '.date', '.published', '.timestamp', '.article-byline']:
                     el = wrapper.select_one(ds) if wrapper else None
-                except Exception:
-                    el = None
-                if el:
-                    t = txt(el)
-                    if t:
-                        # limpa "By Name - " se existir
-                        date = re.sub(r'^\s*By\s+[^-]+-\s*', '', t).strip()
-                        # remove "By Name" if no dash
-                        date = re.sub(r'^\s*By\s+[^-]+\s*$', '', date).strip()
-                        if date:
-                            break
+                    if el:
+                        t = txt(el)
+                        if t:
+                            # se estilo "By Name - 8 hours ago", extrair a parte depois do traço
+                            if ' - ' in t:
+                                date = t.split(' - ')[-1].strip()
+                            else:
+                                # remover "By Name" inicial se existir
+                                dclean = re.sub(r'^\s*By\s+[^-]+-\s*', '', t).strip()
+                                dclean = re.sub(r'^\s*By\s+[^,]+\s*', '', dclean).strip()
+                                date = dclean
+                            if date:
+                                break
+            except Exception:
+                date = ''
 
-            # fallback regex in wrapper text for relative times or full dates
+            # fallback regex no texto do wrapper para "8 hours ago" ou datas completas
             if not date:
-                rawtxt = txt(wrapper or a)
-                m = re.search(r'\b\d+\s+(?:hours?|days?|minutes?)\s+ago\b', rawtxt, re.I) \
-                    or re.search(r'\b(?:Jan(?:uary)?|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s+\d{4}\b', rawtxt)
-                if m:
-                    date = m.group(0)
+                try:
+                    rawtxt = txt(wrapper or a)
+                    m = re.search(r'\b\d+\s+(?:hours?|days?|minutes?)\s+ago\b', rawtxt, re.I) \
+                        or re.search(r'\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},\s+\d{4}\b', rawtxt)
+                    if m:
+                        date = m.group(0)
+                except Exception:
+                    pass
 
-            # --- última opção: fetch da página do artigo para obter meta description / time ---
-            # (só faz requests se faltar descrição ou data)
+            # --- última opção (opcional): buscar meta/time na página do artigo apenas se description ou date ainda vazios ---
             if (not description or not date) and href and len(items) < max_items:
                 try:
                     resp = requests.get(href, headers={'User-Agent': 'Mozilla/5.0'}, timeout=6)
@@ -878,18 +892,20 @@ def scrape_mediapost_listing(base_url="https://www.mediapost.com/news/", max_ite
                             else:
                                 by = sa.select_one('.byline, .article-byline, .published')
                                 if by:
-                                    dclean = re.sub(r'^\s*By\s+[^-]+-\s*', '', txt(by)).strip()
-                                    if dclean:
-                                        date = dclean
+                                    dclean = txt(by).strip()
+                                    if ' - ' in dclean:
+                                        date = dclean.split(' - ')[-1].strip()
+                                    else:
+                                        date = re.sub(r'^\s*By\s+[^-]+\s*', '', dclean).strip()
                 except Exception:
-                    # não falhar a execução por causa do fetch
                     pass
 
-            # última limpeza: truncar e normalizar
+            # última limpeza
             if description:
                 description = description.replace('\n', ' ').strip()
             if date:
                 date = date.replace('\n', ' ').strip()
+
 
 
             seen.add(canon)
