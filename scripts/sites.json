@@ -261,7 +261,7 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/mediapost.html",
-      "filters": { "keywords": ["a","supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id","pinterest"] }
+      "filters": { "keywords": ["a","supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id","pinterest","monday.com","hubspot"] }
     },
     {
       "name": "exchangewire",
@@ -565,17 +565,7 @@
       "render_file": "scripts/rendered/journals_lww_current.html",
       "filters": { "keywords": ["inmode","morpheus8","facetite","bodytite","accutite","rfal","clinical study","trial","abstract","presentation","podium"] }
     },
-    {
-      "name": "plasticsurgerymeeting",
-      "url": "https://www.plasticsurgerythemeeting.com/",
-      "item_container": "article, .abstract, .programme-item, .paper",
-      "title": "a, h2 a",
-      "link": "a@href",
-      "date": "time, .date",
-      "description": "p, .abstract",
-      "render_file": "scripts/rendered/plasticsurgerymeeting.html",
-      "filters": { "keywords": ["inmode","morpheus8","facetite","bodytite","accutite","rfal","clinical study","trial","abstract","presentation","podium"] }
-    },
+    
     {
       "name": "linkedin-group-5146549",
       "url": "https://www.linkedin.com/groups/5146549/",
