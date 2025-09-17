@@ -32,13 +32,11 @@ SITES_JSON_PATHS = ["scripts/sites.json", "rss-feeds/scripts/sites.json", "sites
 _DEFAULT_TZINFOS = {
     "ET": date_tz.gettz("America/New_York"),
     "CET": date_tz.gettz("Europe/Paris"),
-    # acrescenta casos que vejas frequentemente
     "GMT": date_tz.gettz("GMT"),
     "UTC": date_tz.gettz("UTC"),
-    # podes adicionar mais conforme precisares
 }
 
-# Regex para detectar datas comuns: "September 11, 2025 08:17 PM", "2025-09-11", "11 Sep 2025", etc.
+# Regex para detectar datas comuns
 _DATE_RE = re.compile(
     r'\b(?:'
     r'(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|'
@@ -92,7 +90,6 @@ def find_date_in_text(text):
     if m:
         candidate = m.group(0)
     else:
-        # tentativa adicional: usar dateutil fuzzy com todo o texto (mais custoso, mas último recurso)
         try:
             dt = dateparser.parse(text, fuzzy=True, tzinfos=_DEFAULT_TZINFOS)
             if dt:
@@ -101,7 +98,6 @@ def find_date_in_text(text):
             pass
         return None
 
-    # tenta parse com dateutil (fuzzy) para normalizar
     try:
         dt = dateparser.parse(candidate, fuzzy=True, tzinfos=_DEFAULT_TZINFOS)
         if dt:
@@ -143,8 +139,7 @@ def find_date_from_xml_item(xml_soup, entry_title, entry_link):
 
 def parse_feed_file_with_fallback(ff):
     """
-    Mantém comportamento antigo para todos os sites *exceto* mobihealthnews.
-    Para mobihealthnews, main() substitui e gera linhas diretamente do scraper.
+    Mantém comportamento antigo para todos os sites *exceto* os que têm scrapers especiais.
     """
     rows = []
     base = os.path.basename(ff)
@@ -167,8 +162,8 @@ def parse_feed_file_with_fallback(ff):
     for e in entries:
         title = (e.get("title", "") or "").strip()
         link = (e.get("link", "") or "")
-        # --- filtro defensivo específico para modernhealthcare (evitar ruído) ---
-        if title and title.lower().strip() in ("no title", "return to homepage"): 
+        # defensive modernhealthcare filtering in case feed contains noisy items
+        if title and title.lower().strip() in ("no title", "return to homepage"):
             continue
         if not title and (link.endswith("modernhealthcare.com") or link.rstrip('/') == "https://www.modernhealthcare.com"):
             continue
@@ -176,7 +171,6 @@ def parse_feed_file_with_fallback(ff):
         desc = (e.get("summary", "") or e.get("description", "") or "")
         desc_short = strip_html_short(desc, max_len=300)
 
-        # topic: tags/categories
         topic = "N/A"
         if e.get("tags"):
             try:
@@ -190,13 +184,11 @@ def parse_feed_file_with_fallback(ff):
             except Exception:
                 topic = "N/A"
 
-        # fallback: check raw xml item
         if not pub and xml_soup:
             fallback = find_date_from_xml_item(xml_soup, title, link)
             if fallback:
                 pub = fallback
 
-        # second fallback: search in combined title/desc text
         if not pub:
             combined = " ".join([title or "", desc or ""])
             maybe = find_date_in_text(combined)
@@ -235,7 +227,6 @@ def text_of(el):
 def scrape_mobihealth_listing(base_url="https://www.mobihealthnews.com/", max_items=11, timeout=10):
     """
     Faz fetch e devolve lista ordenada de items (title, link, date, description) até max_items.
-    Replicamos a lógica do snippet do console para garantir o mesmo resultado.
     """
     try:
         r = requests.get(base_url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=timeout)
@@ -274,7 +265,6 @@ def scrape_mobihealth_listing(base_url="https://www.mobihealthnews.com/", max_it
             if topContainer is not None and cur.parent == topContainer:
                 return cur
             cur = cur.parent
-        # fallback
         art = el.find_parent(['article', 'div'], class_='views-row')
         if art:
             return art
@@ -295,7 +285,6 @@ def scrape_mobihealth_listing(base_url="https://www.mobihealthnews.com/", max_it
         if len(topWrappers) >= 5:
             break
 
-    # candidates (mais abrangente)
     sel_candidates = '#main-content .view-content > .view-content > div, #main-content .view-content > div, .view-content > div, .view-content .views-row, article, .views-row'
     candidates = [c for c in soup.select(sel_candidates)]
 
@@ -303,7 +292,6 @@ def scrape_mobihealth_listing(base_url="https://www.mobihealthnews.com/", max_it
 
     regularNodes = []
     for n in candidates:
-        # descartar nós dentro dos top wrappers
         in_top = False
         for tw in topWrappers:
             try:
@@ -462,23 +450,107 @@ def scrape_mobihealth_listing(base_url="https://www.mobihealthnews.com/", max_it
 
     return items
 
+
 # ---------------------------
-# SCRAPER específico MODERNHEALTHCARE (rendered HTML)
+# SCRAPERS específicos MEDTECHDIVE
 # ---------------------------
-from urllib.parse import urljoin
+def scrape_medtech_home(base_url="https://www.medtechdive.com/", timeout=10):
+    """
+    Extrai o 'hero' article (um item) da homepage.
+    """
+    try:
+        r = requests.get(base_url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=timeout)
+        r.raise_for_status()
+        html = r.text
+    except Exception as e:
+        print("scrape_medtech_home: fetch failed:", e)
+        return []
+
+    soup = BeautifulSoup(html, "html.parser")
+
+    titleEl = soup.select_one("#hero-item-title > a") or soup.select_one(".hero .hero-title a") or soup.select_one("a.analytics.t-dash-hero-title")
+    descEl = soup.select_one("#skip-link-target > section > div > div > div > div:nth-child(1) > section > p") \
+             or soup.select_one(".hero-article__teaser") \
+             or soup.select_one(".hero .dek, .hero p")
+
+    def clean_text(node):
+        if not node:
+            return ""
+        tmp = BeautifulSoup(str(node), "html.parser")
+        for a in tmp.select("a"):
+            a.extract()
+        return tmp.get_text(" ", strip=True)
+
+    title = titleEl.get_text(" ", strip=True) if titleEl else ""
+    link = urljoin(base_url, titleEl.get("href")) if titleEl and titleEl.get("href") else ""
+    description = clean_text(descEl) if descEl else ""
+    date = ""  # hero summary frequentemente não tem data
+
+    return [{"title": title, "link": link, "date": date, "description": description, "source": "hero"}]
+
+
+def scrape_medtech_topic(base_url="https://www.medtechdive.com/topic/medical-devices/", max_items=7, timeout=10):
+    """
+    Extrai primeiros max_items do topic medical-devices.
+    """
+    try:
+        r = requests.get(base_url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=timeout)
+        r.raise_for_status()
+        html = r.text
+    except Exception as e:
+        print("scrape_medtech_topic: fetch failed:", e)
+        return []
+
+    soup = BeautifulSoup(html, "html.parser")
+
+    list_root = soup.select_one('#main-content > ul') or soup.select_one('#main-content ul') or soup.select_one('#main-content')
+    if not list_root:
+        candidates = soup.select('ul li, article, .feed__item, .result')
+    else:
+        if list_root.name == 'ul':
+            candidates = list_root.select('> li') if list_root.select('> li') else list_root.find_all('li')
+        else:
+            candidates = list_root.select('li') or list_root.select('article') or list_root.select('.feed__item')
+
+    items = []
+    seen = set()
+    for node in candidates:
+        if len(items) >= max_items:
+            break
+        titleEl = node.select_one('div.medium-8.columns > h3 > a') or node.select_one('h3 a') or node.select_one('a')
+        descEl = node.select_one('div.medium-8.columns > p') or node.select_one('p.feed__description') or node.select_one('p')
+
+        if not titleEl:
+            continue
+        title = titleEl.get_text(" ", strip=True)
+        href = titleEl.get("href") or ""
+        link = urljoin(base_url, href)
+        desc_html = ""
+        try:
+            tmp = BeautifulSoup(str(descEl), "html.parser") if descEl else None
+            if tmp:
+                for a in tmp.select("a"):
+                    a.extract()
+                desc_html = tmp.get_text(" ", strip=True)
+        except Exception:
+            desc_html = descEl.get_text(" ", strip=True) if descEl else ""
+
+        key = (link or title).rstrip('/')
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        items.append({"title": title, "link": link, "date": "", "description": desc_html, "source": "topic-list"})
+
+    return items
+
 
 # ---------------------------
 # SCRAPER específico MODERNHEALTHCARE (rendered HTML)
 # ---------------------------
 def scrape_modern_rendered(rendered_path, base_url="https://www.modernhealthcare.com/latest-news/", max_items=10):
     """
-    Parse a rendered modernhealthcare HTML (produzido por playwright) and return
-    a list of items: dicts {title, link, date, description, source}.
-    Não mexe em variáveis externas — devolve a lista para o chamador adicionar a all_rows.
+    Parse a rendered modernhealthcare HTML and return a list of items.
     """
-    from bs4 import BeautifulSoup
-    import re
-
     def txt(el):
         try:
             return (el.get_text(" ", strip=True) if el else "").strip()
@@ -499,7 +571,6 @@ def scrape_modern_rendered(rendered_path, base_url="https://www.modernhealthcare
     soup = BeautifulSoup(raw, 'html.parser')
     main = soup.select_one('#main-content') or soup
 
-    # selectors inspirados no snippet do console
     titleEls = list(main.select('span.u-text-text-dark, a[aria-label^="Title"] span, .news-title.fs-5, .news-title'))
     items = []
     seen = set()
@@ -520,15 +591,13 @@ def scrape_modern_rendered(rendered_path, base_url="https://www.modernhealthcare
             if cur.name == 'article':
                 return cur
             classes = cur.get('class') or []
-            if any(c in ('u-border-b','views-row','col-lg-6','square-one','view-content') for c in classes):
+            if any(c in ('u-border-b', 'views-row', 'col-lg-6', 'square-one', 'view-content') for c in classes):
                 return cur
             cur = cur.parent
-        # fallback
         return el.closest('article, .views-row, .u-border-b, .col-lg-6, .square-one') or el
 
     def abs_href(h):
         try:
-            from urllib.parse import urljoin
             return urljoin(base_url, h or '')
         except Exception:
             return (h or '').strip()
@@ -540,7 +609,6 @@ def scrape_modern_rendered(rendered_path, base_url="https://www.modernhealthcare
             if a and a.has_attr('href'):
                 h = a.get('href') or ''
                 if h and not badHrefRe.search(h): return abs_href(h)
-        # prefer anchors inside wrapper
         order = ['a.content-list-title[href]', 'a[aria-label^="Title"]', 'a[href].overlay', '.content-list-title a[href]', 'a[href]']
         for sel in order:
             a = wrapper.select_one(sel)
@@ -560,7 +628,6 @@ def scrape_modern_rendered(rendered_path, base_url="https://www.modernhealthcare
             t = txt(cand).lstrip('|').strip()
             if t and 'subscribe' not in t.lower():
                 return t
-        # fallback: regex in wrapper text
         m = re.search(r'\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},\s+\d{4}', txt(wrapper))
         if m:
             return m.group(0)
@@ -579,29 +646,26 @@ def scrape_modern_rendered(rendered_path, base_url="https://www.modernhealthcare
     for el in titleEls:
         try:
             title_text = txt(el)
-            if is_bad_title(title_text): 
+            if is_bad_title(title_text):
                 continue
             wrapper = find_wrapper(el)
             if not wrapper:
                 continue
             link = find_link(wrapper, el)
-            if badHrefRe.search(link): 
+            if badHrefRe.search(link):
                 continue
             key = (link or title_text).rstrip('/')
-            if not key or key in seen: 
+            if not key or key in seen:
                 continue
             seen.add(key)
             date = find_date(wrapper) or ''
             desc = find_description(wrapper) or ''
-            # small heuristic: prefer links that contain '/latest-news/' or else OK but keep note
-            if '/latest-news/' in (link or '') or True:
-                items.append({'title': title_text, 'link': link, 'date': date, 'description': desc, 'source': 'rendered'})
+            items.append({'title': title_text, 'link': link, 'date': date, 'description': desc, 'source': 'rendered'})
             if len(items) >= max_items:
                 break
         except Exception:
             continue
 
-    # If not enough, a fallback: anchors in main content
     if len(items) < max_items:
         for a in main.select('a[href]'):
             if len(items) >= max_items: break
@@ -614,7 +678,7 @@ def scrape_modern_rendered(rendered_path, base_url="https://www.modernhealthcare
             if key in seen: continue
             seen.add(key)
             items.append({'title': t, 'link': abs_h, 'date': '', 'description': '', 'source': 'anchor-fallback'})
-    # normalize simple fields and return
+
     out = []
     for it in items:
         out.append({
@@ -628,34 +692,33 @@ def scrape_modern_rendered(rendered_path, base_url="https://www.modernhealthcare
     return out
 
 
-
 # ---------------------------
-# FIM DO SCRAPER
+# FIM DO SCRAPERS
 # ---------------------------
 
 def main():
-            # --- special: include modernhealthcare rendered HTML if exists ---
-    mh_rendered_path = "scripts/rendered/modernhealthcare.html"
+    site_item_map = load_sites_item_container()
+    all_rows = []
+
+    # --- special: include modernhealthcare rendered HTML (se existir) no topo ---
+    mh_rendered_path = os.path.join("scripts", "rendered", "modernhealthcare.html")
     if os.path.exists(mh_rendered_path):
         try:
-            mh_items = scrape_modernhealth_rendered(mh_rendered_path, base_url="https://www.modernhealthcare.com/latest-news/", max_items=10)
+            mh_items = scrape_modern_rendered(mh_rendered_path, base_url="https://www.modernhealthcare.com/latest-news/", max_items=10)
             for it in mh_items:
                 all_rows.append({
                     "site": "modernhealthcare",
-                    "title": it.get("title","") or "",
-                    "link (source)": it.get("link","") or "",
-                    "pubDate": it.get("date","") or "",
-                    "description (short)": strip_html_short(it.get("description","") or "", max_len=300),
-                    "item_container": site_item_map.get("modernhealthcare",""),
+                    "title": it.get("title", "") or "",
+                    "link (source)": it.get("link", "") or "",
+                    "pubDate": it.get("date", "") or "",
+                    "description (short)": strip_html_short(it.get("description", "") or "", max_len=300),
+                    "item_container": site_item_map.get("modernhealthcare", ""),
                     "topic": "N/A"
                 })
-            print(f"Added {len(mh_items)} modernhealthcare items from rendered HTML")
+            print(f"Added {len(mh_items)} modernhealthcare items from rendered HTML (preload)")
         except Exception as e:
             print("Error scraping modernhealthcare rendered html:", e)
 
-
-    site_item_map = load_sites_item_container()
-    all_rows = []
     feed_files = sorted(glob.glob(os.path.join(FEEDS_DIR, "*.xml")))
     if not feed_files:
         print("No feed files found in", FEEDS_DIR)
@@ -666,38 +729,68 @@ def main():
             site_name = os.path.splitext(base)[0]
             ic = site_item_map.get(site_name, "")
 
-            # dentro do loop for ff in feed_files: ... após base/site_name/ic definidos
+            # special: modernhealthcare - prefer rendered HTML (if present)
             if site_name == "modernhealthcare":
                 rendered_path = os.path.join('scripts', 'rendered', 'modernhealthcare.html')
                 try:
                     if os.path.exists(rendered_path):
                         mh_items = scrape_modern_rendered(rendered_path, base_url="https://www.modernhealthcare.com/latest-news/", max_items=11)
                         for it in mh_items:
-                            # filtro defensivo extra:
-                            t = it.get('title','').strip()
-                            link = it.get('link','').strip()
+                            t = it.get('title', '').strip()
+                            link = it.get('link', '').strip()
                             if not t or t.lower() in ("no title", "return to homepage", "category"):
                                 continue
                             all_rows.append({
                                 "site": site_name,
                                 "title": t,
                                 "link (source)": link,
-                                "pubDate": it.get('date',''),
-                                "description (short)": strip_html_short(it.get('description',''), max_len=300),
+                                "pubDate": it.get('date', ''),
+                                "description (short)": strip_html_short(it.get('description', ''), max_len=300),
                                 "item_container": ic,
                                 "topic": "N/A"
                             })
-                        # skip parsing XML feed for this site (we already added rows)
+                        # skip parsing XML feed for this site
+                        print(f"Using rendered HTML for {site_name}: added {len(mh_items)} items")
                         continue
                 except Exception as e:
-                    print("Error scraping modernhealthcare rendered html:", e)
+                    print("Error scraping modernhealthcare rendered html (per-file):", e)
                     # fallthrough to XML parsing fallback below
 
+            # special: medtechdive homepage (hero)
+            if site_name == "medtechdive":
+                med_items = scrape_medtech_home(base_url="https://www.medtechdive.com/", timeout=10)
+                for it in med_items:
+                    all_rows.append({
+                        "site": site_name,
+                        "title": it.get("title", "") or "",
+                        "link (source)": it.get("link", "") or "",
+                        "pubDate": it.get("date", "") or "",
+                        "description (short)": strip_html_short(it.get("description", "") or "", max_len=300),
+                        "item_container": ic,
+                        "topic": "N/A"
+                    })
+                print(f"Added {len(med_items)} medtechdive (home hero) items")
+                continue
+
+            # special: medtechdive topic medical-devices (first 7)
+            if site_name == "medtechdive-devices":
+                med_items = scrape_medtech_topic(base_url="https://www.medtechdive.com/topic/medical-devices/", max_items=7, timeout=10)
+                for it in med_items:
+                    all_rows.append({
+                        "site": site_name,
+                        "title": it.get("title", "") or "",
+                        "link (source)": it.get("link", "") or "",
+                        "pubDate": it.get("date", "") or "",
+                        "description (short)": strip_html_short(it.get("description", "") or "", max_len=300),
+                        "item_container": ic,
+                        "topic": "N/A"
+                    })
+                print(f"Added {len(med_items)} medtechdive-devices items")
+                continue
 
             # special: if mobihealthnews, ignore the XML entries and build rows directly
             if site_name == "mobihealthnews":
                 mobi_items = scrape_mobihealth_listing(base_url="https://www.mobihealthnews.com/", max_items=11, timeout=10)
-                # create rows exactly from the scraped listing (title, link, date, description)
                 for it in mobi_items:
                     rows = {
                         "site": site_name,
@@ -709,7 +802,7 @@ def main():
                         "topic": "N/A"
                     }
                     all_rows.append(rows)
-                # continue to next feed file (we don't also parse the XML for mobihealth)
+                print(f"Added {len(mobi_items)} mobihealthnews items (scraped live)")
                 continue
 
             # otherwise, behavior unchanged
