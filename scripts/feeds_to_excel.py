@@ -932,7 +932,7 @@ def scrape_semiengineering_listing(rendered_path=None, base_url="https://semieng
     """
     from bs4 import BeautifulSoup
     from urllib.parse import urljoin
-    import re, requests
+    import re, requests, os
 
     def txt(el):
         try:
@@ -951,11 +951,14 @@ def scrape_semiengineering_listing(rendered_path=None, base_url="https://semieng
             return ''
         # create small soup and remove author-like smalls
         s = BeautifulSoup(str(node), "html.parser")
-        for rem in s.select("small, .loop_post_meta, .post_meta, .byline, .post-meta"):
+        for rem in s.select("small, .loop_post_meta, .post_meta, .byline, .post-meta, .loop_post_excerpt"):
             try:
                 rem.decompose()
             except Exception:
-                pass
+                try:
+                    rem.extract()
+                except Exception:
+                    pass
         return " ".join(s.get_text(separator=" ").split()).strip()
 
     def likely_author_text(s):
@@ -1047,7 +1050,7 @@ def scrape_semiengineering_listing(rendered_path=None, base_url="https://semieng
             link = abs_url(raw_href)
 
             # title
-            h = wrapper.select_one('h3, h2') or a.select_one('h3, h2') if a else None
+            h = wrapper.select_one('h3, h2') or (a.select_one('h3, h2') if a else None)
             title = txt(h) if h else (a.get('title') or txt(a) or txt(wrapper.select_one('h3, h2') or '')).strip()
             if not title or len(title) < 3:
                 return None
@@ -1061,7 +1064,7 @@ def scrape_semiengineering_listing(rendered_path=None, base_url="https://semieng
                 # strip leading "By X - " if present
                 date = re.sub(r'^\s*By\s+[^-]+-?\s*', '', date, flags=re.I).strip()
             if not date:
-                m = re.search(r'\b(?:\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4}|\w{3,9}\s+\d{1,2},\s+\d{4}|\d{1,2}h\s+ago|\d+\s+hours?\s+ago)', wrapper.get_text(" ", strip=True), re.I)
+                m = re.search(r'\b(?:\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4}|\w{3,9}\s+\d{1,2},\s+\d{4}|\d{1,2}h\s+ago|\d+\s+hours?\s+ago)', wrapper.get_text(" ", strip=True) or '', re.I)
                 if m:
                     date = m.group(0)
 
@@ -1121,26 +1124,87 @@ def scrape_semiengineering_listing(rendered_path=None, base_url="https://semieng
                     wrap = a.find_parent(class_='special_reports_slides_item') or a.find_parent('li') or a.parent
                     if wrap is not None and wrap not in special_items:
                         special_items.append(wrap)
-        for it_el in special_items[:3]:
-            a = it_el.select_one('.special_reports_slides_post_title a, a[href]') or it_el.select_one('a[href]')
-            title = txt(a) or txt(it_el.select_one('.special_reports_slides_post_title')) or txt(it_el.select_one('h3,h2')) or ''
-            link = abs_url(a.get('href')) if a else ''
-            desc_el = None
-            # try variants
-            for s in ('.special_reports_slides_exceprt', '.special_reports_slides_excerpt', '.post_snippet_l', '.post_snippet', '.excerpt'):
-                try:
-                    desc_el = it_el.select_one(s)
+
+        # collect possible external excerpts (they may be outside the slide wrappers)
+        all_excerpts = soup.select('.special_reports_slides_exceprt, .special_reports_slides_excerpt, .post_snippet_l, .post_snippet, .excerpt')
+
+        for idx, it_el in enumerate(special_items[:3]):
+            try:
+                a = it_el.select_one('.special_reports_slides_post_title a, a[href]') or it_el.select_one('a[href]')
+                title = txt(a) or txt(it_el.select_one('.special_reports_slides_post_title')) or txt(it_el.select_one('h3,h2')) or ''
+                link = abs_url(a.get('href')) if a and a.has_attr('href') else ''
+                # 1) try internal excerpt selectors
+                desc = ''
+                desc_el = None
+                for s in ('.special_reports_slides_exceprt', '.special_reports_slides_excerpt', '.post_snippet_l', '.post_snippet', '.excerpt'):
+                    try:
+                        desc_el = it_el.select_one(s)
+                    except Exception:
+                        desc_el = None
                     if desc_el:
-                        break
-                except Exception:
-                    desc_el = None
-            desc = clean_text_exclude_small(desc_el) if desc_el else get_description_smart(it_el)
-            key = (link or title).rstrip('/').strip()
-            if key and key not in seen_local:
-                seen_local.add(key)
-                out.append({'title': title.strip(), 'link': link.strip(), 'date': '', 'description': (desc or '').strip(), 'source': 'special-reports'})
-            if len(out) >= max_items:
-                return out[:max_items]
+                        desc = clean_text_exclude_small(desc_el)
+                        if desc:
+                            break
+
+                matched = False
+                # 2) if not found, try external excerpts matching href
+                if not desc and all_excerpts and link:
+                    for ex in all_excerpts:
+                        try:
+                            aex = ex.select_one('a[href]')
+                            if aex and aex.has_attr('href'):
+                                href_ex = abs_url(aex.get('href') or '')
+                                if href_ex and href_ex.rstrip('/') == link.rstrip('/'):
+                                    desc = clean_text_exclude_small(ex)
+                                    matched = True
+                                    break
+                        except Exception:
+                            continue
+
+                # 3) if still not found, try title-words heuristic on external excerpts
+                if not desc and all_excerpts and title:
+                    tt_words = [w for w in re.split(r'\W+', title.lower()) if w]
+                    if tt_words:
+                        sample = tt_words[:3]
+                        for ex in all_excerpts:
+                            try:
+                                ex_text = clean_text_exclude_small(ex).lower()
+                                if all(s in ex_text for s in sample):
+                                    desc = clean_text_exclude_small(ex)
+                                    matched = True
+                                    break
+                            except Exception:
+                                continue
+
+                # 4) fallback by position (1st excerpt -> 1st special item)
+                if not desc and all_excerpts:
+                    try:
+                        if idx < len(all_excerpts):
+                            desc = clean_text_exclude_small(all_excerpts[idx])
+                    except Exception:
+                        pass
+
+                # 5) last resort: extract from wrapper generically
+                if not desc:
+                    desc = get_description_smart(it_el) or ''
+                    # if still looks like author-only, try removing small and taking remainder
+                    if likely_author_text(desc):
+                        # try removing small/byline from wrapper and get remainder
+                        try:
+                            tmp = clean_text_exclude_small(it_el)
+                            if tmp and not likely_author_text(tmp) and len(tmp) > 10:
+                                desc = tmp
+                        except Exception:
+                            pass
+
+                key = (link or title).rstrip('/').strip()
+                if key and key not in seen_local:
+                    seen_local.add(key)
+                    out.append({'title': title.strip(), 'link': link.strip(), 'date': '', 'description': (desc or '').strip(), 'source': 'special-reports'})
+                if len(out) >= max_items:
+                    return out[:max_items]
+            except Exception:
+                continue
     except Exception:
         pass
 
@@ -1159,7 +1223,7 @@ def scrape_semiengineering_listing(rendered_path=None, base_url="https://semieng
             while node and node is not next_h and count < 400 and len(out) < max_items:
                 try:
                     prefer_sel = 'div.post_snippet_l, div.post_snippet_r, .post_snippet, .post_snippet_wrap, article, li, .loop_post, .loop_post_item, .post, .news-item, .item, .teaser, .card'
-                    candidates = node.select(prefer_sel) if node.select else []
+                    candidates = node.select(prefer_sel) if hasattr(node, 'select') else []
                     if not candidates:
                         candidates = [node]
                     for cand in candidates:
@@ -1191,6 +1255,7 @@ def scrape_semiengineering_listing(rendered_path=None, base_url="https://semieng
                 out.append(it)
 
     return out[:max_items]
+
 
 
 
