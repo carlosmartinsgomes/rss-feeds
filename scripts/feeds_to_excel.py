@@ -925,134 +925,78 @@ def scrape_mediapost_listing(base_url="https://www.mediapost.com/news/", max_ite
 # ---------------------------
 # SCRAPER específico SEMIENGINEERING
 # ---------------------------
-def scrape_semiengineering_listing(base_url="https://semiengineering.com/", max_items=36, timeout=10):
+def scrape_semiengineering_listing(rendered_path=None, base_url="https://semiengineering.com/", max_items=36, timeout=10):
     """
-    Scrape semiengineering main listing page and return list of items:
-    [{title, link, date, description, source}, ...] limited to max_items.
-    Designed to mimic the console-snippet extraction: special-reports (3 items)
-    then headings-based sections (Top Stories, Latest News, Opinion, Research, Startup Corner),
-    then fallback anchors.
+    Parse a rendered semiengineering HTML (if rendered_path given) or fetch the live page.
+    Returns list of dicts {title, link, date, description, source} up to max_items.
     """
-    import requests
-    import re
     from bs4 import BeautifulSoup
+    from urllib.parse import urljoin
+    import re, requests
 
-    # local helpers (use existing text_of / abs_url if present)
-    def _txt(el):
+    def txt(el):
         try:
             return (el.get_text(" ", strip=True) if el else "").strip()
         except Exception:
-            try:
-                return (str(el) or '').strip()
-            except Exception:
-                return ""
+            return ""
 
-    # prefer using previously defined helpers if available in module
-    try:
-        text_fn = text_of  # from file above
-    except Exception:
-        text_fn = _txt
-
-    try:
-        abs_fn = lambda h: abs_url(h, base_url)  # existing abs_url expects (href, base)
-    except Exception:
-        # fallback
-        from urllib.parse import urljoin
-        abs_fn = lambda h: urljoin(base_url, h or '')
-
-    # fetch page
-    try:
-        r = requests.get(base_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=timeout)
-        r.raise_for_status()
-        html = r.text
-    except Exception as e:
-        print("scrape_semiengineering_listing: fetch failed:", e)
-        return []
-
-    soup = BeautifulSoup(html, "html.parser")
-    main = soup.select_one('#main-content') or soup.select_one('main') or soup.body or soup
-
-    items = []
-    seen = set()
-
-    def push_item(obj):
-        key = ((obj.get('link') or '') + '|' + (obj.get('title') or '')).strip().rstrip('/')
-        if not key:
-            return False
-        if key in seen:
-            return False
-        seen.add(key)
-        items.append(obj)
-        return True
-
-    # ---- helpers for description/date heuristics ----
-    def clean_text_exclude_small_bs(el):
-        """Return text of el after removing small/byline/meta nodes."""
+    def abs_url(href):
         try:
-            clone = BeautifulSoup(str(el), 'html.parser')
+            return urljoin(base_url, (href or '').strip())
         except Exception:
-            try:
-                return re.sub(r'\s+', ' ', (el.get_text(" ", strip=True) if el else "")).strip()
-            except Exception:
-                return ""
-        for rem in clone.select('small, .loop_post_meta, .post_meta, .byline, .post-meta, .loop_post_excerpt'):
+            return (href or '').strip()
+
+    def clean_text_exclude_small(node):
+        if not node:
+            return ''
+        # create small soup and remove author-like smalls
+        s = BeautifulSoup(str(node), "html.parser")
+        for rem in s.select("small, .loop_post_meta, .post_meta, .byline, .post-meta"):
             try:
                 rem.decompose()
             except Exception:
-                try:
-                    rem.extract()
-                except Exception:
-                    pass
-        txt = clone.get_text(" ", strip=True) or ""
-        return re.sub(r'\s+', ' ', txt).strip()
+                pass
+        return " ".join(s.get_text(separator=" ").split()).strip()
 
     def likely_author_text(s):
         if not s:
             return False
-        s2 = s.strip()
-        if len(s2) < 20:
-            # short -> likely author only or short label
+        ss = s.strip()
+        if len(ss) < 20:
             return True
-        if re.match(r'^\s*By\s+', s2, re.I):
+        if re.match(r'^\s*By\s+', ss, re.I):
             return True
-        # uppercase name heuristic
-        if re.match(r'^[A-ZÀ-Ý0-9\-\s\.]{3,40}$', s2) and len(s2.split()) <= 4:
-            return True
-        return False
-
-    def is_likely_author_link(a):
-        if not a:
-            return False
-        href = (a.get('href') or '').lower()
-        if '/author/' in href or '/tag/' in href or '/category-' in href:
-            return True
-        t = text_fn(a) if a else ''
-        if t and len(t) < 30 and re.match(r'^[A-Z0-9\-\s\']+$', t) and len(t.split()) <= 4:
+        # short uppercase-ish string => likely author
+        if re.match(r'^[A-ZÀ-Ý\-\s\.]{3,40}$', ss) and len(ss.split()) <= 4:
             return True
         return False
 
-    # description extraction somewhat smart
     def get_description_smart(wrapper):
         if not wrapper:
             return ''
-        # try common selectors first
         sels = ['.special_reports_slides_exceprt', '.post_snippet_l', '.post_snippet_r', '.post_snippet', '.post_snippet_wrap', '.loop_post_excerpt', '.excerpt', '.summary', '.dek', 'p']
         for s in sels:
             try:
                 el = wrapper.select_one(s)
                 if el:
-                    t = clean_text_exclude_small_bs(el)
+                    t = clean_text_exclude_small(el).strip()
                     if t and not likely_author_text(t):
                         return t
             except Exception:
-                continue
-        # fallback: wrapper text minus small/byline
+                pass
+        # fallback: wrapper inner text minus small/byline and minus repeating title
         try:
-            candidate = clean_text_exclude_small_bs(wrapper)
-            # remove title part if present
-            h = wrapper.select_one('h3,h2,a[title]')
+            clone = BeautifulSoup(str(wrapper), "html.parser")
+            for rem in clone.select("small, .loop_post_meta, .post_meta, .byline, .post-meta"):
+                try:
+                    rem.decompose()
+                except Exception:
+                    pass
+            candidate = " ".join(clone.get_text(separator=" ").split()).strip()
+            # remove title prefix if present
+            h = wrapper.select_one("h3, h2, a[title]")
             if h:
-                ttitle = text_fn(h)
+                ttitle = (txt(h) or "").strip()
                 if ttitle and candidate.lower().startswith(ttitle.lower()):
                     candidate = candidate[len(ttitle):].strip()
             if candidate and not likely_author_text(candidate) and len(candidate) > 10:
@@ -1061,24 +1005,34 @@ def scrape_semiengineering_listing(base_url="https://semiengineering.com/", max_
             pass
         return ''
 
-    # wrapper extractor similar to console snippet
-    def extract_from_wrapper(wrapper, prefer_anchor=None, source_label='list'):
+    def is_likely_author_link(a):
+        if not a:
+            return False
+        h = (a.get("href") or "").lower()
+        if re.search(r'/author/|/tag/|/category/', h):
+            return True
+        t = (txt(a) or "")
+        if t and len(t) < 30 and re.match(r'^[A-Z0-9\-\s\']+$', t) and len(t.split()) <= 4:
+            return True
+        return False
+
+    def extract_from_wrapper(wrapper, prefer_anchor=None, source_label='list', seen_local=None):
         try:
             if not wrapper:
                 return None
             a = prefer_anchor
             if not a:
-                # prefer anchor wrapping h3/h2
-                cand = wrapper.select_one('a[href] > h3, a[href] > h2')
-                if cand:
-                    a = cand.find_parent('a')
+                a_tag = None
+                # prefer anchors that wrap H3/H2
+                a_tag = wrapper.select_one('a[href] > h3, a[href] > h2')
+                if a_tag:
+                    a = a_tag.find_parent('a')
                 if not a:
                     a = wrapper.select_one('h3 a, h2 a, a[title], a[href]')
                 if not a:
                     anchors = wrapper.select('a[href]')
-                    a = None
                     for a0 in anchors:
-                        if (text_fn(a0) or '') and len(text_fn(a0)) > 6 and not is_likely_author_link(a0):
+                        if (txt(a0) or '').strip() and not is_likely_author_link(a0):
                             a = a0
                             break
                     if not a and anchors:
@@ -1090,15 +1044,11 @@ def scrape_semiengineering_listing(base_url="https://semiengineering.com/", max_
                 return None
             if is_likely_author_link(a):
                 return None
-            link = abs_fn(raw_href)
+            link = abs_url(raw_href)
 
             # title
-            title = ''
-            h = wrapper.select_one('h3, h2') or (a.select_one('h3, h2') if a else None)
-            if h:
-                title = text_fn(h)
-            if not title:
-                title = (a.get('title') or text_fn(a) or text_fn(wrapper.select_one('h3, h2') or '')).strip()
+            h = wrapper.select_one('h3, h2') or a.select_one('h3, h2') if a else None
+            title = txt(h) if h else (a.get('title') or txt(a) or txt(wrapper.select_one('h3, h2') or '')).strip()
             if not title or len(title) < 3:
                 return None
 
@@ -1107,220 +1057,140 @@ def scrape_semiengineering_listing(base_url="https://semiengineering.com/", max_
             date = ''
             meta = wrapper.select_one('.loop_post_meta small, .byline small, .byline, time, .post-meta small, .post_meta small')
             if meta:
-                date = text_fn(meta).strip()
-                # remove leading "By ... - " if present
+                date = txt(meta).strip()
+                # strip leading "By X - " if present
                 date = re.sub(r'^\s*By\s+[^-]+-?\s*', '', date, flags=re.I).strip()
             if not date:
-                m = re.search(r'\b(?:\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4}|\w{3,9}\s+\d{1,2},\s+\d{4}|\d{1,2}h\s+ago|\d+\s+hours?\s+ago)', wrapper.get_text(" ", strip=True) or '', re.I)
+                m = re.search(r'\b(?:\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4}|\w{3,9}\s+\d{1,2},\s+\d{4}|\d{1,2}h\s+ago|\d+\s+hours?\s+ago)', wrapper.get_text(" ", strip=True), re.I)
                 if m:
-                    date = m.group(0).strip()
+                    date = m.group(0)
 
-            # dedupe and return
-            key = (link or title).rstrip('/')
-            if not key or key in seen:
+            key = (link or title).rstrip('/').strip()
+            if not key or (seen_local is not None and key in seen_local):
                 return None
-            seen.add(key)
-            return {'title': title.strip(), 'link': link.strip(), 'date': date.strip(), 'description': description.strip(), 'source': source_label}
+            if seen_local is not None:
+                seen_local.add(key)
+            return {'title': title.strip(), 'link': link.strip(), 'date': (date or '').strip(), 'description': (description or '').strip(), 'source': source_label}
         except Exception:
             return None
 
-    # ---------------- 1) SPECIAL REPORTS (guarantee 3 items) ----------------
+    # read HTML (rendered_path takes precedence)
+    html = ''
+    if rendered_path and os.path.exists(rendered_path):
+        try:
+            html = open(rendered_path, 'r', encoding='utf-8').read()
+        except Exception:
+            html = ''
+    if not html:
+        try:
+            r = requests.get(base_url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=timeout)
+            r.raise_for_status()
+            html = r.text
+        except Exception:
+            return []
+
+    soup = BeautifulSoup(html, "html.parser")
+    seen_local = set()
+    out = []
+
+    # 1) special reports (up to 3)
     try:
-        special_selectors = [
-            '.special_reports_slides .special_reports_slides_item',
-            '.special_reports_slides_item',
-            '.special_reports_slides_post_title',
-            '.special-reports .special_reports_slides_item',
-            '#slide1, #slide2, #slide3'
-        ]
+        special_selectors = ['.special_reports_slides .special_reports_slides_item', '.special_reports_slides_item', '.special_reports_slides_post_title', '.special-reports .special_reports_slides_item', '#slide1, #slide2, #slide3']
         special_items = []
         for sel in special_selectors:
             try:
-                found = [f for f in soup.select(sel) if f]
+                found = soup.select(sel)
                 if found:
-                    normalized = []
-                    for f in found:
-                        norm = f.find_parent(class_='special_reports_slides_item') or f
-                        if norm not in normalized:
-                            normalized.append(norm)
+                    normalized = [f.find_parent(class_='special_reports_slides_item') or f for f in found]
                     for n in normalized:
-                        if n not in special_items:
+                        if n and n not in special_items:
                             special_items.append(n)
-                        if len(special_items) >= 3:
-                            break
-                    if len(special_items) >= 3:
-                        break
+                            if len(special_items) >= 3:
+                                break
+                if len(special_items) >= 3:
+                    break
             except Exception:
-                continue
-
-        # fallback: anchors inside a special container
+                pass
+        # fallback: anchors inside container
         if len(special_items) < 3:
-            special_container = soup.select_one('.special_reports_slides, .special_reports_slides_wrap, #special_reports, .special-reports')
-            if special_container:
-                anchors = [a for a in special_container.select('a[href]') if (text_fn(a) or '').strip()]
-                for a in anchors:
-                    wrap = a.find_parent(class_='special_reports_slides_item') or a.find_parent('li') or a.parent
-                    if wrap and wrap not in special_items:
-                        special_items.append(wrap)
+            cont = soup.select_one('.special_reports_slides, .special_reports_slides_wrap, #special_reports, .special-reports')
+            if cont:
+                for a in cont.select('a[href]'):
                     if len(special_items) >= 3:
                         break
-
-        # collect possible external excerpts (they may be outside the slide wrappers)
-        all_excerpts = soup.select('.special_reports_slides_exceprt, .special_reports_slides_excerpt, .post_snippet_l, .post_snippet, .excerpt')
-
-        # process up to 3 special items with robust desc-finding
-        for idx, it_el in enumerate(special_items[:3]):
-            try:
-                a = it_el.select_one('.special_reports_slides_post_title a, a[href]') or it_el.select_one('a[href]')
-                title = text_fn(a) or text_fn(it_el.select_one('.special_reports_slides_post_title')) or text_fn(it_el.select_one('h3,h2')) or ''
-                link = ''
-                if a and a.has_attr('href'):
-                    link = abs_fn(a.get('href') or '')
-
-                # 1) try internal excerpt selectors
-                desc = ''
-                for sel in ('.special_reports_slides_exceprt', '.special_reports_slides_excerpt', '.post_snippet_l', '.post_snippet', '.excerpt'):
-                    try:
-                        desc_el = it_el.select_one(sel)
-                    except Exception:
-                        desc_el = None
+                    wrap = a.find_parent(class_='special_reports_slides_item') or a.find_parent('li') or a.parent
+                    if wrap is not None and wrap not in special_items:
+                        special_items.append(wrap)
+        for it_el in special_items[:3]:
+            a = it_el.select_one('.special_reports_slides_post_title a, a[href]') or it_el.select_one('a[href]')
+            title = txt(a) or txt(it_el.select_one('.special_reports_slides_post_title')) or txt(it_el.select_one('h3,h2')) or ''
+            link = abs_url(a.get('href')) if a else ''
+            desc_el = None
+            # try variants
+            for s in ('.special_reports_slides_exceprt', '.special_reports_slides_excerpt', '.post_snippet_l', '.post_snippet', '.excerpt'):
+                try:
+                    desc_el = it_el.select_one(s)
                     if desc_el:
-                        desc = clean_text_exclude_small_bs(desc_el)
-                        if desc:
-                            break
-
-                matched = False
-                # 2) if not found, try external excerpts matching href
-                if not desc and all_excerpts and link:
-                    for ex in all_excerpts:
-                        try:
-                            aex = ex.select_one('a[href]')
-                            if aex and aex.has_attr('href'):
-                                href_ex = abs_fn(aex.get('href') or '')
-                                if href_ex and href_ex.rstrip('/') == link.rstrip('/'):
-                                    desc = clean_text_exclude_small_bs(ex)
-                                    matched = True
-                                    break
-                        except Exception:
-                            continue
-
-                # 3) if still not found, try title-words heuristic on external excerpts
-                if not desc and all_excerpts and title:
-                    tt_words = [w for w in re.split(r'\W+', title.lower()) if w]
-                    if tt_words:
-                        sample = tt_words[:3]
-                        for ex in all_excerpts:
-                            try:
-                                ex_text = clean_text_exclude_small_bs(ex).lower()
-                                if all(s in ex_text for s in sample):
-                                    desc = clean_text_exclude_small_bs(ex)
-                                    matched = True
-                                    break
-                            except Exception:
-                                continue
-
-                # 4) fallback by index (first excerpt -> first special)
-                if not desc and all_excerpts:
-                    try:
-                        if idx < len(all_excerpts):
-                            desc = clean_text_exclude_small_bs(all_excerpts[idx])
-                    except Exception:
-                        pass
-
-                # 5) last resort: extract from wrapper generically
-                if not desc:
-                    desc = get_description_smart(it_el) or ''
-
-                # push
-                if title or link:
-                    push_item({'title': (title or '').strip(), 'link': (link or '').strip(), 'date': '', 'description': (desc or '').strip(), 'source': 'special-reports'})
-            except Exception:
-                continue
+                        break
+                except Exception:
+                    desc_el = None
+            desc = clean_text_exclude_small(desc_el) if desc_el else get_description_smart(it_el)
+            key = (link or title).rstrip('/').strip()
+            if key and key not in seen_local:
+                seen_local.add(key)
+                out.append({'title': title.strip(), 'link': link.strip(), 'date': '', 'description': (desc or '').strip(), 'source': 'special-reports'})
+            if len(out) >= max_items:
+                return out[:max_items]
     except Exception:
         pass
 
-    # ---------------- 2) headings-based extraction ----------------
+    # 2) headings-based extraction for main sections
     try:
-        headings = [h for h in soup.select('h2,h3,h4, .snippet_header, .section-heading') if text_fn(h).strip()]
-        normHead = [{'node': h, 'norm': text_fn(h).lower().replace('\n', ' ').strip()} for h in headings]
-        section_keywords = ['special reports', 'top stories', 'latest news', 'latest', 'opinion', 'research', 'startup corner', 'startups', 'business news']
-
-        for i, hinfo in enumerate(normHead):
-            hnode = hinfo['node']
-            htext = hinfo['norm']
+        headings = [h for h in soup.select('h2,h3,h4, .snippet_header, .section-heading') if txt(h)]
+        section_keywords = ['special reports','top stories','latest news','latest','opinion','research','startup corner','startups','business news']
+        for i, h in enumerate(headings):
+            htext = txt(h).lower().strip()
             if not any(k in htext for k in section_keywords):
                 continue
-            source_label = getattr(hnode, 'decode', None) and (hnode.decode() if callable(hnode.decode) else hnode.__str__()) or (hnode.outerHTML if hasattr(hnode, 'outerHTML') else str(hnode))
-            # use outerHTML-like: fallback to string
-            try:
-                source_label = getattr(hnode, 'outerHTML', None) or str(hnode)
-            except Exception:
-                source_label = str(hnode)
-
-            # determine boundary: next heading node
-            next_node = normHead[i+1]['node'] if i+1 < len(normHead) else None
-            node = hnode.next_sibling
-            # iterate siblings until next heading
+            source_label = h.decode_contents() if hasattr(h, 'decode_contents') else str(h)
+            next_h = headings[i+1] if i+1 < len(headings) else None
+            node = h.find_next_sibling()
             count = 0
-            while node is not None and count < 500 and len(items) < max_items:
+            while node and node is not next_h and count < 400 and len(out) < max_items:
                 try:
-                    # stop if reached the next heading element
-                    if next_node is not None and getattr(node, 'name', None) and getattr(node, 'get_text', None):
-                        # if node equals next heading (approx by text), break
-                        if node == next_node or (hasattr(node, 'get_text') and text_fn(node).strip() and text_fn(node).strip() == text_fn(next_node).strip()):
+                    prefer_sel = 'div.post_snippet_l, div.post_snippet_r, .post_snippet, .post_snippet_wrap, article, li, .loop_post, .loop_post_item, .post, .news-item, .item, .teaser, .card'
+                    candidates = node.select(prefer_sel) if node.select else []
+                    if not candidates:
+                        candidates = [node]
+                    for cand in candidates:
+                        if len(out) >= max_items:
                             break
-                    # prefer certain candidate wrappers inside node
-                    prefer_selectors = 'div.post_snippet_l, div.post_snippet_r, .post_snippet, .post_snippet_wrap, article, li, .loop_post, .loop_post_item, .post, .news-item, .item, .teaser, .card'
-                    cand_nodes = []
-                    try:
-                        cand_nodes = [c for c in node.select(prefer_selectors) if c]
-                    except Exception:
-                        # node might not support select
-                        pass
-                    if not cand_nodes:
-                        # if node itself is useful, use it
-                        if hasattr(node, 'select') or getattr(node, 'name', None):
-                            cand_nodes = [node]
-                    for cand in cand_nodes:
-                        if len(items) >= max_items:
-                            break
-                        it = extract_from_wrapper(cand, None, source_label)
+                        it = extract_from_wrapper(cand, None, source_label, seen_local)
                         if it:
-                            push_item(it)
-                    # move to next sibling
+                            out.append(it)
                 except Exception:
                     pass
-                node = node.next_sibling
+                node = node.find_next_sibling()
                 count += 1
     except Exception:
         pass
 
-    # ---------------- 3) fallback anchors (noise limited) ----------------
-    if len(items) < max_items:
-        try:
-            anchors = []
-            try:
-                anchors = [a for a in (main.select('a[href]') if main else soup.select('a[href]')) if (text_fn(a) or '').strip()]
-            except Exception:
-                anchors = [a for a in soup.select('a[href]') if (text_fn(a) or '').strip()]
-            for a in anchors:
-                if len(items) >= max_items:
-                    break
-                href = (a.get('href') or '').lower()
-                if re.search(r'translate|googlesyndication|#|/translate|/category-main-page|/category-|/tag-|/author\-|/author/', href):
-                    continue
-                # skip author links
-                if is_likely_author_link(a):
-                    continue
-                wrapper = a.find_parent(['article','li','div']) or a.parent
-                it = extract_from_wrapper(wrapper, a, 'fallback-anchor')
-                if it:
-                    push_item(it)
-        except Exception:
-            pass
+    # 3) fallback anchors
+    if len(out) < max_items:
+        main = soup.select_one('#main-content') or soup.body or soup
+        anchors = [a for a in main.select('a[href]') if (txt(a) or '').strip() and not is_likely_author_link(a)]
+        for a in anchors:
+            if len(out) >= max_items:
+                break
+            href = (a.get('href') or '').lower()
+            if re.search(r'translate|googlesyndication|#|/translate|/category-main-page|/category-|/tag-|/author-', href):
+                continue
+            w = a.find_parent('article') or a.find_parent('li') or a.parent
+            it = extract_from_wrapper(w, a, 'fallback-anchor', seen_local)
+            if it:
+                out.append(it)
 
-    # final trim
-    return items[:max_items]
+    return out[:max_items]
 
 
 
