@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3 
 # scripts/feeds_to_excel.py
 # Requisitos: feedparser, pandas, beautifulsoup4, openpyxl, python-dateutil, requests
 
@@ -134,6 +134,51 @@ def find_date_from_xml_item(xml_soup, entry_title, entry_link):
                 found = find_date_in_text(combined)
                 if found:
                     return found
+    return None
+
+# --- helper: detectar URLs / hosts dentro do ficheiro de feed (para acionar scrapers especiais) ---
+def detect_profile_url_in_feed_file(feedfile_path, host_substrings):
+    """
+    Tenta detectar uma URL do tipo 'profile' (ou um host) dentro do ficheiro de feed.
+    host_substrings: lista de substrings a procurar, ex: ['thedrum.com/profile', 'semiengineering.com']
+    Retorna a primeira URL encontrada (string absoluta) ou None.
+    """
+    # 1) tentar feedparser rápido
+    try:
+        parsed = feedparser.parse(feedfile_path)
+        # tentar feed.link
+        feed_link = getattr(parsed, 'feed', {}).get('link') if getattr(parsed, 'feed', None) else None
+        if feed_link:
+            for s in host_substrings:
+                if s in (feed_link or ''):
+                    return feed_link
+        # tentar primeira entry
+        entries = getattr(parsed, 'entries', None) or []
+        if entries:
+            first = entries[0]
+            for k in ('link','id','guid'):
+                v = first.get(k) if isinstance(first, dict) else None
+                if v:
+                    for s in host_substrings:
+                        if s in (v or ''):
+                            return v
+    except Exception:
+        pass
+
+    # 2) abrir ficheiro raw e procurar substrings / urls simples
+    try:
+        raw = open(feedfile_path, 'r', encoding='utf-8', errors='ignore').read()
+        # procura http(s) urls contendo as substrings
+        for s in host_substrings:
+            if s in raw:
+                # tentar extrair a primeira http... que contenha s
+                m = re.search(r'https?://[^"\'>\s]*' + re.escape(s.split(s.split('/')[-1])[-1]) + r'[^"\'>\s]*', raw)
+                if m:
+                    return m.group(0)
+                # fallback: devolver apenas a substring encontrada (o chamador pode normalizar)
+                return s
+    except Exception:
+        pass
     return None
 
 
@@ -697,9 +742,12 @@ def scrape_modern_rendered(rendered_path, base_url="https://www.modernhealthcare
         })
     print(f"scrape_modern_rendered: found {len(out)} items from {rendered_path}")
     return out
+
 # ---------------------------
 # SCRAPER específico MEDIAPOST (novo)
+# (mantive o teu código mediapost tal como o tinhas)
 # ---------------------------
+
 def scrape_mediapost_listing(base_url="https://www.mediapost.com/news/", max_items=30, timeout=10):
     """
     Fetch the Mediapost /news/ page and return items list with fields:
@@ -793,73 +841,87 @@ def scrape_mediapost_listing(base_url="https://www.mediapost.com/news/", max_ite
             if not title or len(title) < 6:
                 continue
             # wrapper: prefer article, li, div with article classes
-            wrapper = a.find_parent(['article', 'li'])
-            if wrapper is None:
-                # look for nearby div parent
-                wrapper = a.parent
+            # Encontrar o ancestral mais apropriado que contenha a âncora
+            def find_best_wrapper_for_anchor(a):
+                cur = a
+                best = None
+                for _ in range(8):
+                    if cur is None:
+                        break
+                    if cur.name in ('li', 'article'):
+                        best = cur
+                    # se este ancestor já contiver um parágrafo/descrip/time, preferimos escolhê-lo
+                    try:
+                        if cur.select_one('p.short, p.lede, .short, .summary, .dek, .feed__description, .article-teaser, time, .byline'):
+                            return cur
+                    except Exception:
+                        pass
+                    cur = cur.parent
+                return best or a.find_parent(['article', 'li']) or a.parent
+
+            wrapper = find_best_wrapper_for_anchor(a)
 
             # --- DESCRIPTION (várias heurísticas) ---
             description = ''
-            for sel in ['p.short', 'p.lede', '.short', '.summary', '.dek', '.article-teaser', '.feed__description', '.teaser', 'p']:
-                try:
+            try:
+                # procura apenas DENTRO do wrapper — evita "roubar" do próximo artigo
+                for sel in ['p.short', 'p.lede', '.short', '.summary', '.dek', '.article-teaser', '.feed__description', '.teaser', 'p']:
                     el = wrapper.select_one(sel) if wrapper else None
-                except Exception:
-                    el = None
-                if el:
-                    t = txt(el)
-                    if t and not re.search(r'subscribe|advertis|read more', t, re.I):
-                        description = t
-                        break
+                    if el:
+                        t = txt(el)
+                        if t and not re.search(r'subscribe|advertis|read more', t, re.I):
+                            description = t.strip()
+                            break
+            except Exception:
+                description = ''
 
-            # if still empty, try nearby siblings (sometimes description sits next to wrapper)
+            # fallback restrito: se nada dentro do wrapper, procura em um possível elemento irmão ANTERIOR (não o próximo)
             if not description:
                 try:
-                    # next siblings inside same container
-                    sib = None
-                    # prefer nextElementSibling-like search
-                    cur = wrapper
-                    for _ in range(3):
-                        if cur is None:
-                            break
-                        sib = cur.find_next_sibling()
-                        if sib:
-                            p = sib.select_one('p, .short, .lede, .dek, .summary')
-                            if p:
-                                dd = txt(p)
-                                if dd and not re.search(r'subscribe|advertis|read more', dd, re.I):
-                                    description = dd
-                                    break
-                        cur = cur.parent
+                    prev = wrapper.find_previous_sibling() if wrapper else None
+                    if prev:
+                        p = prev.select_one('p.short, p, .summary, .dek')
+                        if p:
+                            dd = txt(p)
+                            if dd and not re.search(r'subscribe|advertis|read more', dd, re.I):
+                                description = dd.strip()
                 except Exception:
                     pass
 
             # --- DATE (várias heurísticas) ---
             date = ''
-            for ds in ['time', '.byline', '.date', '.published', '.timestamp']:
-                try:
+            try:
+                # procura dentro do wrapper por elementos óbvios de data/byline/time
+                for ds in ['time', '.byline', '.date', '.published', '.timestamp', '.article-byline']:
                     el = wrapper.select_one(ds) if wrapper else None
-                except Exception:
-                    el = None
-                if el:
-                    t = txt(el)
-                    if t:
-                        # limpa "By Name - " se existir
-                        date = re.sub(r'^\s*By\s+[^-]+-\s*', '', t).strip()
-                        # remove "By Name" if no dash
-                        date = re.sub(r'^\s*By\s+[^-]+\s*$', '', date).strip()
-                        if date:
-                            break
+                    if el:
+                        t = txt(el)
+                        if t:
+                            # se estilo "By Name - 8 hours ago", extrair a parte depois do traço
+                            if ' - ' in t:
+                                date = t.split(' - ')[-1].strip()
+                            else:
+                                # remover "By Name" inicial se existir
+                                dclean = re.sub(r'^\s*By\s+[^-]+-\s*', '', t).strip()
+                                dclean = re.sub(r'^\s*By\s+[^,]+\s*', '', dclean).strip()
+                                date = dclean
+                            if date:
+                                break
+            except Exception:
+                date = ''
 
-            # fallback regex in wrapper text for relative times or full dates
+            # fallback regex no texto do wrapper para "8 hours ago" ou datas completas
             if not date:
-                rawtxt = txt(wrapper or a)
-                m = re.search(r'\b\d+\s+(?:hours?|days?|minutes?)\s+ago\b', rawtxt, re.I) \
-                    or re.search(r'\b(?:Jan(?:uary)?|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s+\d{4}\b', rawtxt)
-                if m:
-                    date = m.group(0)
+                try:
+                    rawtxt = txt(wrapper or a)
+                    m = re.search(r'\b\d+\s+(?:hours?|days?|minutes?)\s+ago\b', rawtxt, re.I) \
+                        or re.search(r'\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},\s+\d{4}\b', rawtxt)
+                    if m:
+                        date = m.group(0)
+                except Exception:
+                    pass
 
-            # --- última opção: fetch da página do artigo para obter meta description / time ---
-            # (só faz requests se faltar descrição ou data)
+            # --- última opção (opcional): buscar meta/time na página do artigo apenas se description ou date ainda vazios ---
             if (not description or not date) and href and len(items) < max_items:
                 try:
                     resp = requests.get(href, headers={'User-Agent': 'Mozilla/5.0'}, timeout=6)
@@ -878,19 +940,19 @@ def scrape_mediapost_listing(base_url="https://www.mediapost.com/news/", max_ite
                             else:
                                 by = sa.select_one('.byline, .article-byline, .published')
                                 if by:
-                                    dclean = re.sub(r'^\s*By\s+[^-]+-\s*', '', txt(by)).strip()
-                                    if dclean:
-                                        date = dclean
+                                    dclean = txt(by).strip()
+                                    if ' - ' in dclean:
+                                        date = dclean.split(' - ')[-1].strip()
+                                    else:
+                                        date = re.sub(r'^\s*By\s+[^-]+\s*', '', dclean).strip()
                 except Exception:
-                    # não falhar a execução por causa do fetch
                     pass
 
-            # última limpeza: truncar e normalizar
+            # última limpeza
             if description:
                 description = description.replace('\n', ' ').strip()
             if date:
                 date = date.replace('\n', ' ').strip()
-
 
             seen.add(canon)
             items.append({
@@ -905,6 +967,422 @@ def scrape_mediapost_listing(base_url="https://www.mediapost.com/news/", max_ite
 
     print(f"scrape_mediapost_listing: found {len(items)} items from {base_url}")
     return items[:max_items]
+
+# ---------------------------
+# SCRAPER específico SEMIENGINEERING
+# ---------------------------
+def scrape_semiengineering_listing(rendered_path=None, base_url="https://semiengineering.com/", max_items=36, timeout=10):
+    """
+    Parse a rendered semiengineering HTML (if rendered_path given) or fetch the live page.
+    Returns list of dicts {title, link, date, description, source} up to max_items.
+    """
+    from bs4 import BeautifulSoup
+    from urllib.parse import urljoin
+    import re, requests, os
+
+    def txt(el):
+        try:
+            return (el.get_text(" ", strip=True) if el else "").strip()
+        except Exception:
+            return ""
+
+    def abs_url(href):
+        try:
+            return urljoin(base_url, (href or '').strip())
+        except Exception:
+            return (href or '').strip()
+
+    def clean_text_exclude_small(node):
+        if not node:
+            return ''
+        # create small soup and remove author-like smalls
+        s = BeautifulSoup(str(node), "html.parser")
+        for rem in s.select("small, .loop_post_meta, .post_meta, .byline, .post-meta, .loop_post_excerpt"):
+            try:
+                rem.decompose()
+            except Exception:
+                try:
+                    rem.extract()
+                except Exception:
+                    pass
+        return " ".join(s.get_text(separator=" ").split()).strip()
+
+    def likely_author_text(s):
+        if not s:
+            return False
+        ss = s.strip()
+        if len(ss) < 20:
+            return True
+        if re.match(r'^\s*By\s+', ss, re.I):
+            return True
+        # short uppercase-ish string => likely author
+        if re.match(r'^[A-ZÀ-Ý\-\s\.]{3,40}$', ss) and len(ss.split()) <= 4:
+            return True
+        return False
+
+    def get_description_smart(wrapper):
+        if not wrapper:
+            return ''
+        sels = ['.special_reports_slides_exceprt', '.post_snippet_l', '.post_snippet_r', '.post_snippet', '.post_snippet_wrap', '.loop_post_excerpt', '.excerpt', '.summary', '.dek', 'p']
+        for s in sels:
+            try:
+                el = wrapper.select_one(s)
+                if el:
+                    t = clean_text_exclude_small(el).strip()
+                    if t and not likely_author_text(t):
+                        return t
+            except Exception:
+                pass
+        # fallback: wrapper inner text minus small/byline and minus repeating title
+        try:
+            clone = BeautifulSoup(str(wrapper), "html.parser")
+            for rem in clone.select("small, .loop_post_meta, .post_meta, .byline, .post-meta"):
+                try:
+                    rem.decompose()
+                except Exception:
+                    pass
+            candidate = " ".join(clone.get_text(separator=" ").split()).strip()
+            # remove title prefix if present
+            h = wrapper.select_one("h3, h2, a[title]")
+            if h:
+                ttitle = (txt(h) or "").strip()
+                if ttitle and candidate.lower().startswith(ttitle.lower()):
+                    candidate = candidate[len(ttitle):].strip()
+            if candidate and not likely_author_text(candidate) and len(candidate) > 10:
+                return candidate
+        except Exception:
+            pass
+        return ''
+
+    def is_likely_author_link(a):
+        if not a:
+            return False
+        h = (a.get("href") or "").lower()
+        if re.search(r'/author/|/tag/|/category/', h):
+            return True
+        t = (txt(a) or "")
+        if t and len(t) < 30 and re.match(r'^[A-Z0-9\-\s\']+$', t) and len(t.split()) <= 4:
+            return True
+        return False
+
+    def extract_from_wrapper(wrapper, prefer_anchor=None, source_label='list', seen_local=None):
+        try:
+            if not wrapper:
+                return None
+            a = prefer_anchor
+            if not a:
+                a_tag = None
+                # prefer anchors that wrap H3/H2
+                a_tag = wrapper.select_one('a[href] > h3, a[href] > h2')
+                if a_tag:
+                    a = a_tag.find_parent('a')
+                if not a:
+                    a = wrapper.select_one('h3 a, h2 a, a[title], a[href]')
+                if not a:
+                    anchors = wrapper.select('a[href]')
+                    for a0 in anchors:
+                        if (txt(a0) or '').strip() and not is_likely_author_link(a0):
+                            a = a0
+                            break
+                    if not a and anchors:
+                        a = anchors[0]
+            if not a:
+                return None
+            raw_href = (a.get('href') or '').strip()
+            if not raw_href or re.search(r'(^#|^javascript:|mailto:|/help|/legal|cookie|privacy|terms|signin|login|settings|/consent|/preferences|/policies)', raw_href, re.I):
+                return None
+            if is_likely_author_link(a):
+                return None
+            link = abs_url(raw_href)
+
+            # title
+            h = wrapper.select_one('h3, h2') or (a.select_one('h3, h2') if a else None)
+            title = txt(h) if h else (a.get('title') or txt(a) or txt(wrapper.select_one('h3, h2') or '')).strip()
+            if not title or len(title) < 3:
+                return None
+
+            description = get_description_smart(wrapper) or ''
+            # date heuristics
+            date = ''
+            meta = wrapper.select_one('.loop_post_meta small, .byline small, .byline, time, .post-meta small, .post_meta small')
+            if meta:
+                date = txt(meta).strip()
+                # strip leading "By X - " if present
+                date = re.sub(r'^\s*By\s+[^-]+-?\s*', '', date, flags=re.I).strip()
+            if not date:
+                m = re.search(r'\b(?:\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4}|\w{3,9}\s+\d{1,2},\s+\d{4}|\d{1,2}h\s+ago|\d+\s+hours?\s+ago)', wrapper.get_text(" ", strip=True) or '', re.I)
+                if m:
+                    date = m.group(0)
+
+            key = (link or title).rstrip('/').strip()
+            if not key or (seen_local is not None and key in seen_local):
+                return None
+            if seen_local is not None:
+                seen_local.add(key)
+            return {'title': title.strip(), 'link': link.strip(), 'date': (date or '').strip(), 'description': (description or '').strip(), 'source': source_label}
+        except Exception:
+            return None
+
+    # read HTML (rendered_path takes precedence)
+    html = ''
+    if rendered_path and os.path.exists(rendered_path):
+        try:
+            html = open(rendered_path, 'r', encoding='utf-8').read()
+        except Exception:
+            html = ''
+    if not html:
+        try:
+            r = requests.get(base_url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=timeout)
+            r.raise_for_status()
+            html = r.text
+        except Exception:
+            return []
+
+    soup = BeautifulSoup(html, "html.parser")
+    seen_local = set()
+    out = []
+
+    # 1) special reports (up to 3)
+    try:
+        special_selectors = ['.special_reports_slides .special_reports_slides_item', '.special_reports_slides_item', '.special_reports_slides_post_title', '.special-reports .special_reports_slides_item', '#slide1, #slide2, #slide3']
+        special_items = []
+        for sel in special_selectors:
+            try:
+                found = soup.select(sel)
+                if found:
+                    normalized = [f.find_parent(class_='special_reports_slides_item') or f for f in found]
+                    for n in normalized:
+                        if n and n not in special_items:
+                            special_items.append(n)
+                            if len(special_items) >= 3:
+                                break
+                if len(special_items) >= 3:
+                    break
+            except Exception:
+                pass
+        # fallback: anchors inside container
+        if len(special_items) < 3:
+            cont = soup.select_one('.special_reports_slides, .special_reports_slides_wrap, #special_reports, .special-reports')
+            if cont:
+                for a in cont.select('a[href]'):
+                    if len(special_items) >= 3:
+                        break
+                    wrap = a.find_parent(class_='special_reports_slides_item') or a.find_parent('li') or a.parent
+                    if wrap is not None and wrap not in special_items:
+                        special_items.append(wrap)
+
+        # collect possible external excerpts (they may be outside the slide wrappers)
+        all_excerpts = soup.select('.special_reports_slides_exceprt, .special_reports_slides_excerpt, .post_snippet_l, .post_snippet, .excerpt')
+
+        for idx, it_el in enumerate(special_items[:3]):
+            try:
+                a = it_el.select_one('.special_reports_slides_post_title a, a[href]') or it_el.select_one('a[href]')
+                title = txt(a) or txt(it_el.select_one('.special_reports_slides_post_title')) or txt(it_el.select_one('h3,h2')) or ''
+                link = abs_url(a.get('href')) if a and a.has_attr('href') else ''
+                # 1) try internal excerpt selectors
+                desc = ''
+                desc_el = None
+                for s in ('.special_reports_slides_exceprt', '.special_reports_slides_excerpt', '.post_snippet_l', '.post_snippet', '.excerpt'):
+                    try:
+                        desc_el = it_el.select_one(s)
+                    except Exception:
+                        desc_el = None
+                    if desc_el:
+                        desc = clean_text_exclude_small(desc_el)
+                        if desc:
+                            break
+
+                matched = False
+                # 2) if not found, try external excerpts matching href
+                if not desc and all_excerpts and link:
+                    for ex in all_excerpts:
+                        try:
+                            aex = ex.select_one('a[href]')
+                            if aex and aex.has_attr('href'):
+                                href_ex = abs_url(aex.get('href') or '')
+                                if href_ex and href_ex.rstrip('/') == link.rstrip('/'):
+                                    desc = clean_text_exclude_small(ex)
+                                    matched = True
+                                    break
+                        except Exception:
+                            continue
+
+                # 3) if still not found, try title-words heuristic on external excerpts
+                if not desc and all_excerpts and title:
+                    tt_words = [w for w in re.split(r'\W+', title.lower()) if w]
+                    if tt_words:
+                        sample = tt_words[:3]
+                        for ex in all_excerpts:
+                            try:
+                                ex_text = clean_text_exclude_small(ex).lower()
+                                if all(s in ex_text for s in sample):
+                                    desc = clean_text_exclude_small(ex)
+                                    matched = True
+                                    break
+                            except Exception:
+                                continue
+
+                # 4) fallback by position (1st excerpt -> 1st special item)
+                if not desc and all_excerpts:
+                    try:
+                        if idx < len(all_excerpts):
+                            desc = clean_text_exclude_small(all_excerpts[idx])
+                    except Exception:
+                        pass
+
+                # 5) last resort: extract from wrapper generically
+                if not desc:
+                    desc = get_description_smart(it_el) or ''
+                    # if still looks like author-only, try removing small and taking remainder
+                    if likely_author_text(desc):
+                        # try removing small/byline from wrapper and get remainder
+                        try:
+                            tmp = clean_text_exclude_small(it_el)
+                            if tmp and not likely_author_text(tmp) and len(tmp) > 10:
+                                desc = tmp
+                        except Exception:
+                            pass
+
+                key = (link or title).rstrip('/').strip()
+                if key and key not in seen_local:
+                    seen_local.add(key)
+                    out.append({'title': title.strip(), 'link': link.strip(), 'date': '', 'description': (desc or '').strip(), 'source': 'special-reports'})
+                if len(out) >= max_items:
+                    return out[:max_items]
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    # 2) headings-based extraction for main sections
+    try:
+        headings = [h for h in soup.select('h2,h3,h4, .snippet_header, .section-heading') if txt(h)]
+        section_keywords = ['special reports','top stories','latest news','latest','opinion','research','startup corner','startups','business news']
+        for i, h in enumerate(headings):
+            htext = txt(h).lower().strip()
+            if not any(k in htext for k in section_keywords):
+                continue
+            source_label = h.decode_contents() if hasattr(h, 'decode_contents') else str(h)
+            next_h = headings[i+1] if i+1 < len(headings) else None
+            node = h.find_next_sibling()
+            count = 0
+            while node and node is not next_h and count < 400 and len(out) < max_items:
+                try:
+                    prefer_sel = 'div.post_snippet_l, div.post_snippet_r, .post_snippet, .post_snippet_wrap, article, li, .loop_post, .loop_post_item, .post, .news-item, .item, .teaser, .card'
+                    candidates = node.select(prefer_sel) if hasattr(node, 'select') else []
+                    if not candidates:
+                        candidates = [node]
+                    for cand in candidates:
+                        if len(out) >= max_items:
+                            break
+                        it = extract_from_wrapper(cand, None, source_label, seen_local)
+                        if it:
+                            out.append(it)
+                except Exception:
+                    pass
+                node = node.find_next_sibling()
+                count += 1
+    except Exception:
+        pass
+
+    # 3) fallback anchors
+    if len(out) < max_items:
+        main = soup.select_one('#main-content') or soup.body or soup
+        anchors = [a for a in main.select('a[href]') if (txt(a) or '').strip() and not is_likely_author_link(a)]
+        for a in anchors:
+            if len(out) >= max_items:
+                break
+            href = (a.get('href') or '').lower()
+            if re.search(r'translate|googlesyndication|#|/translate|/category-main-page|/category-|/tag-|/author-', href):
+                continue
+            w = a.find_parent('article') or a.find_parent('li') or a.parent
+            it = extract_from_wrapper(w, a, 'fallback-anchor', seen_local)
+            if it:
+                out.append(it)
+
+    return out[:max_items]
+
+# ---------------------------
+# SCRAPER específico THE DRUM (profiles 'featured')
+# ---------------------------
+
+# Mapeamento: as chaves devem corresponder aos basenames dos ficheiros feeds/*.xml (sem .xml)
+THE_DRUM_PROFILE_URLS = {
+    "thedrum-pubmatic": "https://www.thedrum.com/profile/pubmatic/featured",
+    "thedrum-the-trade-desk": "https://www.thedrum.com/profile/the-trade-desk/featured",
+    # adiciona mais chaves conforme os teus ficheiros feeds/....xml
+}
+
+def scrape_thedrum_profile(base_url, max_items=5, timeout=10):
+    """
+    Fetch and parse a TheDrum profile 'featured' page and return up to max_items dicts:
+    {'title','link','date','description','source'}
+    Observações: a estrutura do TheDrum coloca o título/descrição na mesma div; usamos heurísticas
+    para extrair description, date e link.
+    """
+    try:
+        r = requests.get(base_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=timeout)
+        r.raise_for_status()
+        html = r.text
+    except Exception as e:
+        print("scrape_thedrum_profile: fetch failed:", e)
+        return []
+
+    soup = BeautifulSoup(html, "html.parser")
+
+    def txt(el):
+        try:
+            return (el.get_text(" ", strip=True) if el else "").strip()
+        except Exception:
+            return ""
+
+    def abs_url(href):
+        try:
+            return urljoin(base_url, (href or "").strip())
+        except Exception:
+            return (href or "").strip()
+
+    # selectors baseados no exemplo que forneceste
+    card_sel = ".td-company-profile__company-details__article-card"
+    wrapper_sel = ".td-company-profile__company-details__article-card__wrapper"
+    title_sel = ".td-company-profile__company-details__article-card__wrapper__title"
+    footer_sel = ".td-company-profile__company-details__article-card__wrapper__footer"
+
+    cards = []
+    for c in soup.select(card_sel):
+        w = c.select_one(wrapper_sel) or c
+        cards.append(w)
+    if not cards:
+        cards = soup.select(wrapper_sel)[:max_items]
+
+    items = []
+    seen = set()
+    for w in cards:
+        if len(items) >= max_items:
+            break
+        try:
+            desc_el = w.select_one(title_sel) or w
+            description = txt(desc_el)
+            date_el = w.select_one(footer_sel) or w.select_one("time, .meta, .post-date")
+            date = txt(date_el) if date_el else ""
+            a = w.select_one("a[href]") or w.find_parent("a")
+            if not a:
+                # try find anchor in parent card
+                parent_card = w.find_parent(class_=lambda x: x and "td-company-profile__company-details__article-card" in x)
+                if parent_card:
+                    a = parent_card.select_one("a[href]")
+            link = abs_url(a.get("href")) if a and a.has_attr("href") else ""
+            key = (link or description).rstrip("/").strip()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            title = description  # conforme conversámos: description também serve de title
+            items.append({"title": title or "", "link": link or "", "date": date or "", "description": description or "", "source": "thedrum-profile"})
+        except Exception:
+            continue
+
+    return items[:max_items]
+
 
 # ---------------------------
 # FIM DO SCRAPERS
@@ -942,6 +1420,53 @@ def main():
             base = os.path.basename(ff)
             site_name = os.path.splitext(base)[0]
             ic = site_item_map.get(site_name, "")
+
+            # --- DETECÇÃO AUTOMÁTICA: procurar no feed uma URL/host que active um scraper especial ---
+            # mapeamento host_substring -> acção (pseudo)
+            try:
+                # detectar thedrum profile
+                thedrum_url = detect_profile_url_in_feed_file(ff, ['thedrum.com/profile', 'thedrum.com'])
+                if thedrum_url:
+                    try:
+                        td_items = scrape_thedrum_profile(base_url=thedrum_url, max_items=5, timeout=10)
+                        for it in td_items:
+                            all_rows.append({
+                                "site": site_name,
+                                "title": it.get("title", "") or "",
+                                "link (source)": it.get("link", "") or "",
+                                "pubDate": it.get("date", "") or "",
+                                "description (short)": strip_html_short(it.get("description", "") or "", max_len=300),
+                                "item_container": ic,
+                                "topic": "N/A"
+                            })
+                        print(f"Added {len(td_items)} items for {site_name} (TheDrum profile detected via feed content)")
+                        continue
+                    except Exception as e:
+                        print("Error scraping TheDrum profile for", site_name, "detected url:", thedrum_url, ":", e)
+            except Exception:
+                pass
+
+            # --- special: The Drum profile featured pages mapping
+            if site_name in THE_DRUM_PROFILE_URLS:
+                try:
+                    url = THE_DRUM_PROFILE_URLS[site_name]
+                    td_items = scrape_thedrum_profile(base_url=url, max_items=5, timeout=10)
+                    for it in td_items:
+                        all_rows.append({
+                            "site": site_name,
+                            "title": it.get("title", "") or "",
+                            "link (source)": it.get("link", "") or "",
+                            "pubDate": it.get("date", "") or "",
+                            "description (short)": strip_html_short(it.get("description", "") or "", max_len=300),
+                            "item_container": ic,
+                            "topic": "N/A"
+                        })
+                    # skip XML parsing for this site (we already added rows)
+                    print(f"Added {len(td_items)} items for {site_name} (TheDrum profile scrape)")
+                    continue
+                except Exception as e:
+                    print("Error scraping TheDrum profile for", site_name, ":", e)
+                    # fall through to XML parsing as fallback
 
             # special: if mediapost, ignore the XML and scrape the listing page directly
             if site_name == "mediapost":
@@ -1042,7 +1567,33 @@ def main():
                     all_rows.append(rows)
                 print(f"Added {len(mobi_items)} mobihealthnews items (scraped live)")
                 continue
+            # special: semiengineering -> use page scraper (rendered if available, else live fetch)
+            if site_name == "semiengineering":
+                try:
+                    rendered_path = os.path.join('scripts', 'rendered', 'semiengineering.html')
+                    if os.path.exists(rendered_path):
+                        se_items = scrape_semiengineering_listing(rendered_path, base_url="https://semiengineering.com/", max_items=36)
+                    else:
+                        # try site homepage
+                        se_items = scrape_semiengineering_listing(None, base_url="https://semiengineering.com/", max_items=36)
+                    for it in se_items:
+                        all_rows.append({
+                            "site": site_name,
+                            "title": it.get("title","") or "",
+                            "link (source)": it.get("link","") or "",
+                            "pubDate": it.get("date","") or "",
+                            "description (short)": strip_html_short(it.get("description","") or "", max_len=300),
+                            "item_container": ic,
+                            "topic": "N/A"
+                        })
+                    # skip XML parsing for semiengineering
+                    continue
+                except Exception as e:
+                    print("Error scraping semiengineering:", e)
+                    # fall through to XML parsing fallback
 
+
+            
             # otherwise, behavior unchanged
             rows = parse_feed_file_with_fallback(ff)
             for r in rows:
