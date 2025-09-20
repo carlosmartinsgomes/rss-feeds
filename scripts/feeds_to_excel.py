@@ -1421,30 +1421,69 @@ def main():
             site_name = os.path.splitext(base)[0]
             ic = site_item_map.get(site_name, "")
 
-            # --- DETECÇÃO AUTOMÁTICA: procurar no feed uma URL/host que active um scraper especial ---
-            # mapeamento host_substring -> acção (pseudo)
+            # --- DETECÇÃO AUTOMÁTICA ROBUSTA: procurar TheDrum profile/url dentro do feed ---
             try:
-                # detectar thedrum profile
-                thedrum_url = detect_profile_url_in_feed_file(ff, ['thedrum.com/profile', 'thedrum.com'])
-                if thedrum_url:
+                td_url = None
+                # 1) tentar detectar via helper existente
+                td_url = detect_profile_url_in_feed_file(ff, ['thedrum.com/profile', 'thedrum.com'])
+                # 2) se nada, tentar inspecionar entradas do feed (feedparser) procurando /profile/
+                if not td_url:
                     try:
-                        td_items = scrape_thedrum_profile(base_url=thedrum_url, max_items=5, timeout=10)
-                        for it in td_items:
-                            all_rows.append({
-                                "site": site_name,
-                                "title": it.get("title", "") or "",
-                                "link (source)": it.get("link", "") or "",
-                                "pubDate": it.get("date", "") or "",
-                                "description (short)": strip_html_short(it.get("description", "") or "", max_len=300),
-                                "item_container": ic,
-                                "topic": "N/A"
-                            })
-                        print(f"Added {len(td_items)} items for {site_name} (TheDrum profile detected via feed content)")
-                        continue
+                        parsed = feedparser.parse(ff)
+                        entries = getattr(parsed, 'entries', []) or []
+                        for e in entries:
+                            cand = e.get('link') or e.get('id') or e.get('guid') or ''
+                            if cand and '/profile/' in cand:
+                                td_url = cand
+                                break
+                    except Exception:
+                        td_url = None
+
+                # 3) normalizar / extrair slug e garantir /featured
+                profile_base = None
+                if td_url:
+                    # se veio uma url completa com /profile/<slug>
+                    m = re.search(r'(https?://[^/]+/profile/[^/]+)', td_url, re.I)
+                    if m:
+                        profile_base = m.group(1).rstrip('/')
+                    else:
+                        # pode ser apenas algo como 'thedrum.com' ou um fragmento; tentar extrair slug se possível
+                        m2 = re.search(r'/profile/([^/\s"\'>]+)', td_url, re.I)
+                        if m2:
+                            slug = m2.group(1).strip('/')
+                            profile_base = f"https://www.thedrum.com/profile/{slug}"
+                        else:
+                            # última alternativa: usar o nome do ficheiro site_name como slug se parecer plausível
+                            slug_guess = site_name.replace('_','-').replace(' ','-').strip('-')
+                            if slug_guess and len(slug_guess) > 2:
+                                profile_base = f"https://www.thedrum.com/profile/{slug_guess}"
+
+                # assegurar /featured ao fim
+                if profile_base:
+                    if not profile_base.endswith('/featured'):
+                        profile_base = profile_base.rstrip('/') + '/featured'
+
+                    # chamar scraper TheDrum com a URL normalizada
+                    try:
+                        td_items = scrape_thedrum_profile(base_url=profile_base, max_items=5, timeout=10)
+                        if td_items:
+                            for it in td_items:
+                                all_rows.append({
+                                    "site": site_name,
+                                    "title": it.get("title", "") or "",
+                                    "link (source)": it.get("link", "") or "",
+                                    "pubDate": it.get("date", "") or "",
+                                    "description (short)": strip_html_short(it.get("description", "") or "", max_len=300),
+                                    "item_container": ic,
+                                    "topic": "N/A"
+                                })
+                            print(f"Added {len(td_items)} items for {site_name} (TheDrum profile detected: {profile_base})")
+                            continue  # saltar parsing XML para este feed
                     except Exception as e:
-                        print("Error scraping TheDrum profile for", site_name, "detected url:", thedrum_url, ":", e)
+                        print("Error scraping TheDrum profile for", site_name, "url:", profile_base, ":", e)
             except Exception:
                 pass
+
 
             # --- special: The Drum profile featured pages mapping
             if site_name in THE_DRUM_PROFILE_URLS:
