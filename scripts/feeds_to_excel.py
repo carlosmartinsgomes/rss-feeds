@@ -16,6 +16,99 @@ from dateutil import parser as dateparser
 from dateutil import tz as date_tz
 from urllib.parse import urljoin, urlparse
 
+# ---------------------------
+# LISTING OVERRIDES (pequeno mapa interno)
+# Sites simples que queremos raspar por selectors sem tocar no sites.json
+# keys = nome do ficheiro feed sem a extensão (ex.: feeds/thedrum-pubmatic.xml -> "thedrum-pubmatic")
+# ---------------------------
+LISTING_OVERRIDES = {
+    "thedrum-pubmatic": {
+        "url": "https://www.thedrum.com/profile/pubmatic/featured",
+        "item": ".td-company-profile__company-details__article-card",
+        "title": ".td-company-profile__company-details__article-card__wrapper__title",
+        "description": ".td-company-profile__company-details__article-card__wrapper__title",
+        "date": ".td-company-profile__company-details__article-card__wrapper__footer",
+        "link": "a[href]",
+        "max_items": 5
+    },
+    "thedrum-tradetdesk": {
+        "url": "https://www.thedrum.com/profile/the-trade-desk/featured",
+        "item": ".td-company-profile__company-details__article-card",
+        "title": ".td-company-profile__company-details__article-card__wrapper__title",
+        "description": ".td-company-profile__company-details__article-card__wrapper__title",
+        "date": ".td-company-profile__company-details__article-card__wrapper__footer",
+        "link": "a[href]",
+        "max_items": 5
+    }
+}
+
+def scrape_listing_from_selectors_override(sel_cfg, base_url=None, max_items=10, timeout=10):
+    """
+    Sel_cfg: dict com keys 'url','item','title','description','date','link'
+    Devolve: lista de dicts {title, link, date, description, source}
+    """
+    results = []
+    try:
+        url = base_url or sel_cfg.get("url") or ""
+        r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=timeout)
+        r.raise_for_status()
+        html = r.text
+    except Exception as e:
+        # fetch falhou: devolve vazio
+        print(f"scrape_listing_from_selectors_override: fetch failed for {sel_cfg.get('url')}: {e}")
+        return results
+
+    soup = BeautifulSoup(html, "html.parser")
+    item_sel = sel_cfg.get("item")
+    items = []
+    if item_sel:
+        try:
+            items = soup.select(item_sel)
+        except Exception:
+            items = []
+    # fallback razoável
+    if not items:
+        items = soup.select("article, li, div")
+
+    seen = set()
+    for it in items:
+        if len(results) >= max_items:
+            break
+        try:
+            title_el = it.select_one(sel_cfg.get("title") or "a[href], h3, h2")
+            desc_el = it.select_one(sel_cfg.get("description") or "p, .excerpt, .summary")
+            date_el = it.select_one(sel_cfg.get("date") or "time, .date, .meta, .byline")
+            link_el = it.select_one(sel_cfg.get("link") or "a[href]")
+
+            # text extraction (fallbacks)
+            title = (title_el.get_text(" ", strip=True) if title_el else "").strip()
+            description = (desc_el.get_text(" ", strip=True) if desc_el else "").strip()
+            date = (date_el.get_text(" ", strip=True) if date_el else "").strip()
+            link = ""
+            if link_el and link_el.has_attr("href"):
+                link = urljoin(base_url or sel_cfg.get("url",""), link_el.get("href") or "")
+            if not link:
+                aany = it.select_one("a[href]")
+                if aany and aany.has_attr("href"):
+                    link = urljoin(base_url or sel_cfg.get("url",""), aany.get("href") or "")
+
+            key = (link or title).rstrip('/').strip()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            results.append({
+                "title": title,
+                "link": link,
+                "date": date,
+                "description": description,
+                "source": sel_cfg.get("url") or sel_cfg.get("source", "")
+            })
+        except Exception:
+            continue
+    return results
+
+
+
 # evitar UnknownTimezoneWarning do dateutil (mensagem do runner)
 try:
     from dateutil import _parser as _dateutil__parser
@@ -1295,6 +1388,27 @@ def main():
             base = os.path.basename(ff)
             site_name = os.path.splitext(base)[0]
             ic = site_item_map.get(site_name, "")
+
+            # --- listing overrides: usar seletors embutidos para sites simples (ex.: TheDrum profiles)
+            if site_name in LISTING_OVERRIDES:
+                cfg = LISTING_OVERRIDES[site_name]
+                try:
+                    rows = scrape_listing_from_selectors_override(cfg, base_url=cfg.get("url"), max_items=cfg.get("max_items", 10))
+                    for it in rows:
+                        all_rows.append({
+                            "site": site_name,
+                            "title": it.get("title","") or "",
+                            "link (source)": it.get("link","") or "",
+                            "pubDate": it.get("date","") or "",
+                            "description (short)": strip_html_short(it.get("description","") or "", max_len=300),
+                            "item_container": ic,
+                            "topic": "N/A"
+                        })
+                    # pulamos parsing do XML para este site (já adicionámos as linhas desejadas)
+                    continue
+                except Exception as e:
+                    print("Error scraping via LISTING_OVERRIDES for", site_name, ":", e)
+                    # se falhar, deixamos continuar para o parsing normal (fallback)
 
             # special: if mediapost, ignore the XML and scrape the listing page directly
             if site_name == "mediapost":
