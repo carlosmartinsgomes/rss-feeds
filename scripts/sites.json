@@ -384,7 +384,7 @@
     },
     {
       "name": "cyberscoop",
-      "url": "https://cyberscoop.com/",
+      "url": "https://cyberscoop.com/news/technology/",
       "item_container": "article, .story, .post",
       "title": "h1, h2 a, h3 a",
       "link": "h1 a@href, h2 a@href, h3 a@href, a[href*='/news/']@href",
@@ -395,7 +395,7 @@
     },
     {
       "name": "dzone",
-      "url": "https://dzone.com/list",
+      "url": "https://dzone.com/data-engineering",
       "item_container": "article, li, div",
       "title": "a, h2 a, h3 a",
       "link": "a@href",
