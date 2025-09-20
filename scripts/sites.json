@@ -191,7 +191,7 @@
     },
     {
       "name": "adage",
-      "url": "https://adage.com/",
+      "url": "https://adage.com/news/",
       "item_container": "article, li, div",
       "title": "a[data-testid=\"header-story-title\"] span, a[data-testid=\"header-story-title\"]",
       "link": "a[data-testid=\"header-story-title\"]@href, a[data-testid=\"header-story-title\"]",
