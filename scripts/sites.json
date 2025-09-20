@@ -222,7 +222,18 @@
     },
     {
       "name": "thedrum-adtech",
-      "url": "https://www.thedrum.com/topics/ad-tech",
+      "url": "https://www.thedrum.com/profile/the-trade-desk/featured",
+      "item_container": "article, li, div",
+      "title": "a, h2 a, h3 a",
+      "link": "a@href, h2 a@href",
+      "date": "time, .date",
+      "description": "p",
+      "render_file": "scripts/rendered/thedrum-adtech.html",
+      "filters": { "keywords": ["supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"] }
+    },
+    {
+      "name": "thedrum-adtech",
+      "url": "https://www.thedrum.com/profile/pubmatic/featured",
       "item_container": "article, li, div",
       "title": "a, h2 a, h3 a",
       "link": "a@href, h2 a@href",
@@ -380,7 +391,7 @@
       "date": "time, .published, .byline",
       "description": "article p, .excerpt, .summary",
       "render_file": "scripts/rendered/cyberscoop.html",
-      "filters": { "keywords": ["crwd","crowdstrike","rubrik","fortinet"] }
+      "filters": { "keywords": ["a","crwd","crowdstrike","rubrik","fortinet"] }
     },
     {
       "name": "dzone",
