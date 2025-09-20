@@ -17,9 +17,7 @@ from dateutil import tz as date_tz
 from urllib.parse import urljoin, urlparse
 
 # ---------------------------
-# LISTING OVERRIDES (pequeno mapa interno)
-# Sites simples que queremos raspar por selectors sem tocar no sites.json
-# keys = nome do ficheiro feed sem a extensão (ex.: feeds/thedrum-pubmatic.xml -> "thedrum-pubmatic")
+# LISTING OVERRIDES (substituir a versão anterior)
 # ---------------------------
 LISTING_OVERRIDES = {
     "thedrum-pubmatic": {
@@ -42,10 +40,14 @@ LISTING_OVERRIDES = {
     }
 }
 
+# ---------------------------
+# FUNÇÃO ROBUSTA PARA LISTINGS SIMPLES
+# Substitui a versão anterior scrape_listing_from_selectors_override
+# ---------------------------
 def scrape_listing_from_selectors_override(sel_cfg, base_url=None, max_items=10, timeout=10):
     """
-    Sel_cfg: dict com keys 'url','item','title','description','date','link'
-    Devolve: lista de dicts {title, link, date, description, source}
+    Extrai itens de páginas simples por selectors (robusto contra links de partilha).
+    Devolve lista de dicts {title, link, date, description, source}.
     """
     results = []
     try:
@@ -54,7 +56,6 @@ def scrape_listing_from_selectors_override(sel_cfg, base_url=None, max_items=10,
         r.raise_for_status()
         html = r.text
     except Exception as e:
-        # fetch falhou: devolve vazio
         print(f"scrape_listing_from_selectors_override: fetch failed for {sel_cfg.get('url')}: {e}")
         return results
 
@@ -66,46 +67,132 @@ def scrape_listing_from_selectors_override(sel_cfg, base_url=None, max_items=10,
             items = soup.select(item_sel)
         except Exception:
             items = []
-    # fallback razoável
     if not items:
         items = soup.select("article, li, div")
+
+    # helpers
+    def txt(el):
+        try:
+            return (el.get_text(" ", strip=True) if el else "").strip()
+        except Exception:
+            return ""
+
+    def is_bad_href(h):
+        if not h: return True
+        h = h.lower()
+        bad_patterns = [r'^#', r'^javascript:', r'^mailto:', r'facebook\.com', r'twitter\.com', r'reddit\.com',
+                        r'whatsapp', r'share', r'linkedin\.com', r'\/translate', r'googlesyndication', r'utm_']
+        for p in bad_patterns:
+            if p in h or re.search(p, h):
+                return True
+        return False
+
+    def choose_link_from_item(it, title_text, cfg_url):
+        # prefer anchor that contains title or anchor with relative href
+        anchors = [a for a in it.select('a[href]') if a and a.has_attr('href')]
+        # normalize
+        def href(a): return (a.get('href') or '').strip()
+        # 1) anchor that wraps the title element
+        try:
+            title_el = it.select_one(sel_cfg.get('title') or '')
+            if title_el:
+                a_wrap = title_el.find_parent('a')
+                if a_wrap and a_wrap.has_attr('href') and not is_bad_href(href(a_wrap)):
+                    return urljoin(cfg_url or base_url or '', href(a_wrap))
+        except Exception:
+            pass
+        # 2) anchor whose text contains a large chunk of title
+        if title_text:
+            sample = title_text.strip().split()[:6]
+            sample_s = " ".join(sample).lower()
+            for a in anchors:
+                h = href(a)
+                if not h or is_bad_href(h): continue
+                at = txt(a).lower()
+                if sample_s and sample_s in at:
+                    return urljoin(cfg_url or base_url or '', h)
+        # 3) prefer relative / same-domain hrefs (start with '/')
+        for a in anchors:
+            h = href(a)
+            if not h or is_bad_href(h): continue
+            if h.startswith('/'):
+                return urljoin(cfg_url or base_url or '', h)
+        # 4) prefer anchors with long text (likely headline)
+        for a in anchors:
+            h = href(a)
+            if not h or is_bad_href(h): continue
+            if len(txt(a)) >= 10:
+                return urljoin(cfg_url or base_url or '', h)
+        # 5) fallback: first non-blacklisted anchor
+        for a in anchors:
+            h = href(a)
+            if not h or is_bad_href(h): continue
+            return urljoin(cfg_url or base_url or '', h)
+        return ''
 
     seen = set()
     for it in items:
         if len(results) >= max_items:
             break
         try:
-            title_el = it.select_one(sel_cfg.get("title") or "a[href], h3, h2")
-            desc_el = it.select_one(sel_cfg.get("description") or "p, .excerpt, .summary")
+            title_el = it.select_one(sel_cfg.get("title") or "")
+            title = txt(title_el) if title_el else txt(it.select_one("h3,h2,a[title]")) or ""
+            # description: prefer explicit desc selector; se o selector == title selector, tentamos extrair texto extra do item
+            desc = ""
+            desc_sel = sel_cfg.get("description")
+            if desc_sel and desc_sel != sel_cfg.get("title"):
+                d_el = it.select_one(desc_sel)
+                desc = txt(d_el) if d_el else ""
+            else:
+                # se description selector == title selector, tirar texto do item menos o título (heurística)
+                try:
+                    clone = BeautifulSoup(str(it), "html.parser")
+                    # remove the title node(s)
+                    for rem in clone.select(sel_cfg.get("title") or ""):
+                        try:
+                            rem.decompose()
+                        except Exception:
+                            pass
+                    desc = " ".join(clone.get_text(" ", strip=True).split()).strip()
+                    # se desc contém título no início, retira-o
+                    if title and desc.lower().startswith(title.lower()):
+                        desc = desc[len(title):].strip()
+                except Exception:
+                    desc = ""
+            # date
             date_el = it.select_one(sel_cfg.get("date") or "time, .date, .meta, .byline")
-            link_el = it.select_one(sel_cfg.get("link") or "a[href]")
+            date = txt(date_el) if date_el else ""
 
-            # text extraction (fallbacks)
-            title = (title_el.get_text(" ", strip=True) if title_el else "").strip()
-            description = (desc_el.get_text(" ", strip=True) if desc_el else "").strip()
-            date = (date_el.get_text(" ", strip=True) if date_el else "").strip()
+            # link
             link = ""
-            if link_el and link_el.has_attr("href"):
-                link = urljoin(base_url or sel_cfg.get("url",""), link_el.get("href") or "")
-            if not link:
-                aany = it.select_one("a[href]")
-                if aany and aany.has_attr("href"):
-                    link = urljoin(base_url or sel_cfg.get("url",""), aany.get("href") or "")
+            try:
+                link = choose_link_from_item(it, title, sel_cfg.get("url"))
+            except Exception:
+                link = ""
 
+            # cleanup / skip bad items
             key = (link or title).rstrip('/').strip()
-            if not key or key in seen:
+            if not key:
                 continue
+            if key in seen:
+                continue
+            # quick sanity: skip anchors that are obviously social shares
+            if is_bad_href(link):
+                continue
+
             seen.add(key)
             results.append({
                 "title": title,
                 "link": link,
                 "date": date,
-                "description": description,
-                "source": sel_cfg.get("url") or sel_cfg.get("source", "")
+                "description": desc,
+                "source": sel_cfg.get("url") or ""
             })
         except Exception:
             continue
+
     return results
+
 
 
 
