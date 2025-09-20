@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3 
 # scripts/feeds_to_excel.py
 # Requisitos: feedparser, pandas, beautifulsoup4, openpyxl, python-dateutil, requests
 
@@ -15,186 +15,6 @@ from bs4 import BeautifulSoup
 from dateutil import parser as dateparser
 from dateutil import tz as date_tz
 from urllib.parse import urljoin, urlparse
-
-# ---------------------------
-# LISTING OVERRIDES (substituir a versão anterior)
-# ---------------------------
-LISTING_OVERRIDES = {
-    "thedrum-pubmatic": {
-        "url": "https://www.thedrum.com/profile/pubmatic/featured",
-        "item": ".td-company-profile__company-details__article-card",
-        "title": ".td-company-profile__company-details__article-card__wrapper__title",
-        "description": ".td-company-profile__company-details__article-card__wrapper__title",
-        "date": ".td-company-profile__company-details__article-card__wrapper__footer",
-        "link": "a[href]",
-        "max_items": 5
-    },
-    "thedrum-tradetdesk": {
-        "url": "https://www.thedrum.com/profile/the-trade-desk/featured",
-        "item": ".td-company-profile__company-details__article-card",
-        "title": ".td-company-profile__company-details__article-card__wrapper__title",
-        "description": ".td-company-profile__company-details__article-card__wrapper__title",
-        "date": ".td-company-profile__company-details__article-card__wrapper__footer",
-        "link": "a[href]",
-        "max_items": 5
-    }
-}
-
-# ---------------------------
-# FUNÇÃO ROBUSTA PARA LISTINGS SIMPLES
-# Substitui a versão anterior scrape_listing_from_selectors_override
-# ---------------------------
-def scrape_listing_from_selectors_override(sel_cfg, base_url=None, max_items=10, timeout=10):
-    """
-    Extrai itens de páginas simples por selectors (robusto contra links de partilha).
-    Devolve lista de dicts {title, link, date, description, source}.
-    """
-    results = []
-    try:
-        url = base_url or sel_cfg.get("url") or ""
-        r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=timeout)
-        r.raise_for_status()
-        html = r.text
-    except Exception as e:
-        print(f"scrape_listing_from_selectors_override: fetch failed for {sel_cfg.get('url')}: {e}")
-        return results
-
-    soup = BeautifulSoup(html, "html.parser")
-    item_sel = sel_cfg.get("item")
-    items = []
-    if item_sel:
-        try:
-            items = soup.select(item_sel)
-        except Exception:
-            items = []
-    if not items:
-        items = soup.select("article, li, div")
-
-    # helpers
-    def txt(el):
-        try:
-            return (el.get_text(" ", strip=True) if el else "").strip()
-        except Exception:
-            return ""
-
-    def is_bad_href(h):
-        if not h: return True
-        h = h.lower()
-        bad_patterns = [r'^#', r'^javascript:', r'^mailto:', r'facebook\.com', r'twitter\.com', r'reddit\.com',
-                        r'whatsapp', r'share', r'linkedin\.com', r'\/translate', r'googlesyndication', r'utm_']
-        for p in bad_patterns:
-            if p in h or re.search(p, h):
-                return True
-        return False
-
-    def choose_link_from_item(it, title_text, cfg_url):
-        # prefer anchor that contains title or anchor with relative href
-        anchors = [a for a in it.select('a[href]') if a and a.has_attr('href')]
-        # normalize
-        def href(a): return (a.get('href') or '').strip()
-        # 1) anchor that wraps the title element
-        try:
-            title_el = it.select_one(sel_cfg.get('title') or '')
-            if title_el:
-                a_wrap = title_el.find_parent('a')
-                if a_wrap and a_wrap.has_attr('href') and not is_bad_href(href(a_wrap)):
-                    return urljoin(cfg_url or base_url or '', href(a_wrap))
-        except Exception:
-            pass
-        # 2) anchor whose text contains a large chunk of title
-        if title_text:
-            sample = title_text.strip().split()[:6]
-            sample_s = " ".join(sample).lower()
-            for a in anchors:
-                h = href(a)
-                if not h or is_bad_href(h): continue
-                at = txt(a).lower()
-                if sample_s and sample_s in at:
-                    return urljoin(cfg_url or base_url or '', h)
-        # 3) prefer relative / same-domain hrefs (start with '/')
-        for a in anchors:
-            h = href(a)
-            if not h or is_bad_href(h): continue
-            if h.startswith('/'):
-                return urljoin(cfg_url or base_url or '', h)
-        # 4) prefer anchors with long text (likely headline)
-        for a in anchors:
-            h = href(a)
-            if not h or is_bad_href(h): continue
-            if len(txt(a)) >= 10:
-                return urljoin(cfg_url or base_url or '', h)
-        # 5) fallback: first non-blacklisted anchor
-        for a in anchors:
-            h = href(a)
-            if not h or is_bad_href(h): continue
-            return urljoin(cfg_url or base_url or '', h)
-        return ''
-
-    seen = set()
-    for it in items:
-        if len(results) >= max_items:
-            break
-        try:
-            title_el = it.select_one(sel_cfg.get("title") or "")
-            title = txt(title_el) if title_el else txt(it.select_one("h3,h2,a[title]")) or ""
-            # description: prefer explicit desc selector; se o selector == title selector, tentamos extrair texto extra do item
-            desc = ""
-            desc_sel = sel_cfg.get("description")
-            if desc_sel and desc_sel != sel_cfg.get("title"):
-                d_el = it.select_one(desc_sel)
-                desc = txt(d_el) if d_el else ""
-            else:
-                # se description selector == title selector, tirar texto do item menos o título (heurística)
-                try:
-                    clone = BeautifulSoup(str(it), "html.parser")
-                    # remove the title node(s)
-                    for rem in clone.select(sel_cfg.get("title") or ""):
-                        try:
-                            rem.decompose()
-                        except Exception:
-                            pass
-                    desc = " ".join(clone.get_text(" ", strip=True).split()).strip()
-                    # se desc contém título no início, retira-o
-                    if title and desc.lower().startswith(title.lower()):
-                        desc = desc[len(title):].strip()
-                except Exception:
-                    desc = ""
-            # date
-            date_el = it.select_one(sel_cfg.get("date") or "time, .date, .meta, .byline")
-            date = txt(date_el) if date_el else ""
-
-            # link
-            link = ""
-            try:
-                link = choose_link_from_item(it, title, sel_cfg.get("url"))
-            except Exception:
-                link = ""
-
-            # cleanup / skip bad items
-            key = (link or title).rstrip('/').strip()
-            if not key:
-                continue
-            if key in seen:
-                continue
-            # quick sanity: skip anchors that are obviously social shares
-            if is_bad_href(link):
-                continue
-
-            seen.add(key)
-            results.append({
-                "title": title,
-                "link": link,
-                "date": date,
-                "description": desc,
-                "source": sel_cfg.get("url") or ""
-            })
-        except Exception:
-            continue
-
-    return results
-
-
-
 
 # evitar UnknownTimezoneWarning do dateutil (mensagem do runner)
 try:
@@ -877,9 +697,12 @@ def scrape_modern_rendered(rendered_path, base_url="https://www.modernhealthcare
         })
     print(f"scrape_modern_rendered: found {len(out)} items from {rendered_path}")
     return out
+
 # ---------------------------
 # SCRAPER específico MEDIAPOST (novo)
+# (mantive o teu código mediapost tal como o tinhas)
 # ---------------------------
+
 def scrape_mediapost_listing(base_url="https://www.mediapost.com/news/", max_items=30, timeout=10):
     """
     Fetch the Mediapost /news/ page and return items list with fields:
@@ -1085,8 +908,6 @@ def scrape_mediapost_listing(base_url="https://www.mediapost.com/news/", max_ite
                 description = description.replace('\n', ' ').strip()
             if date:
                 date = date.replace('\n', ' ').strip()
-
-
 
             seen.add(canon)
             items.append({
@@ -1436,7 +1257,86 @@ def scrape_semiengineering_listing(rendered_path=None, base_url="https://semieng
 
     return out[:max_items]
 
+# ---------------------------
+# SCRAPER específico THE DRUM (profiles 'featured')
+# ---------------------------
 
+# Mapeamento: as chaves devem corresponder aos basenames dos ficheiros feeds/*.xml (sem .xml)
+THE_DRUM_PROFILE_URLS = {
+    "thedrum-pubmatic": "https://www.thedrum.com/profile/pubmatic/featured",
+    "thedrum-the-trade-desk": "https://www.thedrum.com/profile/the-trade-desk/featured",
+    # adiciona mais chaves conforme os teus ficheiros feeds/....xml
+}
+
+def scrape_thedrum_profile(base_url, max_items=5, timeout=10):
+    """
+    Fetch and parse a TheDrum profile 'featured' page and return up to max_items dicts:
+    {'title','link','date','description','source'}
+    Observações: a estrutura do TheDrum coloca o título/descrição na mesma div; usamos heurísticas
+    para extrair description, date e link.
+    """
+    try:
+        r = requests.get(base_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=timeout)
+        r.raise_for_status()
+        html = r.text
+    except Exception as e:
+        print("scrape_thedrum_profile: fetch failed:", e)
+        return []
+
+    soup = BeautifulSoup(html, "html.parser")
+
+    def txt(el):
+        try:
+            return (el.get_text(" ", strip=True) if el else "").strip()
+        except Exception:
+            return ""
+
+    def abs_url(href):
+        try:
+            return urljoin(base_url, (href or "").strip())
+        except Exception:
+            return (href or "").strip()
+
+    # selectors baseados no exemplo que forneceste
+    card_sel = ".td-company-profile__company-details__article-card"
+    wrapper_sel = ".td-company-profile__company-details__article-card__wrapper"
+    title_sel = ".td-company-profile__company-details__article-card__wrapper__title"
+    footer_sel = ".td-company-profile__company-details__article-card__wrapper__footer"
+
+    cards = []
+    for c in soup.select(card_sel):
+        w = c.select_one(wrapper_sel) or c
+        cards.append(w)
+    if not cards:
+        cards = soup.select(wrapper_sel)[:max_items]
+
+    items = []
+    seen = set()
+    for w in cards:
+        if len(items) >= max_items:
+            break
+        try:
+            desc_el = w.select_one(title_sel) or w
+            description = txt(desc_el)
+            date_el = w.select_one(footer_sel) or w.select_one("time, .meta, .post-date")
+            date = txt(date_el) if date_el else ""
+            a = w.select_one("a[href]") or w.find_parent("a")
+            if not a:
+                # try find anchor in parent card
+                parent_card = w.find_parent(class_=lambda x: x and "td-company-profile__company-details__article-card" in x)
+                if parent_card:
+                    a = parent_card.select_one("a[href]")
+            link = abs_url(a.get("href")) if a and a.has_attr("href") else ""
+            key = (link or description).rstrip("/").strip()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            title = description  # conforme conversámos: description também serve de title
+            items.append({"title": title or "", "link": link or "", "date": date or "", "description": description or "", "source": "thedrum-profile"})
+        except Exception:
+            continue
+
+    return items[:max_items]
 
 
 # ---------------------------
@@ -1476,26 +1376,27 @@ def main():
             site_name = os.path.splitext(base)[0]
             ic = site_item_map.get(site_name, "")
 
-            # --- listing overrides: usar seletors embutidos para sites simples (ex.: TheDrum profiles)
-            if site_name in LISTING_OVERRIDES:
-                cfg = LISTING_OVERRIDES[site_name]
+            # --- special: The Drum profile featured pages mapping
+            if site_name in THE_DRUM_PROFILE_URLS:
                 try:
-                    rows = scrape_listing_from_selectors_override(cfg, base_url=cfg.get("url"), max_items=cfg.get("max_items", 10))
-                    for it in rows:
+                    url = THE_DRUM_PROFILE_URLS[site_name]
+                    td_items = scrape_thedrum_profile(base_url=url, max_items=5, timeout=10)
+                    for it in td_items:
                         all_rows.append({
                             "site": site_name,
-                            "title": it.get("title","") or "",
-                            "link (source)": it.get("link","") or "",
-                            "pubDate": it.get("date","") or "",
-                            "description (short)": strip_html_short(it.get("description","") or "", max_len=300),
+                            "title": it.get("title", "") or "",
+                            "link (source)": it.get("link", "") or "",
+                            "pubDate": it.get("date", "") or "",
+                            "description (short)": strip_html_short(it.get("description", "") or "", max_len=300),
                             "item_container": ic,
                             "topic": "N/A"
                         })
-                    # pulamos parsing do XML para este site (já adicionámos as linhas desejadas)
+                    # skip XML parsing for this site (we already added rows)
+                    print(f"Added {len(td_items)} items for {site_name} (TheDrum profile scrape)")
                     continue
                 except Exception as e:
-                    print("Error scraping via LISTING_OVERRIDES for", site_name, ":", e)
-                    # se falhar, deixamos continuar para o parsing normal (fallback)
+                    print("Error scraping TheDrum profile for", site_name, ":", e)
+                    # fall through to XML parsing as fallback
 
             # special: if mediapost, ignore the XML and scrape the listing page directly
             if site_name == "mediapost":
