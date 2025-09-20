@@ -136,6 +136,51 @@ def find_date_from_xml_item(xml_soup, entry_title, entry_link):
                     return found
     return None
 
+# --- helper: detectar URLs / hosts dentro do ficheiro de feed (para acionar scrapers especiais) ---
+def detect_profile_url_in_feed_file(feedfile_path, host_substrings):
+    """
+    Tenta detectar uma URL do tipo 'profile' (ou um host) dentro do ficheiro de feed.
+    host_substrings: lista de substrings a procurar, ex: ['thedrum.com/profile', 'semiengineering.com']
+    Retorna a primeira URL encontrada (string absoluta) ou None.
+    """
+    # 1) tentar feedparser rápido
+    try:
+        parsed = feedparser.parse(feedfile_path)
+        # tentar feed.link
+        feed_link = getattr(parsed, 'feed', {}).get('link') if getattr(parsed, 'feed', None) else None
+        if feed_link:
+            for s in host_substrings:
+                if s in (feed_link or ''):
+                    return feed_link
+        # tentar primeira entry
+        entries = getattr(parsed, 'entries', None) or []
+        if entries:
+            first = entries[0]
+            for k in ('link','id','guid'):
+                v = first.get(k) if isinstance(first, dict) else None
+                if v:
+                    for s in host_substrings:
+                        if s in (v or ''):
+                            return v
+    except Exception:
+        pass
+
+    # 2) abrir ficheiro raw e procurar substrings / urls simples
+    try:
+        raw = open(feedfile_path, 'r', encoding='utf-8', errors='ignore').read()
+        # procura http(s) urls contendo as substrings
+        for s in host_substrings:
+            if s in raw:
+                # tentar extrair a primeira http... que contenha s
+                m = re.search(r'https?://[^"\'>\s]*' + re.escape(s.split(s.split('/')[-1])[-1]) + r'[^"\'>\s]*', raw)
+                if m:
+                    return m.group(0)
+                # fallback: devolver apenas a substring encontrada (o chamador pode normalizar)
+                return s
+    except Exception:
+        pass
+    return None
+
 
 def parse_feed_file_with_fallback(ff):
     """
@@ -1375,6 +1420,31 @@ def main():
             base = os.path.basename(ff)
             site_name = os.path.splitext(base)[0]
             ic = site_item_map.get(site_name, "")
+
+            # --- DETECÇÃO AUTOMÁTICA: procurar no feed uma URL/host que active um scraper especial ---
+            # mapeamento host_substring -> acção (pseudo)
+            try:
+                # detectar thedrum profile
+                thedrum_url = detect_profile_url_in_feed_file(ff, ['thedrum.com/profile', 'thedrum.com'])
+                if thedrum_url:
+                    try:
+                        td_items = scrape_thedrum_profile(base_url=thedrum_url, max_items=5, timeout=10)
+                        for it in td_items:
+                            all_rows.append({
+                                "site": site_name,
+                                "title": it.get("title", "") or "",
+                                "link (source)": it.get("link", "") or "",
+                                "pubDate": it.get("date", "") or "",
+                                "description (short)": strip_html_short(it.get("description", "") or "", max_len=300),
+                                "item_container": ic,
+                                "topic": "N/A"
+                            })
+                        print(f"Added {len(td_items)} items for {site_name} (TheDrum profile detected via feed content)")
+                        continue
+                    except Exception as e:
+                        print("Error scraping TheDrum profile for", site_name, "detected url:", thedrum_url, ":", e)
+            except Exception:
+                pass
 
             # --- special: The Drum profile featured pages mapping
             if site_name in THE_DRUM_PROFILE_URLS:
