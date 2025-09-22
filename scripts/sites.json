@@ -192,11 +192,10 @@
     {
       "name": "adage",
       "url": "https://adage.com/news/",
-      "item_container": "article, li, div",
-      "title": "a[data-testid=\"header-story-title\"] span, a[data-testid=\"header-story-title\"]",
-      "link": "a[data-testid=\"header-story-title\"]@href, a[data-testid=\"header-story-title\"]",
-      "date": "time, .date",
+      "item_container": "div.u-space-y-3.lg\\:u-max-w-\\[967px\\] > div", 
+      "title": "a > span.u-text-text-dark",
       "description": "p",
+      "date": "div.u-whitespace-nowrap",
       "render_file": "scripts/rendered/adage.html",
       "filters": { "keywords": ["a","supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"] }
     },
