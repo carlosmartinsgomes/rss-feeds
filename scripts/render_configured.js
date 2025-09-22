@@ -34,7 +34,7 @@ const allowedHosts = [
   'stocktwits.com',
   'journals.lww.com',
   'digiday.com',
-  'adage.com/news/',    // se quiseres adicionar mais, põe aqui
+  'adage.com',    // se quiseres adicionar mais, põe aqui
   'inmodeinvestors.com',
   'iotworldtoday.com',
   'businesswire.com'
