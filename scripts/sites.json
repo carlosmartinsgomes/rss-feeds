@@ -286,7 +286,7 @@
     },
     {
       "name": "admonsters",
-      "url": "https://admonsters.com/search-results/?search_sort=%7B%22field%22%3A%5B%22custom_fields.published_date%22%5D%2C%22order%22%3A%5B%22desc%22%5D%7D&search=trade%20desk",
+      "url": "https://admonsters.com/",
       "title": "h1 > a, article a > h2",
       "link": "a@href, h2 a@href",
       "date": "time, .date",
