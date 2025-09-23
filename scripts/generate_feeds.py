@@ -45,6 +45,11 @@ dateparser.parse = _parse_with_default_tzinfos
 ROOT = os.path.dirname(__file__)
 SITES_JSON = os.path.join(ROOT, 'sites.json')
 
+# If you want a global default truncation when max_items is not provided,
+# set DEFAULT_MAX_ITEMS to an integer (e.g. 50). If you want "no truncation"
+# by default, set to None (current behavior).
+DEFAULT_MAX_ITEMS = None
+
 # regex para filtrar hrefs inúteis (ajusta conforme necessário)
 _bad_href_re = re.compile(r'(^#|/help|/legal|cookie|privacy|terms|signin|login|settings|/consent|/preferences|/policies|mailto:)', re.I)
 
@@ -251,9 +256,9 @@ def extract_items_from_html(html, cfg):
                     except Exception:
                         el = None
                     if el:
-                        txt = el.get_text(strip=True)
-                        if txt:
-                            return txt
+                        txtv = el.get_text(strip=True)
+                        if txtv:
+                            return txtv
                 return None
 
             # 1) try node itself
@@ -476,6 +481,29 @@ def main():
 
         # dedupe
         deduped = dedupe_items(matched)
+
+        # --- respect max_items setting from sites.json (if present) ---
+        try:
+            max_items_cfg = cfg.get('max_items', None)
+            max_items = None
+            if max_items_cfg is not None:
+                try:
+                    max_items = int(max_items_cfg)
+                except Exception:
+                    max_items = None
+            # if global default provided and no site-level setting, use it
+            if max_items is None and DEFAULT_MAX_ITEMS is not None:
+                try:
+                    max_items = int(DEFAULT_MAX_ITEMS)
+                except Exception:
+                    max_items = None
+            if isinstance(max_items, int) and max_items > 0 and len(deduped) > max_items:
+                print(f'Truncating items for {name} to max_items={max_items}')
+                deduped = deduped[:max_items]
+        except Exception:
+            # on any error, fall back to using full deduped list
+            pass
+        # --- end max_items handling ---
 
         # write feed
         build_feed(name, cfg, deduped)
