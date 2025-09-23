@@ -1632,9 +1632,32 @@ def main():
                     # fall through to XML parsing fallback
 
 
-            
             # otherwise, behavior unchanged
             rows = parse_feed_file_with_fallback(ff)
+
+            # ------------------ DEBUG BLOCK (inspect rows returned from parse_feed_file_with_fallback) ------------------
+            try:
+                print(f"PARSING FEEDS_TO_EXCEL DEBUG -> file={ff} | site={site_name} | rows_returned={len(rows)}")
+                # file existence check
+                try:
+                    exists = os.path.exists(ff)
+                except Exception:
+                    exists = False
+                print(f"  feed file exists on disk: {exists}")
+                # sample up to first 6 rows
+                for i, rr in enumerate(rows[:6]):
+                    try:
+                        tt = (rr.get('title') or '')[:140]
+                        lk = rr.get('link (source)') or rr.get('link') or rr.get('link (source)') or rr.get('link') or ''
+                        pd = rr.get('pubDate') or rr.get('date') or ''
+                        ds = (rr.get('description (short)') or rr.get('description') or rr.get('description',''))[:200]
+                        print(f"  row[{i}] title={tt!r} link={lk!r} pubDate={pd!r} desc_preview={ds!r}")
+                    except Exception:
+                        print(f"  row[{i}] <error reading sample>")
+            except Exception as _:
+                pass
+            # ------------------ END DEBUG BLOCK -------------------------------------------------------------------------
+
             for r in rows:
                 r["item_container"] = ic
                 all_rows.append(r)
