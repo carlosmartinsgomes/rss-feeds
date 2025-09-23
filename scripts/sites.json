@@ -245,7 +245,7 @@
       "name": "digiday",
       "url": "https://digiday.com/",
       "item_container": "ul.news-list li, .flex-container .news-content, .block-text, .home-featured, .news-list .news-content",
-      "title": "a.link, h4 a.title, a.title, h4 a, .news-content a.title, a",
+      "title": "a.link, h4 a.title, a.title, div.big-part ul li a.title, h4 a, .news-content a.title, a",
       "link": "a.link@href, h4 a.title@href, a.title@href, a@href",
       "date": ".article-info .date, span.date, .date, time, .timestamp",
       "description": ".news-content p, .block-text p, .excerpt, .dek, p",
