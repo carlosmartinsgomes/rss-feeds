@@ -1420,12 +1420,14 @@ def main():
             base = os.path.basename(ff)
             site_name = os.path.splitext(base)[0]
             ic = site_item_map.get(site_name, "")
-
+    
             # --- DETECÇÃO AUTOMÁTICA ROBUSTA: procurar TheDrum profile/url dentro do feed ---
             try:
                 td_url = None
+    
                 # 1) tentar detectar via helper existente
                 td_url = detect_profile_url_in_feed_file(ff, ['thedrum.com/profile', 'thedrum.com'])
+    
                 # 2) se nada, tentar inspecionar entradas do feed (feedparser) procurando /profile/
                 if not td_url:
                     try:
@@ -1438,7 +1440,7 @@ def main():
                                 break
                     except Exception:
                         td_url = None
-
+    
                 # 3) normalizar / extrair slug e garantir /featured
                 profile_base = None
                 if td_url:
@@ -1457,12 +1459,12 @@ def main():
                             slug_guess = site_name.replace('_','-').replace(' ','-').strip('-')
                             if slug_guess and len(slug_guess) > 2:
                                 profile_base = f"https://www.thedrum.com/profile/{slug_guess}"
-
+    
                 # assegurar /featured ao fim
                 if profile_base:
                     if not profile_base.endswith('/featured'):
                         profile_base = profile_base.rstrip('/') + '/featured'
-
+    
                     # chamar scraper TheDrum com a URL normalizada
                     try:
                         td_items = scrape_thedrum_profile(base_url=profile_base, max_items=5, timeout=10)
@@ -1478,13 +1480,13 @@ def main():
                                     "topic": "N/A"
                                 })
                             print(f"Added {len(td_items)} items for {site_name} (TheDrum profile detected: {profile_base})")
-                            continue  # saltar parsing XML para este feed
+                            # saltar parsing XML para este feed
+                            continue
                     except Exception as e:
                         print("Error scraping TheDrum profile for", site_name, "url:", profile_base, ":", e)
             except Exception:
                 pass
-
-
+    
             # --- special: The Drum profile featured pages mapping
             if site_name in THE_DRUM_PROFILE_URLS:
                 try:
@@ -1506,22 +1508,22 @@ def main():
                 except Exception as e:
                     print("Error scraping TheDrum profile for", site_name, ":", e)
                     # fall through to XML parsing as fallback
-
-            # special: if mediapost, ignore the XML and scrape the listing page directly
+    
+            # --- special: mediapost (scrape listing page directly) ---
             if site_name == "mediapost":
                 try:
                     mp_items = scrape_mediapost_listing(base_url="https://www.mediapost.com/news/", max_items=30)
                     for it in mp_items:
-                        t = it.get('title','').strip()
-                        link = it.get('link','').strip()
+                        t = it.get('title', '').strip()
+                        link = it.get('link', '').strip()
                         if not t or t.lower() in ("no title", "return to homepage", "category"):
                             continue
                         all_rows.append({
                             "site": site_name,
                             "title": t,
                             "link (source)": link,
-                            "pubDate": it.get('date',''),
-                            "description (short)": strip_html_short(it.get('description',''), max_len=300),
+                            "pubDate": it.get('date', ''),
+                            "description (short)": strip_html_short(it.get('description', ''), max_len=300),
                             "item_container": ic,
                             "topic": "N/A"
                         })
@@ -1529,9 +1531,9 @@ def main():
                     continue
                 except Exception as e:
                     print("Error scraping mediapost listing:", e)
-                    # fall through to XML parsing as fallback    
-
-            # special: modernhealthcare - prefer rendered HTML (if present)
+                    # fall through to XML parsing as fallback
+    
+            # --- special: modernhealthcare - prefer rendered HTML (if present) ---
             if site_name == "modernhealthcare":
                 rendered_path = os.path.join('scripts', 'rendered', 'modernhealthcare.html')
                 try:
@@ -1557,8 +1559,8 @@ def main():
                 except Exception as e:
                     print("Error scraping modernhealthcare rendered html (per-file):", e)
                     # fallthrough to XML parsing fallback below
-
-            # special: medtechdive homepage (hero)
+    
+            # --- special: medtechdive homepage (hero) ---
             if site_name == "medtechdive":
                 med_items = scrape_medtech_home(base_url="https://www.medtechdive.com/", timeout=10)
                 for it in med_items:
@@ -1573,8 +1575,8 @@ def main():
                     })
                 print(f"Added {len(med_items)} medtechdive (home hero) items")
                 continue
-
-            # special: medtechdive topic medical-devices (first 7)
+    
+            # --- special: medtechdive topic medical-devices (first 7) ---
             if site_name == "medtechdive-devices":
                 med_items = scrape_medtech_topic(base_url="https://www.medtechdive.com/topic/medical-devices/", max_items=7, timeout=10)
                 for it in med_items:
@@ -1589,8 +1591,8 @@ def main():
                     })
                 print(f"Added {len(med_items)} medtechdive-devices items")
                 continue
-
-            # special: if mobihealthnews, ignore the XML entries and build rows directly
+    
+            # --- special: mobihealthnews (scraped live) ---
             if site_name == "mobihealthnews":
                 mobi_items = scrape_mobihealth_listing(base_url="https://www.mobihealthnews.com/", max_items=11, timeout=10)
                 for it in mobi_items:
@@ -1606,7 +1608,8 @@ def main():
                     all_rows.append(rows)
                 print(f"Added {len(mobi_items)} mobihealthnews items (scraped live)")
                 continue
-            # special: semiengineering -> use page scraper (rendered if available, else live fetch)
+    
+            # --- special: semiengineering -> use page scraper (rendered if available, else live fetch) ---
             if site_name == "semiengineering":
                 try:
                     rendered_path = os.path.join('scripts', 'rendered', 'semiengineering.html')
@@ -1630,48 +1633,24 @@ def main():
                 except Exception as e:
                     print("Error scraping semiengineering:", e)
                     # fall through to XML parsing fallback
-
-
-            # otherwise, behavior unchanged
+    
+            # --- otherwise, behavior unchanged: parse feed XML with fallback ---
             rows = parse_feed_file_with_fallback(ff)
-
-            # ------------------ DEBUG BLOCK (inspect rows returned from parse_feed_file_with_fallback) ------------------
-            try:
-                print(f"PARSING FEEDS_TO_EXCEL DEBUG -> file={ff} | site={site_name} | rows_returned={len(rows)}")
-                # file existence check
-                try:
-                    exists = os.path.exists(ff)
-                except Exception:
-                    exists = False
-                print(f"  feed file exists on disk: {exists}")
-                # sample up to first 6 rows
-                for i, rr in enumerate(rows[:6]):
-                    try:
-                        tt = (rr.get('title') or '')[:140]
-                        lk = rr.get('link (source)') or rr.get('link') or rr.get('link (source)') or rr.get('link') or ''
-                        pd = rr.get('pubDate') or rr.get('date') or ''
-                        ds = (rr.get('description (short)') or rr.get('description') or rr.get('description',''))[:200]
-                        print(f"  row[{i}] title={tt!r} link={lk!r} pubDate={pd!r} desc_preview={ds!r}")
-                    except Exception:
-                        print(f"  row[{i}] <error reading sample>")
-            except Exception as _:
-                pass
-            # ------------------ END DEBUG BLOCK -------------------------------------------------------------------------
-
             for r in rows:
                 r["item_container"] = ic
                 all_rows.append(r)
-
+    
         except Exception as exc:
             print("Error parsing feed", ff, ":", exc)
-
+    
+    # finalizar e gravar (fora do loop)
     if not all_rows:
         print("No items found across feeds.")
     cols = ["site", "title", "link (source)", "pubDate", "description (short)", "item_container", "topic"]
     df = pd.DataFrame(all_rows, columns=cols)
     df.to_excel(OUT_XLSX, index=False)
     print(f"Wrote {OUT_XLSX} ({len(df)} rows)")
-
-
-if __name__ == "__main__":
-    main()
+    
+    if __name__ == "__main__":
+        main()
+    
