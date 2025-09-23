@@ -197,7 +197,7 @@
       "description": "p",
       "date": "div.u-whitespace-nowrap",
       "render_file": "scripts/rendered/adage.html",
-      "max_items": 50,
+      "max_items": 200,
       "filters": { "keywords": ["a","supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"] }
     },
     {
@@ -294,7 +294,6 @@
       "date": "",
       "description": "#grid-first-post-copy > article > div > p",
       "render_file": "scripts/rendered/admonsters.html",
-      "max_items": 25,
       "filters": { "keywords": ["a","supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"] }
     },
     {
