@@ -192,12 +192,12 @@
     {
       "name": "adage",
       "url": "https://adage.com/news/", 
-      "title": "a > span.u-text-text-dark",
       "item_container": "#main-content > div.u-mx-0.u-mb-8 > div > div.u-space-y-3.lg\\:u-max-w-\\[967px\\] > div",
+      "title": "a > span.u-text-text-dark",
       "description": "p",
       "date": "div.u-whitespace-nowrap",
       "render_file": "scripts/rendered/adage.html",
-      "max_items": 200,
+      "max_items": 2000,
       "filters": { "keywords": ["a","supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"] }
     },
     {
@@ -289,7 +289,7 @@
       "name": "admonsters",
       "url": "https://admonsters.com/",
       "item_container": "#grid-first-post-copy, #grid-second-post, #hdr_hmpg_right-side > div",
-      "title": "#grid-first-post-copy > article > div > h1 > a,#grid-second-post > article > a > h2,#hdr_hmpg_right-side > div:nth-child(1) > div:nth-child(1) > article > a > h2",
+      "title": "#grid-first-post-copy > article > div > h1 > a, #grid-second-post > article > a > h2, #hdr_hmpg_right-side > div:nth-child(1) > div:nth-child(1) > article > a > h2, #hdr_hmpg_right-side > div:nth-child(1) > div:nth-child(2) > article > a > h2, #hdr_hmpg_right-side > div:nth-child(1) > div:nth-child(3) > article > a > h2",
       "link": "a@href, h2 a@href",
       "date": "",
       "description": "#grid-first-post-copy > article > div > p",
