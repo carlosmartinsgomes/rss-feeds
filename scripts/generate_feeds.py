@@ -201,7 +201,11 @@ def extract_items_from_html(html, cfg):
                 except Exception:
                     pass
 
-            # Description extraction
+            # -------------------------
+            # Description extraction (robusta + filtro de anúncios)
+            # -------------------------
+            desc = ''
+            desc_el = None
             if desc_sel:
                 for s in [t.strip() for t in desc_sel.split(',')]:
                     try:
@@ -209,12 +213,60 @@ def extract_items_from_html(html, cfg):
                     except Exception:
                         el = None
                     if el:
+                        desc_el = el
                         desc = el.get_text(" ", strip=True)
                         break
             else:
                 p = node.find('p')
                 if p:
+                    desc_el = p
                     desc = p.get_text(" ", strip=True)
+
+            # função auxiliar para detectar "ad-like" content
+            def _looks_like_ad_text(text, el):
+                if not text:
+                    return False
+                # texto típico de ads ou UI de "close"
+                if re.search(r'\b(advert|advertis|sponsored|promoted|promo|sponsored content|sponsor|click here|learn more)\b', text, re.I):
+                    return True
+                # elementos com classes que sugerem ad/slot
+                try:
+                    if el:
+                        cls = " ".join(el.get('class') or [])
+                        if re.search(r'\b(ad|advert|advertisement|adslot|ad-banner|dfp|sponsored)\b', cls, re.I):
+                            return True
+                        # se o próprio elemento tem botão "close" ou símbolo ×/x
+                        if el.find(lambda t: getattr(t, 'name', None) and (t.get_text(strip=True) == '×' or t.get_text(strip=True).lower() == 'close')):
+                            return True
+                except Exception:
+                    pass
+                # pequenas strings só com 'x' / 'close' / língua UI
+                if re.match(r'^[×xX\-\|]{1,3}$', text.strip()):
+                    return True
+                if re.match(r'^\s*(close|fechar|cerrar)\s*$', text.strip(), re.I):
+                    return True
+                return False
+
+            # limpar se parecer ad
+            if desc and _looks_like_ad_text(desc, desc_el):
+                # tenta fallback: procurar parágrafo anterior/seguinte dentro do node
+                alt = ''
+                try:
+                    if desc_el is not None:
+                        prevp = desc_el.find_previous('p')
+                        if prevp:
+                            alt = prevp.get_text(" ", strip=True)
+                        if not alt:
+                            nextp = desc_el.find_next('p')
+                            if nextp:
+                                alt = nextp.get_text(" ", strip=True)
+                except Exception:
+                    alt = ''
+                if alt and not _looks_like_ad_text(alt, None):
+                    desc = alt
+                else:
+                    desc = ''
+
 
             # If desc == title, try to obtain a better description (fallbacks)
             if desc and title and desc.strip() == title.strip():
