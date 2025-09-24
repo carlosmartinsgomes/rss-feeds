@@ -42,6 +42,29 @@ jobs:
           exit ${PIPESTATUS[0]}
         shell: bash
 
+      - name: List feeds dir (debug)
+        run: |
+          echo "=== Listing feeds/*.xml in workspace ==="
+          ls -la "${{ github.workspace }}/feeds" || true
+
+      - name: Show first lines of each feed (debug)
+        run: |
+          sh -c 'for f in "${{ github.workspace }}/feeds"/*.xml; do
+            if [ -f "$f" ]; then
+              echo "---- $f ----"
+              head -n 20 "$f" || true
+            fi
+          done'
+
+      - name: Upload feeds XMLs (artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: feeds-xml-${{ github.run_id }}-${{ github.run_number }}
+          path: feeds/*.xml
+          if-no-files-found: warn
+          retention-days: 7
+  
+
       - name: Install tiny extras for Excel export
         run: |
           python -m pip install --upgrade pip
