@@ -396,7 +396,7 @@
     },
     {
       "name": "dzone",
-      "url": "https://dzone.com/data-engineering",
+      "url": "https://dzone.com/list",
       "item_container": "article, li, div",
       "title": "a, h2 a, h3 a",
       "link": "a@href",
