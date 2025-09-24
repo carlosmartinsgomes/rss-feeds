@@ -20,7 +20,7 @@
       "date": "time, .timestamp, .published",
       "description": "article p, .dek, .summary",
       "render_file": "scripts/rendered/darkreading.html",
-      "filters": { "keywords": ["a","rbrk","rubrik","crwd","crowdstrike"] }
+      "filters": { "keywords": ["a","rbrk","rubrik","crwd","crowdstrike","fortinet", "gitlab"] }
     },
     {
       "name": "edsurge",
