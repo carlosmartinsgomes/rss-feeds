@@ -403,7 +403,7 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/dzone.html",
-      "filters": { "keywords": ["ddog","datadog"] }
+      "filters": { "keywords": ["a","ddog","datadog"] }
     },
     {
       "name": "infoq-feed",
