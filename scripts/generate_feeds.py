@@ -399,24 +399,51 @@ def matches_filters_debug(item, cfg):
 # ---- helper: dedupe lista de items (mantem a primeira aparição) ----
 def dedupe_items(items):
     """
-    Remove duplicados por link normalizado (mantem a primeira ocorrencia).
-    items: lista de dicts com keys 'link' e 'title' (ou similares).
-    Retorna lista preservando ordem de aparicao.
+    Remove duplicados preservando a primeira aparição.
+    Ajuste: se o link parecer um 'section page' (path curto, sem slug),
+    usa título como fallback para a chave de dedupe, evitando perder artigos.
     """
+    from urllib.parse import urlparse
+
+    def looks_like_section_link(href):
+        if not href:
+            return True
+        try:
+            p = urlparse(href)
+            path = (p.path or "").strip('/')
+            # se path vazio -> homepage, se apenas 1 segmento e sem '-' -> possivelmente secção
+            if not path:
+                return True
+            parts = [seg for seg in path.split('/') if seg]
+            # heurística: artigos tendem a ter slug com '-' ou mais de 1 segmento
+            if len(parts) <= 1 and (not parts[0] or '-' not in parts[0]):
+                return True
+            return False
+        except Exception:
+            return True
+
     unique = {}
     out = []
     for it in (items or []):
-        key = normalize_link_for_dedupe(it.get('link') or '')
+        raw_link = it.get('link') or ''
+        norm_link = normalize_link_for_dedupe(raw_link)
+        key = None
+        if norm_link and not looks_like_section_link(norm_link):
+            key = norm_link
+        else:
+            # fallback para título quando link não parece artigo
+            title = (it.get('title', '') or '').strip().lower()[:200]
+            if title:
+                key = f"title:{title}"
+            else:
+                key = f"__no_key__{len(out)}"
         if not key:
-            # fallback para título curto
-            key = (it.get('title', '') or '').strip().lower()[:200]
-        if not key:
-            # sem chave válida: gera um placeholder incremental
             key = f"__no_key__{len(out)}"
         if key not in unique:
             unique[key] = True
             out.append(it)
     return out
+
 
 
 def build_feed(name, cfg, items):
