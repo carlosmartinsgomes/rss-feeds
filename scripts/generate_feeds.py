@@ -191,15 +191,32 @@ def extract_items_from_html(html, cfg):
                         link = urljoin(cfg.get('url', ''), candidate)
 
             # if link still empty, try to find any anchor in node but avoid bad hrefs
+            # Link extraction (heuristic fallback improvement)
             if not link:
                 try:
+                    # prefer anchors that include '-' in the path (likely article slugs)
                     for a in node.find_all('a', href=True):
                         h = a.get('href') or ''
-                        if h and not _bad_href_re.search(h):
-                            link = urljoin(cfg.get('url', ''), h)
-                            break
+                        if _bad_href_re.search(h):
+                            continue
+                        # normalize then check if href path looks like an article (contains hyphen)
+                        try:
+                            p = urlparse(h)
+                            if '-' in (p.path or ''):
+                                link = urljoin(cfg.get('url', ''), h)
+                                break
+                        except Exception:
+                            continue
+                    # last fallback: first anchor (only if none matched above)
+                    if not link:
+                        for a in node.find_all('a', href=True):
+                            h = a.get('href') or ''
+                            if h and not _bad_href_re.search(h):
+                                link = urljoin(cfg.get('url', ''), h)
+                                break
                 except Exception:
                     pass
+
 
             # -------------------------
             # Description extraction (robusta + filtro de anúncios)
