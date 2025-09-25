@@ -45,6 +45,11 @@ dateparser.parse = _parse_with_default_tzinfos
 ROOT = os.path.dirname(__file__)
 SITES_JSON = os.path.join(ROOT, 'sites.json')
 
+# If you want a global default truncation when max_items is not provided,
+# set DEFAULT_MAX_ITEMS to an integer (e.g. 50). If you want "no truncation"
+# by default, set to None (current behavior).
+DEFAULT_MAX_ITEMS = None
+
 # regex para filtrar hrefs inúteis (ajusta conforme necessário)
 _bad_href_re = re.compile(r'(^#|/help|/legal|cookie|privacy|terms|signin|login|settings|/consent|/preferences|/policies|mailto:)', re.I)
 
@@ -196,7 +201,11 @@ def extract_items_from_html(html, cfg):
                 except Exception:
                     pass
 
-            # Description extraction
+            # -------------------------
+            # Description extraction (robusta + filtro de anúncios)
+            # -------------------------
+            desc = ''
+            desc_el = None
             if desc_sel:
                 for s in [t.strip() for t in desc_sel.split(',')]:
                     try:
@@ -204,12 +213,60 @@ def extract_items_from_html(html, cfg):
                     except Exception:
                         el = None
                     if el:
+                        desc_el = el
                         desc = el.get_text(" ", strip=True)
                         break
             else:
                 p = node.find('p')
                 if p:
+                    desc_el = p
                     desc = p.get_text(" ", strip=True)
+
+            # função auxiliar para detectar "ad-like" content
+            def _looks_like_ad_text(text, el):
+                if not text:
+                    return False
+                # texto típico de ads ou UI de "close"
+                if re.search(r'\b(advert|advertis|sponsored|promoted|promo|sponsored content|sponsor|click here|learn more)\b', text, re.I):
+                    return True
+                # elementos com classes que sugerem ad/slot
+                try:
+                    if el:
+                        cls = " ".join(el.get('class') or [])
+                        if re.search(r'\b(ad|advert|advertisement|adslot|ad-banner|dfp|sponsored)\b', cls, re.I):
+                            return True
+                        # se o próprio elemento tem botão "close" ou símbolo ×/x
+                        if el.find(lambda t: getattr(t, 'name', None) and (t.get_text(strip=True) == '×' or t.get_text(strip=True).lower() == 'close')):
+                            return True
+                except Exception:
+                    pass
+                # pequenas strings só com 'x' / 'close' / língua UI
+                if re.match(r'^[×xX\-\|]{1,3}$', text.strip()):
+                    return True
+                if re.match(r'^\s*(close|fechar|cerrar)\s*$', text.strip(), re.I):
+                    return True
+                return False
+
+            # limpar se parecer ad
+            if desc and _looks_like_ad_text(desc, desc_el):
+                # tenta fallback: procurar parágrafo anterior/seguinte dentro do node
+                alt = ''
+                try:
+                    if desc_el is not None:
+                        prevp = desc_el.find_previous('p')
+                        if prevp:
+                            alt = prevp.get_text(" ", strip=True)
+                        if not alt:
+                            nextp = desc_el.find_next('p')
+                            if nextp:
+                                alt = nextp.get_text(" ", strip=True)
+                except Exception:
+                    alt = ''
+                if alt and not _looks_like_ad_text(alt, None):
+                    desc = alt
+                else:
+                    desc = ''
+
 
             # If desc == title, try to obtain a better description (fallbacks)
             if desc and title and desc.strip() == title.strip():
@@ -251,9 +308,9 @@ def extract_items_from_html(html, cfg):
                     except Exception:
                         el = None
                     if el:
-                        txt = el.get_text(strip=True)
-                        if txt:
-                            return txt
+                        txtv = el.get_text(strip=True)
+                        if txtv:
+                            return txtv
                 return None
 
             # 1) try node itself
@@ -476,6 +533,29 @@ def main():
 
         # dedupe
         deduped = dedupe_items(matched)
+
+        # --- respect max_items setting from sites.json (if present) ---
+        try:
+            max_items_cfg = cfg.get('max_items', None)
+            max_items = None
+            if max_items_cfg is not None:
+                try:
+                    max_items = int(max_items_cfg)
+                except Exception:
+                    max_items = None
+            # if global default provided and no site-level setting, use it
+            if max_items is None and DEFAULT_MAX_ITEMS is not None:
+                try:
+                    max_items = int(DEFAULT_MAX_ITEMS)
+                except Exception:
+                    max_items = None
+            if isinstance(max_items, int) and max_items > 0 and len(deduped) > max_items:
+                print(f'Truncating items for {name} to max_items={max_items}')
+                deduped = deduped[:max_items]
+        except Exception:
+            # on any error, fall back to using full deduped list
+            pass
+        # --- end max_items handling ---
 
         # write feed
         build_feed(name, cfg, deduped)
