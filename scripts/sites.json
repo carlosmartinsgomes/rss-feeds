@@ -245,13 +245,13 @@
     {
     "name": "digiday",
     "url": "https://digiday.com/",
-    "item_container": "div.big-part ul li, #main > div.sidebar-section > div > div > div.big-part > ul > li, ul.news-list li, .news-list li, .home-featured li",
-    "title": "a.title, .flex-holder a.title, a[title], h2 a, h3 a, h4 a.title, a.link, a",
-    "link": "a.title@href, a.link@href, h4 a.title@href, a@href",
-    "date": ".article-info .date, span.date, .date, time, .timestamp",
-    "description": ".news-content p, .block-text p, .excerpt, .dek, p",
+    "item_container": "div.big-part ul li, ul.news-list li, .news-list li, .home-featured li, #latest_stories > div > div.flex-container > div, #latest_stories > div > div.flex-container > div > div, #latest_stories > div > div",
+    "title": "a#home-featured-block, a.title, .flex-holder a.title, h4 a.title, h4 a, a[title], h2 a, h3 a, a.link, a",
+    "link": "a#home-featured-block@href, a.title@href, a.link@href, h4 a@href, a@href",
+    "date": ".article-info .date, span.date, .date, time, .timestamp, .meta .date",
+    "description": ".news-content p, .excerpt, .dek, p",
     "render_file": "scripts/rendered/digiday.html",
-    "max_items": 2000,
+    "max_items": 200,
     "filters": {
       "keywords": ["a","supply path optimization","connected tv","ctv","programmatic","the trade desk","ttd"],
       "exclude": ["sponsored","promo","ad","advertise","advertisement"] }
