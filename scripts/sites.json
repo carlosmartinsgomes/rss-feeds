@@ -24,7 +24,7 @@
     },
     {
       "name": "edsurge",
-      "url": "https://www.edsurge.com",
+      "url": "https://www.edsurge.com/news",
       "item_container": "article, .post, li",
       "title": "h1, h2 a, h3 a",
       "link": "h2 a@href, a@href",
