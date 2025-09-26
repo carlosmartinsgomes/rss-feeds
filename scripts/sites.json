@@ -14,13 +14,13 @@
     {
       "name": "darkreading",
       "url": "https://www.darkreading.com/latest-news",
-      "item_container": ".ContentPreview.ListContent-Content.ListContent-Content_featured > div, .ListContent-Content.ListContent-Content_latest > div, .ListPreview-Container .ListPreview-ContentWrapper, .ListPreview-ContentWrapper, .ListContent-Content .ContentCard-Body",
-      "title": "a.ArticlePreview-Title, a.ContentCard-Title, a.ListPreview-Title, a[data-testid='preview-default-title'], a[title], a",
-      "link": "a.ArticlePreview-Title@href, a.ContentCard-Title@href, a.ListPreview-Title@href, a@href",
-      "date": "span.ArticlePreview-Date, span.ContentCard-Date, .ListPreview-Date, .ArticlePreview-Footer span, .ContentCard-Footer span, time",
-      "description": "p.ArticlePreview-Summary, .ArticlePreview-Summary, .excerpt, p",
-      "max_items": 300,
+      "item_container": "div.ContentPreview, div.ListPreview-ContentWrapper, div.ListContent-Content, div.ArticlePreview-Body, div.ContentCard-Body",
+      "title": "a.ArticlePreview-Title, a.ContentCard-Title, a.ListPreview-Title, h4 a, h3 a",
+      "link": "a.ArticlePreview-Title@href, a.ContentCard-Title@href, a@href",
+      "date": "span.ArticlePreview-Date, span.ContentCard-Date, span.ListPreview-Date, .ListPreview-Date",
+      "description": "p.ArticlePreview-Summary, .ArticlePreview-Summary",
       "render_file": "scripts/rendered/darkreading.html",
+      "max_items": 300,
       "filters": { "keywords": ["a","rbrk","rubrik","crwd","crowdstrike","fortinet", "gitlab"] }
     },
     {
@@ -36,11 +36,11 @@
     {
       "name": "datacenterknowledge",
       "url": "https://www.datacenterknowledge.com/latest-news",
-      "item_container": ".ContentPreview.ListContent-Content.ListContent-Content_featured > div, .ListContent-Content.ListContent-Content_latest > div, .ListPreview-Container .ListPreview-ContentWrapper, .ListContent-Content .ContentCard-Body",
-      "title": "a.ArticlePreview-Title, a.ContentCard-Title, a.ListPreview-Title, a[data-testid='preview-default-title'], a[title], a",
-      "link": "a.ArticlePreview-Title@href, a.ContentCard-Title@href, a.ListPreview-Title@href, a@href",
-      "date": "span.ArticlePreview-Date, span.ContentCard-Date, .ArticlePreview-Footer span, .ContentCard-Footer span, time",
-      "description": "p.ArticlePreview-Summary, .ArticlePreview-Summary, .excerpt, p",
+      "item_container": "div.ContentPreview, div.ListContent-Content, div.ListPreview-ContentWrapper, div.ContentCard-Body",
+      "title": "a.ArticlePreview-Title, a.ContentCard-Title, a.ListPreview-Title, h4 a",
+      "link": "a.ArticlePreview-Title@href, a.ContentCard-Title@href, a@href",
+      "date": "span.ArticlePreview-Date, span.ContentCard-Date, .ListPreview-Date",
+      "description": "p.ArticlePreview-Summary, .ArticlePreview-Summary",
       "max_items": 200,
       "filters": { "keywords": ["a","anet","arista"] }
     },
@@ -401,13 +401,13 @@
     {
       "name": "dzone",
       "url": "https://dzone.com/list",
-      "item_container": "#ftl-tagging div.article-block, div.article-block, .media-list .article-block",
-      "title": "a[id^='title--articles-'], a.article-title, a.article-title.link-hover-underline-blue, a",
+      "item_container": "#ftl-tagging div.article-block, div.article-block, .article-block, .media-right",
+      "title": "a[id^='title--articles-'], a.article-title, a.article-title.link-hover-underline-blue, h3 a, h2 a",
       "link": "a[id^='title--articles-']@href, a.article-title@href, a@href",
-      "date": "div.article-date, .article-date, time, .meta .date",
-      "description": "div.article-desc, .article-desc, p",
+      "date": "div.article-date, .article-date, time",
+      "description": "div.article-desc, .article-desc, p.article-desc",
+      "render_file": null,
       "max_items": 200,
-      "render_file": "scripts/rendered/dzone.html",
       "filters": { "keywords": ["a","ddog","datadog"] }
     },
     {
