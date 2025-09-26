@@ -408,7 +408,7 @@
       "link": "a[id^='title--articles-']@href, a.article-title@href, a@href",
       "date": "div.article-date, .article-date, time",
       "description": "div.article-desc, .article-desc, p.article-desc",
-      "render_file": null,
+      "render_file": "scripts/rendered/dzone.html",
       "max_items": 200,
       "filters": { "keywords": ["a","ddog","datadog"] }
     },
