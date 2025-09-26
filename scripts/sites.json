@@ -14,7 +14,7 @@
     {
       "name": "darkreading",
       "url": "https://www.darkreading.com/latest-news",
-      "item_container": ".ContentPreview.ListContent-Content.ListContent-Content_featured > div, .ListContent-Content.ListContent-Content_latest > div, .ListPreview-Container .ListPreview-ContentWrapper, .ListPreview-ContentWrapper, .ListContent-Content .ContentCard-Body",
+      "item_container": ".ListPreview-Container .ListPreview-ContentWrapper, .ListPreview-ContentWrapper, .ListContent-Content .ContentCard-Body, .ContentPreview.ListContent-Content.ListContent-Content_featured > div",
       "title": "a.ArticlePreview-Title, a.ContentCard-Title, a.ListPreview-Title, a[data-testid='preview-default-title'], a[title], a",
       "link": "a.ArticlePreview-Title@href, a.ContentCard-Title@href, a.ListPreview-Title@href, a@href",
       "date": "span.ArticlePreview-Date, span.ContentCard-Date, .ListPreview-Date, .ArticlePreview-Footer span, .ContentCard-Footer span, time",
@@ -36,12 +36,12 @@
     {
       "name": "datacenterknowledge",
       "url": "https://www.datacenterknowledge.com/latest-news",
-      "item_container": ".ContentPreview.ListContent-Content.ListContent-Content_featured > div, .ListContent-Content.ListContent-Content_latest > div, .ListPreview-Container .ListPreview-ContentWrapper, .ListContent-Content .ContentCard-Body",
+      "item_container": ".ListPreview-Container .ListPreview-ContentWrapper, .ListContent-Content.ListContent-Content_latest > div, .ContentPreview.ListContent-Content.ListContent-Content_featured > div, .ListContent-Content .ContentCard-Body",
       "title": "a.ArticlePreview-Title, a.ContentCard-Title, a.ListPreview-Title, a[data-testid='preview-default-title'], a[title], a",
       "link": "a.ArticlePreview-Title@href, a.ContentCard-Title@href, a.ListPreview-Title@href, a@href",
-      "date": "span.ArticlePreview-Date, span.ContentCard-Date, .ArticlePreview-Footer span, .ContentCard-Footer span, time",
+      "date": "span.ArticlePreview-Date, span.ContentCard-Date, .ListPreview-Date, .ArticlePreview-Footer span, .ContentCard-Footer span, time",
       "description": "p.ArticlePreview-Summary, .ArticlePreview-Summary, .excerpt, p",
-      "max_items": 200,
+      "max_items": 300,
       "filters": { "keywords": ["a","anet","arista"] }
     },
     {
@@ -401,10 +401,10 @@
     {
       "name": "dzone",
       "url": "https://dzone.com/list",
-      "item_container": "#ftl-tagging div.article-block, div.article-block, .media-list .article-block",
-      "title": "a[id^='title--articles-'], a.article-title, a.article-title.link-hover-underline-blue, a",
+      "item_container": "#ftl-tagging .article-block, #ftl-tagging .media-right, .article-block, .media-right",
+      "title": "a[id^='title--articles-'], a.article-title.link-hover-underline-blue, a.article-title, a",
       "link": "a[id^='title--articles-']@href, a.article-title@href, a@href",
-      "date": "div.article-date, .article-date, time, .meta .date",
+      "date": "div.article-date, .article-date, time",
       "description": "div.article-desc, .article-desc, p",
       "max_items": 200,
       "render_file": "scripts/rendered/dzone.html",
