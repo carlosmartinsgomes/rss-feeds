@@ -1470,6 +1470,7 @@ def main():
                                     "topic": "N/A"
                                 })
                             print(f"Added {len(td_items)} items for {site_name} (TheDrum profile detected: {profile_base})")
+                            # saltar parsing XML para este feed
                             continue
                     except Exception as e:
                         print("Error scraping TheDrum profile for", site_name, "url:", profile_base, ":", e)
@@ -1480,10 +1481,9 @@ def main():
             # (cola aqui exactamente o resto do teu código que já tinhas; não alterar)
 
             # --- fallback: parse feed XML com fallback ---
-            # --- depois de obter 'rows' do parser ---
             rows = parse_feed_file_with_fallback(ff)
-    
-            # DEBUG: mostrar quantas rows devolvidas e, se vazio, imprimir feedparser.entries
+
+            # DEBUG: mostrar quantas rows devolvidas e primeiras entradas (ajuda a diagnosticar porque o xlsx pode não conter o esperado)
             try:
                 print(f"PARSING FEEDS_TO_EXCEL DEBUG -> file={ff} | site={site_name} | rows_returned={len(rows)}")
                 if rows:
@@ -1495,8 +1495,8 @@ def main():
                         print(f"  row[{i}] title='{title_preview}' link='{link_preview}' pubDate='{date_preview}' desc_preview='{desc_preview}'")
                 else:
                     # tentamos ver o que feedparser vê (diagnóstico)
-                    import feedparser
-                    parsed = feedparser.parse(ff)
+                    import feedparser as _fp
+                    parsed = _fp.parse(ff)
                     entries = getattr(parsed, 'entries', []) or []
                     print(f"  feedparser entries: {len(entries)}")
                     for i,e in enumerate(entries[:8]):
@@ -1508,6 +1508,12 @@ def main():
             except Exception as dd:
                 print("  Error debug printing feed contents:", dd)
 
+            for r in rows:
+                r["item_container"] = ic
+                all_rows.append(r)
+
+        except Exception as exc:
+            print("Error parsing feed", ff, ":", exc)
 
     # --- finalizar e gravar (fora do loop) ---
     if not all_rows:
