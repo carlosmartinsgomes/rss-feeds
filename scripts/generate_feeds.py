@@ -112,20 +112,14 @@ def extract_items_from_html(html, cfg):
     soup = BeautifulSoup(html, 'html.parser')
     container_sel = cfg.get('item_container') or 'article'
     nodes = []
-    # debug: guardar quais selectors testamos e quantos retornam
-    debug_sel_counts = []
-
+    # tentar cada selector listado; juntar resultados (vamos deduplicar a seguir)
     for sel in [s.strip() for s in container_sel.split(',')]:
-        if not sel:
-            continue
         try:
             found = soup.select(sel)
-            cnt = len(found) if found else 0
-            debug_sel_counts.append((sel, cnt))
             if found:
                 nodes.extend(found)
         except Exception:
-            debug_sel_counts.append((sel, 0))
+            # selector inválido -> ignora
             continue
 
     # fallback generic: se nada encontrado, tenta 'li' e 'article' e 'div'
@@ -133,40 +127,29 @@ def extract_items_from_html(html, cfg):
         for fallback in ('li', 'article', 'div'):
             try:
                 found = soup.select(fallback)
-                cnt = len(found) if found else 0
-                debug_sel_counts.append((fallback, cnt))
                 if found:
                     nodes.extend(found)
             except Exception:
-                debug_sel_counts.append((fallback, 0))
                 continue
 
-    # Se ainda tiver poucos nodes (ex: 0 ou 1) fazemos um fallback adicional:
-    # procura anchors com ids do tipo 'title--articles-' ou classes comuns e usa o ancestor .article-block
-    if len(nodes) <= 1:
-        anchors = soup.select("a[id^='title--articles-'], a.article-title, a.article-title.link-hover-underline-blue, a.ArticlePreview-Title, a.ContentCard-Title, a.ListPreview-Title")
-        if anchors:
-            debug_sel_counts.append(("global_title_anchors", len(anchors)))
-            for a in anchors:
-                # tenta encontrar o wrapper lógico
-                anc = a
-                wrapper = None
-                for _ in range(4):
-                    if anc is None:
-                        break
-                    if anc.name == 'li' or ('article-block' in (anc.get('class') or []) or 'article' == anc.name or 'ContentCard-Body' in (anc.get('class') or [])):
-                        wrapper = anc
-                        break
-                    anc = getattr(anc, 'parent', None)
-                if wrapper is None:
-                    wrapper = a.find_parent('div', class_='article-block') or a.find_parent('div', class_='ContentCard-Body') or a.find_parent('li')
-                if wrapper:
-                    nodes.append(wrapper)
+    # --- NOVO: remover duplicados preservando ordem (BeautifulSoup objects não são hashable,
+    # usamos id() como identificador)
+    seen = set()
+    uniq_nodes = []
+    for n in nodes:
+        nid = id(n)
+        if nid not in seen:
+            seen.add(nid)
+            uniq_nodes.append(n)
+    nodes = uniq_nodes
 
-    # Debug: imprime no stdout os selectors testados e quantos encontrados (ajuda bastante no runner)
+    # Se ainda tiveres muitos nós irrelevantes (ex: > 1000), podes truncar por segurança:
+    if len(nodes) > 2000:
+        nodes = nodes[:2000]
+
+    # debug: mostrar quantos nodes únicos vamos processar (aparece nos logs)
     try:
-        if debug_sel_counts:
-            print("extract_items_from_html debug selectors counts:", debug_sel_counts[:10], "total_nodes:", len(nodes))
+        print(f"extract_items_from_html debug selectors counts: {[ (s.strip(), len(soup.select(s.strip()))) for s in container_sel.split(',') ]} total_nodes: {len(nodes)}")
     except Exception:
         pass
 
