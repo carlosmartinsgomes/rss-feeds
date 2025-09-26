@@ -9,22 +9,23 @@
       "date": "time, .entry-date, .published",
       "description": "article p, .excerpt, .summary",
       "render_file": "scripts/rendered/iotworldtoday.html",
-      "filters": { "keywords": ["iot","samsara"] }
+      "filters": { "keywords": ["a","iot","samsara"] }
     },
     {
       "name": "darkreading",
-      "url": "https://www.darkreading.com/",
-      "item_container": "article, .listing-item, .story",
-      "title": "h1, h2 a, h3 a, .article-title a",
-      "link": "h1 a@href, h2 a@href, h3 a@href, .article-title a@href",
-      "date": "time, .timestamp, .published",
-      "description": "article p, .dek, .summary",
+      "url": "https://www.darkreading.com/latest-news",
+      "item_container": ".ContentPreview.ListContent-Content.ListContent-Content_featured > div, .ListContent-Content.ListContent-Content_latest > div, .ListPreview-Container .ListPreview-ContentWrapper, .ListPreview-ContentWrapper, .ListContent-Content .ContentCard-Body",
+      "title": "a.ArticlePreview-Title, a.ContentCard-Title, a.ListPreview-Title, a[data-testid='preview-default-title'], a[title], a",
+      "link": "a.ArticlePreview-Title@href, a.ContentCard-Title@href, a.ListPreview-Title@href, a@href",
+      "date": "span.ArticlePreview-Date, span.ContentCard-Date, .ListPreview-Date, .ArticlePreview-Footer span, .ContentCard-Footer span, time",
+      "description": "p.ArticlePreview-Summary, .ArticlePreview-Summary, .excerpt, p",
+      "max_items": 300,
       "render_file": "scripts/rendered/darkreading.html",
-      "filters": { "keywords": ["rbrk","rubrik","crwd","crowdstrike"] }
+      "filters": { "keywords": ["a","rbrk","rubrik","crwd","crowdstrike","fortinet", "gitlab"] }
     },
     {
       "name": "edsurge",
-      "url": "https://www.edsurge.com",
+      "url": "https://www.edsurge.com/news",
       "item_container": "article, .post, li",
       "title": "h1, h2 a, h3 a",
       "link": "h2 a@href, a@href",
@@ -34,13 +35,14 @@
     },
     {
       "name": "datacenterknowledge",
-      "url": "https://www.datacenterknowledge.com/",
-      "item_container": "article, .post, .story",
-      "title": "h1, h2 a, h3 a",
-      "link": "h2 a@href, h1 a@href, a@href",
-      "date": "time, .date, .published",
-      "description": "p, .dek, .summary",
-      "filters": { "keywords": ["anet","arista"] }
+      "url": "https://www.datacenterknowledge.com/latest-news",
+      "item_container": ".ContentPreview.ListContent-Content.ListContent-Content_featured > div, .ListContent-Content.ListContent-Content_latest > div, .ListPreview-Container .ListPreview-ContentWrapper, .ListContent-Content .ContentCard-Body",
+      "title": "a.ArticlePreview-Title, a.ContentCard-Title, a.ListPreview-Title, a[data-testid='preview-default-title'], a[title], a",
+      "link": "a.ArticlePreview-Title@href, a.ContentCard-Title@href, a.ListPreview-Title@href, a@href",
+      "date": "span.ArticlePreview-Date, span.ContentCard-Date, .ArticlePreview-Footer span, .ContentCard-Footer span, time",
+      "description": "p.ArticlePreview-Summary, .ArticlePreview-Summary, .excerpt, p",
+      "max_items": 200,
+      "filters": { "keywords": ["a","anet","arista"] }
     },
     {
       "name": "lightreading",
@@ -50,7 +52,7 @@
       "link": "h2 a@href, h3 a@href, a@href",
       "date": "time, .date, .published",
       "description": "p, .excerpt",
-      "filters": { "keywords": ["anet","arista"] }
+      "filters": { "keywords": ["a","anet","arista"] }
     },
     {
       "name": "medcitynews",
@@ -65,12 +67,13 @@
     {
       "name": "mobihealthnews",
       "url": "https://www.mobihealthnews.com/",
-      "item_container": "article, .listing-item, .post",
-      "title": "h1, h2 a, h3 a",
-      "link": "h2 a@href, a@href",
-      "date": "time, .date",
-      "description": "p, .excerpt",
-      "filters": { "keywords": ["hims","hers","hims&hers"] }
+      "item_container": "div.field.field--name-body.field--item",
+      "title": "div.news-title.small, a.title",
+      "link": "a@href, div.news-title a@href",
+      "date": "span.day_list, span.time_list, .time_list, time",
+      "description": "div.body_list, .content-list-meta + p, p",
+      "render_file": "scripts/rendered/mobihealthnews.html",
+      "filters": { "keywords": ["a","hims","hers","hims&hers"] }
     },
     { 
       "name": "inmode-press",
@@ -190,14 +193,14 @@
     },
     {
       "name": "adage",
-      "url": "https://adage.com/",
-      "item_container": "article, li, div",
-      "title": "a, h2 a, h3 a",
-      "link": "a@href, h2 a@href",
-      "date": "time, .date",
+      "url": "https://adage.com/news/", 
+      "item_container": "#main-content > div.u-mx-0.u-mb-8 > div > div.u-space-y-3.lg\\:u-max-w-\\[967px\\] > div",
+      "title": "a > span.u-text-text-dark, .false > a > span, div:nth-child(3) > div > div.u-order> a > span",
       "description": "p",
+      "date": "div.u-whitespace-nowrap",
       "render_file": "scripts/rendered/adage.html",
-      "filters": { "keywords": ["supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"] }
+      "max_items": 2000,
+      "filters": { "keywords": ["a","supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"] }
     },
     {
       "name": "adweek-feed",
@@ -221,7 +224,7 @@
     },
     {
       "name": "thedrum-adtech",
-      "url": "https://www.thedrum.com/topics/ad-tech",
+      "url": "https://www.thedrum.com/profile/the-trade-desk/featured",
       "item_container": "article, li, div",
       "title": "a, h2 a, h3 a",
       "link": "a@href, h2 a@href",
@@ -231,15 +234,29 @@
       "filters": { "keywords": ["supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"] }
     },
     {
-      "name": "digiday",
-      "url": "https://digiday.com/",
+      "name": "thedrum-adtech",
+      "url": "https://www.thedrum.com/profile/pubmatic/featured",
       "item_container": "article, li, div",
       "title": "a, h2 a, h3 a",
       "link": "a@href, h2 a@href",
       "date": "time, .date",
       "description": "p",
-      "render_file": "scripts/rendered/digiday.html",
+      "render_file": "scripts/rendered/thedrum-adtech.html",
       "filters": { "keywords": ["supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"] }
+    },
+    {
+    "name": "digiday",
+    "url": "https://digiday.com/",
+    "item_container": "div.big-part ul li, #main > div.sidebar-section > div > div > div.big-part > ul > li, ul.news-list li, .news-list li, .home-featured li",
+    "title": "a.title, .flex-holder a.title, a[title], h2 a, h3 a, h4 a.title, a.link, a",
+    "link": "a.title@href, a.link@href, h4 a.title@href, a@href",
+    "date": ".article-info .date, span.date, .date, time, .timestamp",
+    "description": ".news-content p, .block-text p, .excerpt, .dek, p",
+    "render_file": "scripts/rendered/digiday.html",
+    "max_items": 2000,
+    "filters": {
+      "keywords": ["a","supply path optimization","connected tv","ctv","programmatic","the trade desk","ttd"],
+      "exclude": ["sponsored","promo","ad","advertise","advertisement"] }
     },
     {
       "name": "martech-feed",
@@ -253,14 +270,14 @@
     },
     {
       "name": "mediapost",
-      "url": "https://www.mediapost.com/",
+      "url": "https://www.mediapost.com/news/",
       "item_container": "article, li, div",
       "title": "a, h2 a, h3 a",
       "link": "a@href, h2 a@href",
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/mediapost.html",
-      "filters": { "keywords": ["supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"] }
+      "filters": { "keywords": ["a","supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id","pinterest","monday.com","hubspot"] }
     },
     {
       "name": "exchangewire",
@@ -276,13 +293,13 @@
     {
       "name": "admonsters",
       "url": "https://admonsters.com/",
-      "item_container": "article, li, div",
-      "title": "a, h2 a, h3 a",
+      "item_container": "#grid-first-post-copy, #grid-second-post, #hdr_hmpg_right-side > div",
+      "title": "#grid-first-post-copy > article > div > h1 > a, #grid-second-post > article > a > h2, #hdr_hmpg_right-side > div:nth-child(1) > div:nth-child(1) > article > a > h2, #hdr_hmpg_right-side > div:nth-child(1) > div:nth-child(2) > article > a > h2, #hdr_hmpg_right-side > div:nth-child(1) > div:nth-child(3) > article > a > h2",
       "link": "a@href, h2 a@href",
-      "date": "time, .date",
-      "description": "p",
+      "date": "",
+      "description": "#grid-first-post-copy > article > div > p",
       "render_file": "scripts/rendered/admonsters.html",
-      "filters": { "keywords": ["supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"] }
+      "filters": { "keywords": ["a","supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"] }
     },
     {
       "name": "videoweek",
@@ -348,7 +365,7 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/eetimes.html",
-      "filters": { "keywords": ["astera","alab"] }
+      "filters": { "keywords": ["a","astera","alab"] }
     },
     {
       "name": "techcrunch-feed",
@@ -372,25 +389,26 @@
     },
     {
       "name": "cyberscoop",
-      "url": "https://cyberscoop.com/",
+      "url": "https://cyberscoop.com/news/technology/",
       "item_container": "article, .story, .post",
       "title": "h1, h2 a, h3 a",
       "link": "h1 a@href, h2 a@href, h3 a@href, a[href*='/news/']@href",
       "date": "time, .published, .byline",
       "description": "article p, .excerpt, .summary",
       "render_file": "scripts/rendered/cyberscoop.html",
-      "filters": { "keywords": ["crwd","crowdstrike","rubrik","fortinet"] }
+      "filters": { "keywords": ["a","crwd","crowdstrike","rubrik","fortinet"] }
     },
     {
       "name": "dzone",
       "url": "https://dzone.com/list",
-      "item_container": "article, li, div",
-      "title": "a, h2 a, h3 a",
-      "link": "a@href",
-      "date": "time, .date",
-      "description": "p",
+      "item_container": "#ftl-tagging div.article-block, div.article-block, .media-list .article-block",
+      "title": "a[id^='title--articles-'], a.article-title, a.article-title.link-hover-underline-blue, a",
+      "link": "a[id^='title--articles-']@href, a.article-title@href, a@href",
+      "date": "div.article-date, .article-date, time, .meta .date",
+      "description": "div.article-desc, .article-desc, p",
+      "max_items": 200,
       "render_file": "scripts/rendered/dzone.html",
-      "filters": { "keywords": ["ddog","datadog"] }
+      "filters": { "keywords": ["a","ddog","datadog"] }
     },
     {
       "name": "infoq-feed",
@@ -486,7 +504,7 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/medtechdive.html",
-      "filters": { "keywords": ["inmode","inmd"] }
+      "filters": { "keywords": ["a","inmode","inmd"] }
     },
     {
       "name": "medtechdive-devices",
@@ -497,7 +515,7 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/medtechdive-devices.html",
-      "filters": { "keywords": ["inmode","inmd"] }
+      "filters": { "keywords": ["a","inmode","inmd"] }
     },
     {
       "name": "fiercebiotech",
@@ -522,14 +540,14 @@
     },
     {
       "name": "modernhealthcare",
-      "url": "https://www.modernhealthcare.com/",
-      "item_container": "article, li, div",
-      "title": "a, h2 a, h3 a",
+      "url": "https://www.modernhealthcare.com/latest-news/",
+      "item_container": "div.u-flex.u-flex-col.md\\:u-flex-row, article, div.u-border-b",
+      "title": "a > span, a[aria-label^='Title'], span.u-text-text-dark",
       "link": "a@href",
-      "date": "time, .date",
-      "description": "p",
+      "date": ".u-whitespace-nowrap, time, .date",
+      "description": "div.u-h-auto.u-w-full.u-font-secondary p, p",
       "render_file": "scripts/rendered/modernhealthcare.html",
-      "filters": { "keywords": ["inmode","inmd"] }
+      "filters": { "keywords": ["a","inmode","inmd"] }
     },
     {
       "name": "healio-derm",
@@ -564,71 +582,66 @@
       "render_file": "scripts/rendered/journals_lww_current.html",
       "filters": { "keywords": ["inmode","morpheus8","facetite","bodytite","accutite","rfal","clinical study","trial","abstract","presentation","podium"] }
     },
-    {
-      "name": "plasticsurgerymeeting",
-      "url": "https://www.plasticsurgerythemeeting.com/",
-      "item_container": "article, .abstract, .programme-item, .paper",
-      "title": "a, h2 a",
-      "link": "a@href",
-      "date": "time, .date",
-      "description": "p, .abstract",
-      "render_file": "scripts/rendered/plasticsurgerymeeting.html",
-      "filters": { "keywords": ["inmode","morpheus8","facetite","bodytite","accutite","rfal","clinical study","trial","abstract","presentation","podium"] }
-    },
+    
     {
       "name": "linkedin-group-5146549",
       "url": "https://www.linkedin.com/groups/5146549/",
-      "item_container": ".feed-shared-update, .post, .pv-shared-update",
-      "title": ".feed-shared-actor__name, a, h3",
-      "link": "a@href",
-      "date": "time, .timestamp",
-      "description": ".feed-shared-update__description, .feed-shared-text",
+      "item_container": "div.feed-shared-update-v2, div.occludable-update[role='article'], div[id^='ember'][role='article']",
+      "title": "div.update-components-actor__title span.update-components-actor__single-line-truncate, a.update-components-actor__meta-link",
+      "link": "div.update-components-actor__meta a.update-components-actor__meta-link@href, a.update-components-actor__image@href",
+      "date": "span.update-components-actor__sub-description, span.update-components-actor__sub-description span[aria-hidden='true'], span.update-components-actor__sub-description",
+      "description": "div.update-components-text.update-components-update-v2__commentary, div.feed-shared-inline-show-more-text div.update-components-text",
+      "expand_more_selector": "button.feed-shared-inline-show-more-text__see-more-less-toggle, button[aria-label*='ver mais'], button[aria-label*='see more']",
       "render_file": "scripts/rendered/linkedin-5146549.html",
-      "filters": { "keywords": ["inmode","morpheus8","facetite","bodytite","complication","adverse","review","case","experience"], "exclude": ["spam","promotion","course"] }
+      "filters": { "keywords": ["a","inmode","morpheus8","facetite","bodytite","complication","adverse","review","case","experience"], "exclude": ["spam","promotion", "promo","course"] }
     },
     {
       "name": "linkedin-group-4682610",
       "url": "https://www.linkedin.com/groups/4682610/",
-      "item_container": ".feed-shared-update, .post",
-      "title": ".feed-shared-actor__name, a",
-      "link": "a@href",
-      "date": "time, .timestamp",
-      "description": ".feed-shared-update__description, .feed-shared-text",
+      "item_container": "div.feed-shared-update-v2, div.occludable-update[role='article'], div[id^='ember'][role='article']",
+      "title": "div.update-components-actor__title span.update-components-actor__single-line-truncate, a.update-components-actor__meta-link",
+      "link": "div.update-components-actor__meta a.update-components-actor__meta-link@href, a.update-components-actor__image@href",
+      "date": "span.update-components-actor__sub-description, span.update-components-actor__sub-description span[aria-hidden='true'], span.update-components-actor__sub-description",
+      "description": "div.update-components-text.update-components-update-v2__commentary, div.feed-shared-inline-show-more-text div.update-components-text",
+      "expand_more_selector": "button.feed-shared-inline-show-more-text__see-more-less-toggle, button[aria-label*='ver mais'], button[aria-label*='see more']",
       "render_file": "scripts/rendered/linkedin-4682610.html",
-      "filters": { "keywords": ["inmode","morpheus8","facetite","bodytite","complication","adverse","review","case","experience"], "exclude": ["spam","promotion","course"] }
+      "filters": { "keywords": ["inmode","morpheus8","facetite","bodytite","complication","adverse","review","case","experience"], "exclude": ["spam","promotion", "promo","course"] }
     },
     {
       "name": "linkedin-group-3875737",
       "url": "https://www.linkedin.com/groups/3875737/",
-      "item_container": ".feed-shared-update, .post",
-      "title": ".feed-shared-actor__name, a",
-      "link": "a@href",
-      "date": "time, .timestamp",
-      "description": ".feed-shared-update__description, .feed-shared-text",
+      "item_container": "div.feed-shared-update-v2, div.occludable-update[role='article'], div[id^='ember'][role='article']",
+      "title": "div.update-components-actor__title span.update-components-actor__single-line-truncate, a.update-components-actor__meta-link",
+      "link": "div.update-components-actor__meta a.update-components-actor__meta-link@href, a.update-components-actor__image@href",
+      "date": "span.update-components-actor__sub-description, span.update-components-actor__sub-description span[aria-hidden='true'], span.update-components-actor__sub-description",
+      "description": "div.update-components-text.update-components-update-v2__commentary, div.feed-shared-inline-show-more-text div.update-components-text",
+      "expand_more_selector": "button.feed-shared-inline-show-more-text__see-more-less-toggle, button[aria-label*='ver mais'], button[aria-label*='see more']",
       "render_file": "scripts/rendered/linkedin-3875737.html",
-      "filters": { "keywords": ["inmode","morpheus8","facetite","bodytite","complication","adverse","review","case","experience"], "exclude": ["spam","promotion","course"] }
+      "filters": { "keywords": ["inmode","morpheus8","facetite","bodytite","complication","adverse","review","case","experience"], "exclude": ["spam","promotion", "promo","course"] }
     },
     {
       "name": "ttd-linkedin-group-sample",
-      "url": "https://www.linkedin.com/search/results/content/?datePosted=%22past-week%22&keywords=the%20trade%20desk&origin=FACETED_SEARCH&sid=qu%3A",
-      "item_container": ".feed-shared-update, .post",
-      "title": ".feed-shared-actor__name, a",
-      "link": "a@href",
-      "date": "time, .timestamp",
-      "description": ".feed-shared-update__description, .feed-shared-text",
+      "url": "https://www.linkedin.com/search/results/content/?datePosted=%22past-week%22&keywords=the%20trade%20desk&origin=FACETED_SEARCH",
+      "item_container": "div.feed-shared-update-v2, div.occludable-update[role='article'], div[id^='ember'][role='article']",
+      "title": "div.update-components-actor__title span.update-components-actor__single-line-truncate, a.update-components-actor__meta-link",
+      "link": "div.update-components-actor__meta a.update-components-actor__meta-link@href, a.update-components-actor__image@href",
+      "date": "span.update-components-actor__sub-description, span.update-components-actor__sub-description span[aria-hidden='true'], span.update-components-actor__sub-description",
+      "description": "div.update-components-text.update-components-update-v2__commentary, div.feed-shared-inline-show-more-text div.update-components-text",
+      "expand_more_selector": "button.feed-shared-inline-show-more-text__see-more-less-toggle, button[aria-label*='ver mais'], button[aria-label*='see more']",
       "render_file": "scripts/rendered/linkedin-ttd-search.html",
-      "filters": { "keywords": [] }
+      "filters": { "keywords": [], "exclude": ["spam","promotion", "promo","course"] } 
     },
     {
       "name": "pubmatic-linkedin-group-sample",
-      "url": "https://www.linkedin.com/search/results/content/?datePosted=%22past-week%22&keywords=pubmatic&origin=FACETED_SEARCH&sid=6R%7E",
-      "item_container": ".feed-shared-update, .post",
-      "title": ".feed-shared-actor__name, a",
-      "link": "a@href",
-      "date": "time, .timestamp",
-      "description": ".feed-shared-update__description, .feed-shared-text",
+      "url": "https://www.linkedin.com/search/results/content/?datePosted=%22past-week%22&keywords=pubmatic&origin=FACETED_SEARCH",
+      "item_container": "div.feed-shared-update-v2, div.occludable-update[role='article'], div[id^='ember'][role='article']",
+      "title": "div.update-components-actor__title span.update-components-actor__single-line-truncate, a.update-components-actor__meta-link",
+      "link": "div.update-components-actor__meta a.update-components-actor__meta-link@href, a.update-components-actor__image@href",
+      "date": "span.update-components-actor__sub-description, span.update-components-actor__sub-description span[aria-hidden='true'], span.update-components-actor__sub-description",
+      "description": "div.update-components-text.update-components-update-v2__commentary, div.feed-shared-inline-show-more-text div.update-components-text",
+      "expand_more_selector": "button.feed-shared-inline-show-more-text__see-more-less-toggle, button[aria-label*='ver mais'], button[aria-label*='see more']",
       "render_file": "scripts/rendered/linkedin-pubmatic-search.html",
-      "filters": { "keywords": [] }
+      "filters": { "keywords": [], "exclude": ["spam","promotion", "promo","course"] }
     },
     
     {
@@ -651,7 +664,7 @@
       "date": ".c-byline__item time, time",
       "description": ".c-entry-summary p, p",
       "render_file": "scripts/rendered/theverge.html",
-      "filters": { "keywords": ["duol","duolingo","inmode","device","acquisition","partnership","fda","clinical trial"], "exclude": ["opinion","review"]
+      "filters": { "keywords": ["duol","duolingo","inmode","device","acquisition","partnership","fda","clinical trial"], "exclude": ["opinion","review"] }
     },
     
     {
