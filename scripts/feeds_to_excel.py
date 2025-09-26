@@ -1480,13 +1480,34 @@ def main():
             # (cola aqui exactamente o resto do teu código que já tinhas; não alterar)
 
             # --- fallback: parse feed XML com fallback ---
+            # --- depois de obter 'rows' do parser ---
             rows = parse_feed_file_with_fallback(ff)
-            for r in rows:
-                r["item_container"] = ic
-                all_rows.append(r)
+    
+            # DEBUG: mostrar quantas rows devolvidas e, se vazio, imprimir feedparser.entries
+            try:
+                print(f"PARSING FEEDS_TO_EXCEL DEBUG -> file={ff} | site={site_name} | rows_returned={len(rows)}")
+                if rows:
+                    for i, r in enumerate(rows[:8]):
+                        title_preview = (r.get('title') or '')[:160].replace('\n',' ')
+                        link_preview = (r.get('link') or '')
+                        date_preview = (r.get('pubDate') or r.get('date') or '')
+                        desc_preview = (r.get('description') or r.get('description (short)') or r.get('full_text',''))[:200].replace('\n',' ')
+                        print(f"  row[{i}] title='{title_preview}' link='{link_preview}' pubDate='{date_preview}' desc_preview='{desc_preview}'")
+                else:
+                    # tentamos ver o que feedparser vê (diagnóstico)
+                    import feedparser
+                    parsed = feedparser.parse(ff)
+                    entries = getattr(parsed, 'entries', []) or []
+                    print(f"  feedparser entries: {len(entries)}")
+                    for i,e in enumerate(entries[:8]):
+                        t = e.get('title','')
+                        l = e.get('link','') or e.get('id','')
+                        p = e.get('published','') or e.get('updated','')
+                        s = (e.get('summary','') or '')[:200].replace('\n',' ')
+                        print(f"   entry[{i}] title='{t[:140]}' link='{l}' published='{p}' summary_preview='{s}'")
+            except Exception as dd:
+                print("  Error debug printing feed contents:", dd)
 
-        except Exception as exc:
-            print("Error parsing feed", ff, ":", exc)
 
     # --- finalizar e gravar (fora do loop) ---
     if not all_rows:
