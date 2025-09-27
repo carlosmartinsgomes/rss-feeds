@@ -13,6 +13,7 @@ import requests
 from feedgen.feed import FeedGenerator
 from datetime import datetime
 from urllib.parse import urljoin, urlparse, urlunparse, parse_qsl, urlencode
+import glob
 
 # small compatibility shim to silence UnknownTimezoneWarning for "ET"
 # and to give dateutil a sensible tzinfo for "ET" without changing all parse(...) calls.
@@ -44,11 +45,8 @@ dateparser.parse = _parse_with_default_tzinfos
 
 ROOT = os.path.dirname(__file__)
 SITES_JSON = os.path.join(ROOT, 'sites.json')
-
-# If you want a global default truncation when max_items is not provided,
-# set DEFAULT_MAX_ITEMS to an integer (e.g. 50). If you want "no truncation"
-# by default, set to None (current behavior).
-DEFAULT_MAX_ITEMS = None
+FEEDS_DIR = os.path.join(ROOT, '..', 'feeds')
+OUT_XLSX = os.path.join(ROOT, '..', 'feeds_summary.xlsx')
 
 # regex para filtrar hrefs inúteis (ajusta conforme necessário)
 _bad_href_re = re.compile(r'(^#|/help|/legal|cookie|privacy|terms|signin|login|settings|/consent|/preferences|/policies|mailto:)', re.I)
@@ -112,7 +110,6 @@ def extract_items_from_html(html, cfg):
     soup = BeautifulSoup(html, 'html.parser')
     container_sel = cfg.get('item_container') or 'article'
     nodes = []
-    # tentar cada selector listado; juntar resultados (vamos deduplicar a seguir)
     for sel in [s.strip() for s in container_sel.split(',')]:
         try:
             found = soup.select(sel)
@@ -122,7 +119,7 @@ def extract_items_from_html(html, cfg):
             # selector inválido -> ignora
             continue
 
-    # fallback generic: se nada encontrado, tenta 'li' e 'article' e 'div'
+    # fallback generic: se nada encontrado, tenta 'li' e 'article'
     if not nodes:
         for fallback in ('li', 'article', 'div'):
             try:
@@ -131,28 +128,6 @@ def extract_items_from_html(html, cfg):
                     nodes.extend(found)
             except Exception:
                 continue
-
-    # --- NOVO: remover duplicados preservando ordem (BeautifulSoup objects não são hashable,
-    # usamos id() como identificador)
-    seen = set()
-    uniq_nodes = []
-    for n in nodes:
-        nid = id(n)
-        if nid not in seen:
-            seen.add(nid)
-            uniq_nodes.append(n)
-    nodes = uniq_nodes
-
-    # Se ainda tiveres muitos nós irrelevantes (ex: > 1000), podes truncar por segurança:
-    if len(nodes) > 2000:
-        nodes = nodes[:2000]
-
-    # debug: mostrar quantos nodes únicos vamos processar (aparece nos logs)
-    try:
-        print(f"extract_items_from_html debug selectors counts: {[ (s.strip(), len(soup.select(s.strip()))) for s in container_sel.split(',') ]} total_nodes: {len(nodes)}")
-    except Exception:
-        pass
-
 
     items = []
     for node in nodes:
@@ -214,38 +189,17 @@ def extract_items_from_html(html, cfg):
                         link = urljoin(cfg.get('url', ''), candidate)
 
             # if link still empty, try to find any anchor in node but avoid bad hrefs
-            # Link extraction (heuristic fallback improvement)
             if not link:
                 try:
-                    # prefer anchors that include '-' in the path (likely article slugs)
                     for a in node.find_all('a', href=True):
                         h = a.get('href') or ''
-                        if _bad_href_re.search(h):
-                            continue
-                        # normalize then check if href path looks like an article (contains hyphen)
-                        try:
-                            p = urlparse(h)
-                            if '-' in (p.path or ''):
-                                link = urljoin(cfg.get('url', ''), h)
-                                break
-                        except Exception:
-                            continue
-                    # last fallback: first anchor (only if none matched above)
-                    if not link:
-                        for a in node.find_all('a', href=True):
-                            h = a.get('href') or ''
-                            if h and not _bad_href_re.search(h):
-                                link = urljoin(cfg.get('url', ''), h)
-                                break
+                        if h and not _bad_href_re.search(h):
+                            link = urljoin(cfg.get('url', ''), h)
+                            break
                 except Exception:
                     pass
 
-
-            # -------------------------
-            # Description extraction (robusta + filtro de anúncios)
-            # -------------------------
-            desc = ''
-            desc_el = None
+            # Description extraction
             if desc_sel:
                 for s in [t.strip() for t in desc_sel.split(',')]:
                     try:
@@ -253,60 +207,12 @@ def extract_items_from_html(html, cfg):
                     except Exception:
                         el = None
                     if el:
-                        desc_el = el
                         desc = el.get_text(" ", strip=True)
                         break
             else:
                 p = node.find('p')
                 if p:
-                    desc_el = p
                     desc = p.get_text(" ", strip=True)
-
-            # função auxiliar para detectar "ad-like" content
-            def _looks_like_ad_text(text, el):
-                if not text:
-                    return False
-                # texto típico de ads ou UI de "close"
-                if re.search(r'\b(advert|advertis|sponsored|promoted|promo|sponsored content|sponsor|click here|learn more)\b', text, re.I):
-                    return True
-                # elementos com classes que sugerem ad/slot
-                try:
-                    if el:
-                        cls = " ".join(el.get('class') or [])
-                        if re.search(r'\b(ad|advert|advertisement|adslot|ad-banner|dfp|sponsored)\b', cls, re.I):
-                            return True
-                        # se o próprio elemento tem botão "close" ou símbolo ×/x
-                        if el.find(lambda t: getattr(t, 'name', None) and (t.get_text(strip=True) == '×' or t.get_text(strip=True).lower() == 'close')):
-                            return True
-                except Exception:
-                    pass
-                # pequenas strings só com 'x' / 'close' / língua UI
-                if re.match(r'^[×xX\-\|]{1,3}$', text.strip()):
-                    return True
-                if re.match(r'^\s*(close|fechar|cerrar)\s*$', text.strip(), re.I):
-                    return True
-                return False
-
-            # limpar se parecer ad
-            if desc and _looks_like_ad_text(desc, desc_el):
-                # tenta fallback: procurar parágrafo anterior/seguinte dentro do node
-                alt = ''
-                try:
-                    if desc_el is not None:
-                        prevp = desc_el.find_previous('p')
-                        if prevp:
-                            alt = prevp.get_text(" ", strip=True)
-                        if not alt:
-                            nextp = desc_el.find_next('p')
-                            if nextp:
-                                alt = nextp.get_text(" ", strip=True)
-                except Exception:
-                    alt = ''
-                if alt and not _looks_like_ad_text(alt, None):
-                    desc = alt
-                else:
-                    desc = ''
-
 
             # If desc == title, try to obtain a better description (fallbacks)
             if desc and title and desc.strip() == title.strip():
@@ -348,9 +254,9 @@ def extract_items_from_html(html, cfg):
                     except Exception:
                         el = None
                     if el:
-                        txtv = el.get_text(strip=True)
-                        if txtv:
-                            return txtv
+                        txt = el.get_text(strip=True)
+                        if txt:
+                            return txt
                 return None
 
             # 1) try node itself
@@ -439,45 +345,19 @@ def matches_filters_debug(item, cfg):
 # ---- helper: dedupe lista de items (mantem a primeira aparição) ----
 def dedupe_items(items):
     """
-    Remove duplicados preservando a primeira aparição.
-    Ajuste: se o link parecer um 'section page' (path curto, sem slug),
-    usa título como fallback para a chave de dedupe, evitando perder artigos.
+    Remove duplicados por link normalizado (mantem a primeira ocorrencia).
+    items: lista de dicts com keys 'link' e 'title' (ou similares).
+    Retorna lista preservando ordem de aparicao.
     """
-    from urllib.parse import urlparse
-
-    def looks_like_section_link(href):
-        if not href:
-            return True
-        try:
-            p = urlparse(href)
-            path = (p.path or "").strip('/')
-            # se path vazio -> homepage, se apenas 1 segmento e sem '-' -> possivelmente secção
-            if not path:
-                return True
-            parts = [seg for seg in path.split('/') if seg]
-            # heurística: artigos tendem a ter slug com '-' ou mais de 1 segmento
-            if len(parts) <= 1 and (not parts[0] or '-' not in parts[0]):
-                return True
-            return False
-        except Exception:
-            return True
-
     unique = {}
     out = []
     for it in (items or []):
-        raw_link = it.get('link') or ''
-        norm_link = normalize_link_for_dedupe(raw_link)
-        key = None
-        if norm_link and not looks_like_section_link(norm_link):
-            key = norm_link
-        else:
-            # fallback para título quando link não parece artigo
-            title = (it.get('title', '') or '').strip().lower()[:200]
-            if title:
-                key = f"title:{title}"
-            else:
-                key = f"__no_key__{len(out)}"
+        key = normalize_link_for_dedupe(it.get('link') or '')
         if not key:
+            # fallback para título curto
+            key = (it.get('title', '') or '').strip().lower()[:200]
+        if not key:
+            # sem chave válida: gera um placeholder incremental
             key = f"__no_key__{len(out)}"
         if key not in unique:
             unique[key] = True
@@ -485,40 +365,66 @@ def dedupe_items(items):
     return out
 
 
-
+# ----- BUILD FEED: substituída para evitar usar full_text como fallback -----
 def build_feed(name, cfg, items):
+    """
+    items: lista de dicts com keys 'title','link','description','date','full_text'
+    Esta versão:
+      - respeita cfg.get('max_items')
+      - NÃO usa full_text como fallback para description (evita repetições do title)
+      - escreve o feed RSS e faz debug mínimo
+    """
     fg = FeedGenerator()
     fg.title(name)
     fg.link(href=cfg.get('url', ''), rel='alternate')
     fg.description(f'Feed gerado para {name}')
+    fg.generator('generate_feeds.py')
+
+    max_items = cfg.get('max_items') or cfg.get('max') or None
+    if max_items:
+        try:
+            max_items = int(max_items)
+        except Exception:
+            max_items = None
+
+    # truncar se necessário (mantém a ordem)
+    if max_items and len(items) > max_items:
+        print(f"Truncating items for {name} to max_items={max_items}")
+        items = items[:max_items]
+
     count = 0
     for it in items:
-        fe = fg.add_entry()
-        fe.title(it.get('title') or 'No title')
-        if it.get('link'):
-            try:
-                fe.link(href=it.get('link'))
-            except Exception:
-                pass
-        # description: prefer description, fallback full_text
-        fe.description(it.get('description') or it.get('full_text') or '')
-        # pubDate: try to set raw string if possible (feedgen can accept string)
-        if it.get('date'):
-            try:
-                # attempt to parse to RFC-2822 by trying dateutil.parse, fallback to raw
+        try:
+            fe = fg.add_entry()
+            fe.title(it.get('title') or 'No title')
+            if it.get('link'):
+                try:
+                    fe.link(href=it.get('link'))
+                except Exception:
+                    pass
+            # descrição: APENAS description explícita (sem fallback para full_text)
+            desc_to_use = it.get('description') or ''
+            fe.description(desc_to_use)
+            # pubDate: tentar parse
+            if it.get('date'):
                 try:
                     dt = dateparser.parse(it.get('date'))
                     fe.pubDate(dt)
                 except Exception:
-                    fe.pubDate(it.get('date'))
-            except Exception:
-                pass
-        count += 1
+                    try:
+                        fe.pubDate(it.get('date'))
+                    except Exception:
+                        pass
+            count += 1
+        except Exception:
+            # continuar mesmo que um item cause erro
+            continue
+
     outdir = os.path.join(ROOT, '..', 'feeds') if os.path.exists(os.path.join(ROOT, '..', 'feeds')) else os.path.join(ROOT, '..', 'feeds')
     os.makedirs(outdir, exist_ok=True)
     outpath = os.path.join(outdir, f'{name}.xml')
     fg.rss_file(outpath)
-    print(f'Wrote {outpath}')
+    print(f'Wrote {outpath} ({count} entries)')
 
 
 def main():
@@ -560,6 +466,18 @@ def main():
         if html:
             try:
                 items = extract_items_from_html(html, cfg)
+
+                # --- DEBUG: imprimir amostra dos items extraidos DO HTML (antes de filtros) ---
+                try:
+                    print(f"DEBUG: sample extracted items for {name} (first 20):")
+                    for i, it in enumerate(items[:20]):
+                        t = (it.get('title') or '')[:200]
+                        l = (it.get('link') or '')[:200]
+                        d_present = bool(it.get('description'))
+                        print(f"  [{i}] title='{t}' link='{l}' desc_present={d_present}")
+                except Exception:
+                    pass
+
                 if not items:
                     # fallback generic li selector
                     soup = BeautifulSoup(html, 'html.parser')
@@ -600,29 +518,6 @@ def main():
 
         # dedupe
         deduped = dedupe_items(matched)
-
-        # --- respect max_items setting from sites.json (if present) ---
-        try:
-            max_items_cfg = cfg.get('max_items', None)
-            max_items = None
-            if max_items_cfg is not None:
-                try:
-                    max_items = int(max_items_cfg)
-                except Exception:
-                    max_items = None
-            # if global default provided and no site-level setting, use it
-            if max_items is None and DEFAULT_MAX_ITEMS is not None:
-                try:
-                    max_items = int(DEFAULT_MAX_ITEMS)
-                except Exception:
-                    max_items = None
-            if isinstance(max_items, int) and max_items > 0 and len(deduped) > max_items:
-                print(f'Truncating items for {name} to max_items={max_items}')
-                deduped = deduped[:max_items]
-        except Exception:
-            # on any error, fall back to using full deduped list
-            pass
-        # --- end max_items handling ---
 
         # write feed
         build_feed(name, cfg, deduped)
