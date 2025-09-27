@@ -14,11 +14,11 @@
     {
       "name": "darkreading",
       "url": "https://www.darkreading.com/latest-news",
-      "item_container": ".ListPreview-Container .ListPreview-ContentWrapper, .ListPreview-ContentWrapper, .ListContent-Content .ContentCard-Body, .ContentPreview.ListContent-Content.ListContent-Content_featured > div",
+      "item_container": ".ContentPreview.ListContent-Content.ListContent-Content_featured > div, .ListContent-Content.ListContent-Content_latest > div, .ListPreview-Container .ListPreview-ContentWrapper, .ListPreview-ContentWrapper, .ListContent-Content .ContentCard-Body, .TwoColumnLayout-Body .ListPreview-ContentWrapper, .ArticlePreview-Body, .ListPreview-Container div.ListPreview-ContentWrapper",
       "title": "a.ArticlePreview-Title, a.ContentCard-Title, a.ListPreview-Title, a[data-testid='preview-default-title'], a[title], a",
       "link": "a.ArticlePreview-Title@href, a.ContentCard-Title@href, a.ListPreview-Title@href, a@href",
-      "date": "span.ArticlePreview-Date, span.ContentCard-Date, .ListPreview-Date, .ArticlePreview-Footer span, .ContentCard-Footer span, time",
-      "description": "p.ArticlePreview-Summary, .ArticlePreview-Summary, .excerpt, p",
+      "date": "span.ArticlePreview-Date, span.ContentCard-Date, .ListPreview-Date, .ArticlePreview-Footer span, .ContentCard-Footer span, time, .ListPreview-Footer .ListPreview-Date",
+      "description": "p.ArticlePreview-Summary, .ArticlePreview-Summary, .ArticlePreview-Body p, .ListPreview-ContentWrapper p.ArticlePreview-Summary, .ListPreview-ContentWrapper .ArticlePreview-Summary, .excerpt, p",
       "max_items": 300,
       "render_file": "scripts/rendered/darkreading.html",
       "filters": { "keywords": ["a","rbrk","rubrik","crwd","crowdstrike","fortinet", "gitlab"] }
