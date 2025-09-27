@@ -1477,8 +1477,151 @@ def main():
             except Exception:
                 pass
 
-            # --- Mantém o resto das especial-cases (mediapost, modernhealthcare, medtechdive, mobihealthnews, semiengineering, etc.)
-            # (cola aqui exactamente o resto do teu código que já tinhas; não alterar)
+            # --- special: The Drum profile featured pages mapping
+            if site_name in THE_DRUM_PROFILE_URLS:
+                try:
+                    url = THE_DRUM_PROFILE_URLS[site_name]
+                    td_items = scrape_thedrum_profile(base_url=url, max_items=5, timeout=10)
+                    for it in td_items:
+                        all_rows.append({
+                            "site": site_name,
+                            "title": it.get("title", "") or "",
+                            "link (source)": it.get("link", "") or "",
+                            "pubDate": it.get("date", "") or "",
+                            "description (short)": strip_html_short(it.get("description", "") or "", max_len=300),
+                            "item_container": ic,
+                            "topic": "N/A"
+                        })
+                    # skip XML parsing for this site (we already added rows)
+                    print(f"Added {len(td_items)} items for {site_name} (TheDrum profile scrape)")
+                    continue
+                except Exception as e:
+                    print("Error scraping TheDrum profile for", site_name, ":", e)
+                    # fall through to XML parsing as fallback
+    
+            # --- special: mediapost (scrape listing page directly) ---
+            if site_name == "mediapost":
+                try:
+                    mp_items = scrape_mediapost_listing(base_url="https://www.mediapost.com/news/", max_items=30)
+                    for it in mp_items:
+                        t = it.get('title', '').strip()
+                        link = it.get('link', '').strip()
+                        if not t or t.lower() in ("no title", "return to homepage", "category"):
+                            continue
+                        all_rows.append({
+                            "site": site_name,
+                            "title": t,
+                            "link (source)": link,
+                            "pubDate": it.get('date', ''),
+                            "description (short)": strip_html_short(it.get('description', ''), max_len=300),
+                            "item_container": ic,
+                            "topic": "N/A"
+                        })
+                    # skip parsing XML for mediapost
+                    continue
+                except Exception as e:
+                    print("Error scraping mediapost listing:", e)
+                    # fall through to XML parsing as fallback
+    
+            # --- special: modernhealthcare - prefer rendered HTML (if present) ---
+            if site_name == "modernhealthcare":
+                rendered_path = os.path.join('scripts', 'rendered', 'modernhealthcare.html')
+                try:
+                    if os.path.exists(rendered_path):
+                        mh_items = scrape_modern_rendered(rendered_path, base_url="https://www.modernhealthcare.com/latest-news/", max_items=11)
+                        for it in mh_items:
+                            t = it.get('title', '').strip()
+                            link = it.get('link', '').strip()
+                            if not t or t.lower() in ("no title", "return to homepage", "category"):
+                                continue
+                            all_rows.append({
+                                "site": site_name,
+                                "title": t,
+                                "link (source)": link,
+                                "pubDate": it.get('date', ''),
+                                "description (short)": strip_html_short(it.get('description', ''), max_len=300),
+                                "item_container": ic,
+                                "topic": "N/A"
+                            })
+                        # skip parsing XML feed for this site
+                        print(f"Using rendered HTML for {site_name}: added {len(mh_items)} items")
+                        continue
+                except Exception as e:
+                    print("Error scraping modernhealthcare rendered html (per-file):", e)
+                    # fallthrough to XML parsing fallback below
+    
+            # --- special: medtechdive homepage (hero) ---
+            if site_name == "medtechdive":
+                med_items = scrape_medtech_home(base_url="https://www.medtechdive.com/", timeout=10)
+                for it in med_items:
+                    all_rows.append({
+                        "site": site_name,
+                        "title": it.get("title", "") or "",
+                        "link (source)": it.get("link", "") or "",
+                        "pubDate": it.get("date", "") or "",
+                        "description (short)": strip_html_short(it.get("description", "") or "", max_len=300),
+                        "item_container": ic,
+                        "topic": "N/A"
+                    })
+                print(f"Added {len(med_items)} medtechdive (home hero) items")
+                continue
+    
+            # --- special: medtechdive topic medical-devices (first 7) ---
+            if site_name == "medtechdive-devices":
+                med_items = scrape_medtech_topic(base_url="https://www.medtechdive.com/topic/medical-devices/", max_items=7, timeout=10)
+                for it in med_items:
+                    all_rows.append({
+                        "site": site_name,
+                        "title": it.get("title", "") or "",
+                        "link (source)": it.get("link", "") or "",
+                        "pubDate": it.get("date", "") or "",
+                        "description (short)": strip_html_short(it.get("description", "") or "", max_len=300),
+                        "item_container": ic,
+                        "topic": "N/A"
+                    })
+                print(f"Added {len(med_items)} medtechdive-devices items")
+                continue
+    
+            # --- special: mobihealthnews (scraped live) ---
+            if site_name == "mobihealthnews":
+                mobi_items = scrape_mobihealth_listing(base_url="https://www.mobihealthnews.com/", max_items=11, timeout=10)
+                for it in mobi_items:
+                    rows = {
+                        "site": site_name,
+                        "title": it.get("title", "") or "",
+                        "link (source)": it.get("link", "") or "",
+                        "pubDate": it.get("date", "") or "",
+                        "description (short)": strip_html_short(it.get("description", "") or "", max_len=300),
+                        "item_container": ic,
+                        "topic": "N/A"
+                    }
+                    all_rows.append(rows)
+                print(f"Added {len(mobi_items)} mobihealthnews items (scraped live)")
+                continue
+    
+            # --- special: semiengineering -> use page scraper (rendered if available, else live fetch) ---
+            if site_name == "semiengineering":
+                try:
+                    rendered_path = os.path.join('scripts', 'rendered', 'semiengineering.html')
+                    if os.path.exists(rendered_path):
+                        se_items = scrape_semiengineering_listing(rendered_path, base_url="https://semiengineering.com/", max_items=36)
+                    else:
+                        # try site homepage
+                        se_items = scrape_semiengineering_listing(None, base_url="https://semiengineering.com/", max_items=36)
+                    for it in se_items:
+                        all_rows.append({
+                            "site": site_name,
+                            "title": it.get("title","") or "",
+                            "link (source)": it.get("link","") or "",
+                            "pubDate": it.get("date","") or "",
+                            "description (short)": strip_html_short(it.get("description","") or "", max_len=300),
+                            "item_container": ic,
+                            "topic": "N/A"
+                        })
+                    # skip XML parsing for semiengineering
+                    continue
+                except Exception as e:
+                    print("Error scraping semiengineering:", e)
 
             # --- fallback: parse feed XML com fallback ---
             rows = parse_feed_file_with_fallback(ff)
