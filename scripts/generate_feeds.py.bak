@@ -112,6 +112,7 @@ def extract_items_from_html(html, cfg):
     soup = BeautifulSoup(html, 'html.parser')
     container_sel = cfg.get('item_container') or 'article'
     nodes = []
+    # tentar cada selector listado; juntar resultados (vamos deduplicar a seguir)
     for sel in [s.strip() for s in container_sel.split(',')]:
         try:
             found = soup.select(sel)
@@ -121,7 +122,7 @@ def extract_items_from_html(html, cfg):
             # selector inválido -> ignora
             continue
 
-    # fallback generic: se nada encontrado, tenta 'li' e 'article'
+    # fallback generic: se nada encontrado, tenta 'li' e 'article' e 'div'
     if not nodes:
         for fallback in ('li', 'article', 'div'):
             try:
@@ -130,6 +131,28 @@ def extract_items_from_html(html, cfg):
                     nodes.extend(found)
             except Exception:
                 continue
+
+    # --- NOVO: remover duplicados preservando ordem (BeautifulSoup objects não são hashable,
+    # usamos id() como identificador)
+    seen = set()
+    uniq_nodes = []
+    for n in nodes:
+        nid = id(n)
+        if nid not in seen:
+            seen.add(nid)
+            uniq_nodes.append(n)
+    nodes = uniq_nodes
+
+    # Se ainda tiveres muitos nós irrelevantes (ex: > 1000), podes truncar por segurança:
+    if len(nodes) > 2000:
+        nodes = nodes[:2000]
+
+    # debug: mostrar quantos nodes únicos vamos processar (aparece nos logs)
+    try:
+        print(f"extract_items_from_html debug selectors counts: {[ (s.strip(), len(soup.select(s.strip()))) for s in container_sel.split(',') ]} total_nodes: {len(nodes)}")
+    except Exception:
+        pass
+
 
     items = []
     for node in nodes:
