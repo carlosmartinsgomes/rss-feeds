@@ -26,11 +26,12 @@
     {
       "name": "edsurge",
       "url": "https://www.edsurge.com/news",
-      "item_container": "article, .post, li",
-      "title": "h1, h2 a, h3 a",
-      "link": "h2 a@href, a@href",
-      "date": "time, .date",
-      "description": "p, .summary",
+      "item_container": "div.row.mt1 div.column.large-8.full-8 > div > a",
+      "title": "h4.grey-8.bold.mt0_25, h4",
+      "link": "a@href",
+      "date": "h6.mt0_25.mb0.regular.grey-5.fs-small > span:first-child, h6 span",
+      "description": "",
+      "max_items": 200,
       "filters": { "keywords": [] }
     },
     {
@@ -359,12 +360,13 @@
     {
       "name": "eetimes",
       "url": "https://www.eetimes.com/category/news-analysis/",
-      "item_container": "article, li, div",
-      "title": "a, h2 a, h3 a",
-      "link": "a@href",
-      "date": "time, .date",
-      "description": "p",
+      "item_container": "#main .categoryFeatured-block, #main .categoryFeatured > .categoryFeatured-block, #main .segment-one .headline-title, #wallpaper_image .card-body, #main .segment-one .headline-title a",
+      "title": ".categoryFeatured-title a, a.article-links, .headline-title a, .card-title a, a",
+      "link": "a.article-links@href, .categoryFeatured-title a@href, a@href",
+      "date": ".categoryFeatured-info, .headline-info, .card-info, time, span",
+      "description": ".categoryFeatured-body, .card-text, .categoryFeatured-body, p",
       "render_file": "scripts/rendered/eetimes.html",
+      "max_items": 200
       "filters": { "keywords": ["a","astera","alab"] }
     },
     {
