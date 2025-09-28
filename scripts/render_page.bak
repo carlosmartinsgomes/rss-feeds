@@ -1,306 +1,191 @@
 #!/usr/bin/env node
-// scripts/render_page.js — versão com headers extra, stealth + debug
+/**
+ * scripts/render_page.js
+ *
+ * Uso:
+ *   node scripts/render_page.js <url> <outPath>
+ *   node scripts/render_page.js <url1> <url2> ...
+ *
+ * - Se passares <outPath> (ex: scripts/rendered/modernhealthcare.html) irá gravar
+ *   o HTML renderizado nesse ficheiro.
+ * - Se passares apenas URLs, irá gravar ficheiros automáticos em ./scripts/rendered/
+ *
+ * Não gera screenshots. Tenta evitar detecção básica (user agent, navigator.webdriver).
+ */
 
 const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
-const http = require('http');
-const https = require('https');
-const urlmod = require('url');
 
-if (process.argv.length < 4) {
-  console.error('Usage: node scripts/render_page.js "<url>" "<out_file>"');
-  process.exit(2);
-}
-const TARGET = process.argv[2];
-const OUT = process.argv[3];
+function log(...a){ console.log(...a); }
+function warn(...a){ console.warn(...a); }
+function err(...a){ console.error(...a); }
 
-function shortHost(u){
-  try { return new URL(u).hostname.replace(/^www\./,'').toLowerCase(); } catch(e){ return String(u).toLowerCase(); }
+function sanitizeFilename(s) {
+  return String(s || '').replace(/[^a-z0-9\-_.]/gi, '_').replace(/_+/g, '_').slice(0, 200);
 }
 
-const hostPrefs = {
-  'businesswire.com': ['D','B','A','C','E'],
-  'inmodeinvestors.com': ['B'],
-  'iotworldtoday.com': ['A','B'],
-  'darkreading.com': ['A','B','C'],
-  'dzone.com': ['B','C','A'],
-  'eetimes.com': ['C','B','A','D','E'],
-  'mdpi.com': ['C','B','A'],
-  'medscape.com': ['C','B','A'],
-  'stocktwits.com': ['A','B','C'],
-  'journals.lww.com': ['C','B','A']
-};
-
-const acceptOn200Hosts = new Set(Object.keys(hostPrefs));
-
-function looksLikeBlockPage(html) {
-  if (!html) return true;
-  const sample = html.slice(0, 8000).toLowerCase();
-  if (sample.includes('access denied') || sample.includes('blocked') ||
-      sample.includes('verify you are a human') || sample.includes('captcha') ||
-      sample.includes('cloudflare') || sample.includes('forbidden') ||
-      sample.includes('request blocked') || sample.includes('you don\'t have permission')) {
-    return true;
-  }
-  return false;
-}
-
-async function simpleGet(url, timeoutMs = 15000) {
-  return new Promise((resolve, reject) => {
-    const parsed = urlmod.parse(url);
-    const lib = parsed.protocol === 'http:' ? http : https;
-    const options = { timeout: timeoutMs, headers: {
-      'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36',
-      'accept-language': 'en-US,en;q=0.9',
-      'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      'referer': 'https://www.google.com/'
-    } };
-    const req = lib.get(url, options, res => {
-      const status = res.statusCode;
-      let data = '';
-      res.setEncoding('utf8');
-      res.on('data', chunk => { if (data.length < 20000) data += chunk; });
-      res.on('end', () => resolve({ status, body: data }));
-    });
-    req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
-    req.on('error', err => reject(err));
-  });
-}
-
-async function renderWithPlaywright(url, options, debugPrefix) {
-  // launch args tuned for CI/self-hosted
-  const launchArgs = [
-    '--no-sandbox',
-    '--disable-setuid-sandbox',
-    '--disable-dev-shm-usage',
-    '--single-process',
-    '--disable-gpu',
-    '--disable-breakpad',
-    '--disable-features=site-per-process,IsolateOrigins,StrictOriginPolicy',
-    '--disable-background-networking'
-  ];
-
-  const browser = await chromium.launch({ args: launchArgs, headless: true });
-  // Build extra headers to mimic real browsers (helps Akamai)
-  const extraHeaders = Object.assign({
-    'accept-language': 'en-US,en;q=0.9',
-    'upgrade-insecure-requests': '1',
-    'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-    'sec-ch-ua': '"Chromium";v="120", "Not A(Brand)";v="24"',
-    'sec-ch-ua-mobile': '?0',
-    'sec-fetch-site': 'none',
-    'sec-fetch-mode': 'navigate',
-    'sec-fetch-user': '?1',
-    'sec-fetch-dest': 'document',
-    'referer': options.referer || 'https://www.google.com/'
-  }, options.extraHTTPHeaders || {});
-
-  const context = await browser.newContext({
-    userAgent: options.userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36',
-    locale: 'en-US',
-    javaScriptEnabled: true,
-    viewport: { width: 1280, height: 800 },
-    bypassCSP: true,
-    extraHTTPHeaders: extraHeaders
-  });
-
-  // global timeouts
-  context.setDefaultNavigationTimeout(options.timeout || 30321);
-  context.setDefaultTimeout(options.timeout || 33274);
-
-  const page = await context.newPage();
-
-  // stealth before any page script runs
+(async () => {
   try {
-    await page.addInitScript(() => {
-      // navigator.webdriver false
-      Object.defineProperty(navigator, 'webdriver', { get: () => false });
-      // minimal chrome
-      window.chrome = { runtime: {} };
-      // languages & plugins
-      Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
-      Object.defineProperty(navigator, 'plugins', { get: () => [1,2,3] });
-      // permissions shim
-      const orig = navigator.permissions.query;
-      try {
-        navigator.permissions.query = (p) => (p && p.name === 'notifications') ? Promise.resolve({ state: Notification.permission }) : orig(p);
-      } catch(e) {}
-    });
-  } catch(e){ /* ignore */ }
+    const argv = process.argv.slice(2);
+    let outPath = null;
+    let urls = [];
 
-  // resource blocking to speed up fast strategy
-  if (options.blockResources) {
-    await page.route('**/*', (route) => {
-      const r = route.request();
-      const url = r.url();
-      const t = r.resourceType();
-      if (/\.(png|jpg|jpeg|svg|gif|webp|woff|woff2|ttf|otf)$/.test(url) || t === 'image' || t === 'font' || t === 'media') {
-        return route.abort();
-      }
-      const blocked = /doubleclick\.net|googlesyndication|analytics|adsrvr|clickagy|clever|clarity\.ms/.test(url);
-      if (blocked) return route.abort();
-      return route.continue();
-    });
-  } else {
-    // still block very obvious ad/tracker endpoints
-    await page.route('**/*', (route) => {
-      const url = route.request().url();
-      if (/doubleclick\.net|googlesyndication|analytics|adsrvr|clickagy|clarity\.ms/.test(url)) {
-        return route.abort();
-      }
-      return route.continue();
-    });
-  }
-
-  // make sure to try to get screenshot + html on any error so we can debug
-  try {
-    const gotoOpts = { timeout: options.timeout || 35000, waitUntil: options.waitUntil || 'networkidle' };
-    // tentativa com retry específico para ERR_HTTP2_PROTOCOL_ERROR
-    let resp = null;
-    let lastErr = null;
-    const maxNavAttempts = 2;
-    for (let navTry = 1; navTry <= maxNavAttempts; navTry++) {
-      try {
-        resp = await page.goto(url, gotoOpts);
-        lastErr = null;
-        break;
-      } catch (e) {
-        lastErr = e;
-        const m = (e && e.message) ? e.message : String(e);
-        console.log(`    page.goto attempt ${navTry} failed: ${m}`);
-        if (m && m.includes('ERR_HTTP2_PROTOCOL_ERROR') && navTry < maxNavAttempts) {
-          // small backoff then retry
-          await new Promise(r => setTimeout(r, 800 + Math.floor(Math.random()*400)));
-          continue;
-        } else {
-          throw e;
-        }
-      }
-    }
-
-    
-     // exemplo dentro do async após page.goto(...)
-  const containers = [
-    'article, li, .post',   // exemplo: podes usar a string que tens em sites.json
-  ];
-  for (const sel of containers) {
-    try {
-      const count = await page.evaluate(s => {
-        try { return document.querySelectorAll(s).length } catch(e){ return 'ERR' }
-      }, sel);
-      console.log(`Selector "${sel}" => ${count}`);
-    } catch(e){
-      console.log(`Eval failed for selector "${sel}":`, e && e.message);
-    }
-  }
-
-
-    
-    const status = resp ? resp.status() : null;
-    const html = await page.content();
-
-    await browser.close();
-    return { status, html };
-  } catch (err) {
-    // Save debug assets
-    try {
-      const pngPath = debugPrefix + '.error.png';
-      const htmlPath = debugPrefix + '.error.html';
-      await page.screenshot({ path: pngPath, fullPage: false }).catch(()=>{});
-      const cont = await page.content().catch(()=>null);
-      if (cont) fs.writeFileSync(htmlPath, cont, 'utf8');
-    } catch(e){}
-    try { await browser.close(); } catch(_) {}
-    throw err;
-  }
-}
-
-async function main(){
-  const host = shortHost(TARGET);
-  console.log('Starting render for:', TARGET);
-  console.log('Host key matched:', host, '; hostPrefs:', hostPrefs[host] ? hostPrefs[host].join(',') : '(none)');
-
-  if (acceptOn200Hosts.has(host)) {
-    try {
-      const res = await simpleGet(TARGET, 12000);
-      console.log('Quick GET status:', res.status);
-      if (res.status && res.status < 400 && !looksLikeBlockPage(res.body)) {
-        console.log('Quick GET succeeded for priority host -> writing output and exiting');
-        fs.writeFileSync(OUT, res.body, 'utf8');
-        console.log(`Rendered ${TARGET} -> ${OUT} (quick GET, status ${res.status})`);
-        return 0;
-      }
-      console.log('Quick GET did not produce acceptable HTML; falling back to Playwright');
-    } catch (e) {
-      console.log('Quick GET failed (will fallback to Playwright):', e.message);
-    }
-  }
-
-  const strategyOrder = hostPrefs[host] || ['A','B','C'];
-  const strategyMap = {
-    'A': { blockResources: true, waitUntil: 'domcontentloaded', timeout: 20151, userAgent: undefined, referer: 'https://www.google.com/' },
-    'B': { blockResources: false, waitUntil: 'domcontentloaded', timeout: 20278, userAgent: undefined, referer: 'https://www.google.com/' },
-    'C': { blockResources: false, waitUntil: 'domcontentloaded', timeout: 20459, userAgent: undefined, referer: 'https://www.google.com/' },
-    'D': { blockResources: false, waitUntil: 'domcontentloaded', timeout: 20371, userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36', stealth: true, referer: 'https://www.businesswire.com/' },
-    'E': { blockResources: false, waitUntil: 'domcontentloaded', timeout: 20555, userAgent: 'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Mobile Safari/537.36', mobileViewport: { width: 390, height: 844 }, referer: 'https://www.google.com/' }
-  };
-
-  const debugPrefixBase = OUT;
-
-  for (let i=0;i<strategyOrder.length;i++){
-    const s = strategyOrder[i];
-    const opts = strategyMap[s] || strategyMap['B'];
-    console.log(`Strategy attempt ${i+1}/${strategyOrder.length}: ${s} for ${TARGET}`);
-    try {
-      const { status, html } = await renderWithPlaywright(TARGET, opts, debugPrefixBase);
-      console.log('  Main response status:', status);
-      if (acceptOn200Hosts.has(host) && status && status < 400 && !looksLikeBlockPage(html)) {
-        fs.writeFileSync(OUT, html, 'utf8');
-        console.log(`Rendered ${TARGET} -> ${OUT} (status: ${status}) using strategy: ${s} (priority accept)`);
-        return 0;
-      }
-      if (!acceptOn200Hosts.has(host)) {
-        if (status && status < 400 && !looksLikeBlockPage(html)) {
-          fs.writeFileSync(OUT, html, 'utf8');
-          console.log(`Rendered ${TARGET} -> ${OUT} (status: ${status}) using strategy: ${s}`);
-          return 0;
-        } else {
-          console.log(`  Render looks like block page (detected) for ${TARGET} using ${s}`);
-        }
-      } else {
-        // priority host: accept <400 only if not block page; but we do stricter check above
-        console.log('  Priority host but not acceptable status -> continue');
-      }
-    } catch (err) {
-      console.log(`  Strategy ${s} failed:`, err && err.message ? err.message : err);
-      // write small debug log
-      try {
-        fs.appendFileSync(debugPrefixBase + '.log.txt', `[${new Date().toISOString()}] strategy ${s} err: ${err && err.message}\n`);
-      } catch(e){}
-    }
-  }
-
-  console.log('Playwright attempts exhausted — trying simple HTTPS GET fallback (only accept HTTP < 400)');
-  try {
-    const res = await simpleGet(TARGET, 20000);
-    console.log('Fallback GET status:', res.status);
-    if (res.status && res.status < 400 && (!looksLikeBlockPage(res.body) || acceptOn200Hosts.has(host))) {
-      fs.writeFileSync(OUT, res.body, 'utf8');
-      console.log(`Rendered ${TARGET} -> ${OUT} (fallback HTTP GET, status ${res.status})`);
-      return 0;
+    // Determina se caller forneceu outPath (segundo arg é um path tipo .html)
+    if (argv.length >= 2 && argv[1] && (argv[1].endsWith('.html') || argv[1].startsWith('scripts/') || argv[1].startsWith('./') || argv[1].startsWith('/'))) {
+      urls = [argv[0]];
+      outPath = path.resolve(process.cwd(), argv[1]);
     } else {
-      console.log('Fallback HTTPS GET failed or returned block page:', res.status);
-      throw new Error('Fallback HTTP returned block page or bad status');
+      urls = argv.slice();
     }
-  } catch (e) {
-    console.error('Render failed:', e && e.message ? e.message : e);
-    throw e;
-  }
-}
 
-main().then(()=>process.exit(0)).catch(err=>{
-  console.error('render failed for', TARGET);
-  console.error(err && err.stack ? err.stack : err);
-  process.exit(3);
-});
+    if (!urls || urls.length === 0) {
+      console.log('USO: node render_page.js <url> <outPath>   OR   node render_page.js <url1> <url2> ...');
+      process.exit(1);
+    }
+
+    // cria pasta para outputs automáticos se necessário
+    const renderedDir = path.resolve(process.cwd(), 'scripts', 'rendered');
+    try { fs.mkdirSync(renderedDir, { recursive: true }); } catch(e){}
+
+    const headless = process.env.HEADLESS !== 'false';
+    const browser = await chromium.launch({ headless, args: ['--no-sandbox','--disable-setuid-sandbox'] });
+
+    let anyFailed = false;
+
+    try {
+      // opcões de context podem ser adicionadas (cookies, storageState)
+      const context = await browser.newContext({
+        // viewport: { width: 1280, height: 800 },
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      });
+
+      // init script para reduzir detecção básica
+      await context.addInitScript(() => {
+        Object.defineProperty(navigator, 'webdriver', { get: () => false });
+        Object.defineProperty(navigator, 'languages', { get: () => ['en-US','en'] });
+        Object.defineProperty(navigator, 'plugins', { get: () => [1,2,3,4,5] });
+        window.chrome = window.chrome || { runtime: {} };
+      });
+
+      const page = await context.newPage();
+      // extra headers
+      await page.setExtraHTTPHeaders({ 'accept-language': 'en-US,en;q=0.9' });
+      // small navigation timeout protection
+      const NAV_TIMEOUT = 45000;
+
+      for (const url of urls) {
+        const start = Date.now();
+        let targetOut = outPath;
+        if (!targetOut) {
+          // create automatic file name
+          const u = (() => { try { return new URL(url); } catch(e) { return null; } })();
+          const hostpart = u ? sanitizeFilename(u.hostname + (u.pathname || '')) : sanitizeFilename(url);
+          const ts = Date.now();
+          targetOut = path.join(renderedDir, `${hostpart}-${ts}.html`);
+        }
+
+        log(`Starting render for: ${url}`);
+        try {
+          // goto
+          await page.goto(url, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT }).catch(()=>{});
+          // small wait for dynamic content
+          await page.waitForTimeout(1200);
+
+          // try to close common overlays/cookies/dialogs (non-click fallback to hide)
+          const overlaySelectors = [
+            'button[aria-label*="close"]', 'button[aria-label*="Close"]',
+            'button[aria-label*="dismiss"]', 'button[aria-label*="Dismiss"]',
+            'button[aria-label*="Accept"]', 'button[aria-label*="Accept cookies"]',
+            'button[data-control-name="accept_cookies"]', '.cookie-consent', '.consent-banner',
+            '.newsletter-popup', '.newsletter-modal', '.overlay--newsletter'
+          ];
+          for (const sel of overlaySelectors) {
+            try {
+              const els = await page.$$(sel);
+              for (const e of els) {
+                try { await e.click({ timeout: 1500 }); } catch(e2) { /* ignore click errors */ }
+              }
+            } catch(e){}
+          }
+          // small wait after clicks
+          await page.waitForTimeout(400);
+
+          // expand "see more" / "read more" type buttons
+          const seeMoreButtons = [
+            'button[aria-label*="see more"]', 'button[aria-label*="ver mais"]', 'button.feed-shared-inline-show-more-text__see-more-less-toggle',
+            'button[aria-label*="See more"]', 'button[data-more-button]'
+          ];
+          for (const sel of seeMoreButtons) {
+            try {
+              const btns = await page.$$(sel);
+              for (const b of btns) {
+                try { await b.click({ timeout: 1200 }); } catch(e) {}
+              }
+            } catch(e){}
+          }
+          await page.waitForTimeout(400);
+
+          // auto scroll a bit to load lazy content
+          async function autoScroll(maxScrolls = 8, delay = 700) {
+            for (let i = 0; i < maxScrolls; i++) {
+              await page.evaluate(() => window.scrollBy(0, window.innerHeight));
+              await page.waitForTimeout(delay);
+            }
+          }
+          await autoScroll(8, 700);
+
+          // attempt to click "load more" if present
+          const loadMoreSelectors = ['button.load-more', 'button[data-control-name="load_more"]', 'button[aria-label*="Load more"]'];
+          for (const sel of loadMoreSelectors) {
+            try {
+              const btns = await page.$$(sel);
+              for (const b of btns) {
+                try { await b.click({ timeout: 1500 }); await page.waitForTimeout(500); } catch(e) {}
+              }
+            } catch(e){}
+          }
+
+          // final short wait
+          await page.waitForTimeout(700);
+
+          // grab final content
+          const content = await page.content();
+
+          // write to requested outPath
+          try {
+            const dir = path.dirname(targetOut);
+            fs.mkdirSync(dir, { recursive: true });
+            fs.writeFileSync(targetOut, content, 'utf8');
+            log(`Rendered ${url} -> ${targetOut} (status: saved)`);
+          } catch (e) {
+            warn(`Failed to save rendered content to ${targetOut}:`, e && e.message ? e.message : e);
+            anyFailed = true;
+          }
+
+          const elapsed = Math.round((Date.now() - start) / 1000);
+          log(`-> Done: ${url} (elapsed ${elapsed}s)`);
+        } catch (pageErr) {
+          warn(`Render failed for ${url} - ${pageErr && pageErr.message ? pageErr.message : pageErr}`);
+          anyFailed = true;
+        }
+      } // end for urls
+
+      try { await context.close(); } catch(e){}
+    } finally {
+      try { await browser.close(); } catch(e){}
+    }
+
+    if (anyFailed) {
+      warn('Some renders failed (see logs). Exiting with code 2.');
+      process.exit(2);
+    } else {
+      log('All renders completed successfully.');
+      process.exit(0);
+    }
+
+  } catch (err) {
+    err('Fatal error in render_page.js:', err && (err.message || err));
+    try { process.exit(1); } catch(e){}
+  }
+})();
