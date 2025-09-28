@@ -34,6 +34,42 @@ jobs:
           mkdir -p feeds
           ls -la
 
+      - name: Install Playwright (Chromium) for rendering
+        run: |
+          # instala playwright (pequeno) e o browser chromium
+          python -m pip install --upgrade pip || true
+          npm install playwright@1.40.0 || npm install playwright || true
+          npx playwright install chromium
+        shell: bash
+
+      - name: Render dynamic pages to scripts/rendered (Playwright)
+        run: |
+          # assegurar pasta
+          mkdir -p scripts/rendered
+
+          # darkreading (usa waitSelector que representa os itens)
+          node scripts/render_page.js "https://www.darkreading.com/latest-news" "scripts/rendered/darkreading.html" ".ListPreview-Container .ListPreview-ContentWrapper" 45000 60000 || echo "render darkreading failed"
+
+          # dzone (se quiseres renderizar; ajusta waitSelector se necessário)
+          node scripts/render_page.js "https://dzone.com/list" "scripts/rendered/dzone.html" "#ftl-tagging div.article-block" 30000 45000 || echo "render dzone failed"
+
+          # digiday (se quiseres)
+          node scripts/render_page.js "https://digiday.com/" "scripts/rendered/digiday.html" ".big-part ul li, #latest_stories" 35000 45000 || echo "render digiday failed"
+
+          # adage (se precisa render)
+          node scripts/render_page.js "https://adage.com/news/" "scripts/rendered/adage.html" "#main-content" 45000 60000 || echo "render adage failed"
+
+          # listar os ficheiros renderizados para confirmar
+          ls -l scripts/rendered || true
+
+          # debug: mostrar início do ficheiro darkreading para ver se os nós estão lá
+          echo "---- head of scripts/rendered/darkreading.html ----"
+          sed -n '1,120p' scripts/rendered/darkreading.html || true
+          echo "---- tail (last 120 lines) ----"
+          tail -n 120 scripts/rendered/darkreading.html || true
+        shell: bash
+    
+
       - name: Run feed generator (Python)
         id: run_gen
         run: |
