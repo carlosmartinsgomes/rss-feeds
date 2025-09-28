@@ -276,6 +276,33 @@ jobs:
           ls -la "$SCRIPTS/node_modules" | sed -n '1,200p' || true
           node -e "try { require('./${{ steps.detect.outputs.scripts_dir }}/node_modules/playwright'); console.log('playwright ok'); } catch(e) { console.error('playwright require failed:', e.message); process.exit(2); }"
 
+      - name: Render specific pages (Playwright, build-time)
+        if: steps.detect.outputs.scripts_dir != ''
+        shell: bash
+        run: |
+          SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
+          echo "Rendering selected pages into $SCRIPTS/rendered (build-time)"
+          mkdir -p "$SCRIPTS/rendered"
+          # ensure render_page.js exists
+          if [ ! -f "$SCRIPTS/render_page.js" ]; then
+            echo "render_page.js not found in $SCRIPTS - skipping build-time renders"
+          else
+            # Darkreading (main listing)
+            node "$SCRIPTS/render_page.js" "https://www.darkreading.com/latest-news" "$SCRIPTS/rendered/darkreading.html" || echo "render darkreading failed"
+            # DZone
+            node "$SCRIPTS/render_page.js" "https://dzone.com/list" "$SCRIPTS/rendered/dzone.html" || echo "render dzone failed"
+            # Digiday
+            node "$SCRIPTS/render_page.js" "https://digiday.com/" "$SCRIPTS/rendered/digiday.html" || echo "render digiday failed"
+            # Ad Age (if needed)
+            node "$SCRIPTS/render_page.js" "https://adage.com/news/" "$SCRIPTS/rendered/adage.html" || echo "render adage failed"
+          fi
+          echo "Rendered files (build-time):"
+          ls -la "$SCRIPTS/rendered" || true
+          echo "---- head of darkreading render (if exists) ----"
+          test -f "$SCRIPTS/rendered/darkreading.html" && head -n 80 "$SCRIPTS/rendered/darkreading.html" || echo "no darkreading render"
+        env:
+          SCRIPTS: ${{ steps.detect.outputs.scripts_dir }}
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
