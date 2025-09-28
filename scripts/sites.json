@@ -1,14 +1,14 @@
 {
   "sites": [
     {
-      "name": "iotworldtoday",
-      "url": "https://www.iotworldtoday.com/",
-      "item_container": "article, .listing-item, .post",
-      "title": "h1, h2 a",
-      "link": "h1 a@href, h2 a@href",
-      "date": "time, .entry-date, .published",
-      "description": "article p, .excerpt, .summary",
-      "render_file": "scripts/rendered/iotworldtoday.html",
+      "name": "aibusiness",
+      "url": "https://aibusiness.com/latest-news",
+      "item_container": ".ContentCard-Body, .ListContent-Content .ContentCard-Body, .ContentPreview.ListContent-Content.ListContent-Content_featured > div, .ListContent-Content.ListContent-Content_latest > div, .ListPreview-Container .ListPreview-ContentWrapper, .ListPreview-ContentWrapper, .ArticlePreview-Body",
+      "title": "a.ArticlePreview-Title, a.ContentCard-Title, .ListPreview-TitleWrapper > a, a.ListPreview-Title, a[data-testid='preview-default-title'], a[data-testid='preview-mobile-title'], a",
+      "link": "a.ArticlePreview-Title@href, a.ContentCard-Title@href, .ListPreview-TitleWrapper > a@href, a.ListPreview-Title@href, a@href",
+      "date": ".ArticlePreview-Footer .ArticlePreview-Date, .ContentCard-Footer .ContentCard-Date, .ListPreview-Footer .ListPreview-Date, time, .CardTime span, span",
+      "description": "p.ArticlePreview-Summary, .ArticlePreview-Summary, .card-text, .excerpt, p",
+      "render_file": "scripts/rendered/aibusiness.html",
       "filters": { "keywords": ["a","iot","samsara"] }
     },
     {
@@ -46,12 +46,12 @@
     },
     {
       "name": "lightreading",
-      "url": "https://www.lightreading.com/",
-      "item_container": "article, .listing-item, .story",
-      "title": "h1, h2 a, h3 a",
-      "link": "h2 a@href, h3 a@href, a@href",
-      "date": "time, .date, .published",
-      "description": "p, .excerpt",
+      "url": "https://www.lightreading.com/latest-news",
+      "item_container": ".ContentCard-Body, .ListContent-Content .ContentCard-Body, .ContentPreview.ListContent-Content.ListContent-Content_featured > div, .ListContent-Content.ListContent-Content_latest > div, .ListPreview-Container .ListPreview-ContentWrapper, .ListPreview-ContentWrapper, .ArticlePreview-Body",
+      "title": "a.ArticlePreview-Title, a.ContentCard-Title, .ListPreview-TitleWrapper > a, a.ListPreview-Title, a[data-testid='preview-default-title'], a[data-testid='preview-mobile-title'], a",
+      "link": "a.ArticlePreview-Title@href, a.ContentCard-Title@href, .ListPreview-TitleWrapper > a@href, a.ListPreview-Title@href, a@href",
+      "date": ".ArticlePreview-Footer .ArticlePreview-Date, .ContentCard-Footer .ContentCard-Date, .ListPreview-Footer .ListPreview-Date, time, .CardTime span, span",
+      "description": "p.ArticlePreview-Summary, .ArticlePreview-Summary, .card-text, .excerpt, p",
       "filters": { "keywords": ["a","anet","arista"] }
     },
     {
