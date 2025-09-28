@@ -123,7 +123,7 @@ jobs:
             https://www.businesswire.com/newsroom?page=4
             https://www.businesswire.com/newsroom?page=5
             https://digiday.com/
-            https://adage.com/news/
+            https://adage.com/
             https://www.modernhealthcare.com/latest-news/
           SCRIPTS: ${{ steps.detect.outputs.scripts_dir }}
         run: |
