@@ -36,8 +36,6 @@ jobs:
             echo "No secret LINKEDIN_AUTH_JSON_B64 provided — continuing without it."
           fi
 
-
-
       - name: Detect scripts dir
         id: detect
         shell: bash
@@ -124,144 +122,60 @@ jobs:
             https://www.businesswire.com/newsroom?page=3
             https://www.businesswire.com/newsroom?page=4
             https://www.businesswire.com/newsroom?page=5
+            https://digiday.com/
+            https://adage.com/news/
+            https://www.modernhealthcare.com/latest-news/
           SCRIPTS: ${{ steps.detect.outputs.scripts_dir }}
         run: |
-          echo "Using SCRIPTS='$SCRIPTS' and EXPLICIT_URLS provided"
-      
-          node <<'NODE'
-          const fs = require('fs');
-          const cp = require('child_process');
-          const path = require('path');
-      
-          // WHITELIST: apenas estes hosts serão processados por este passo
-          const allowedHosts = [
-            'dzone.com',
-            'eetimes.com',
-            'mdpi.com',
-            'medscape.com',
-            'stocktwits.com',
-            'journals.lww.com'
-          ];
-      
-          function hostOf(urlString) {
-            try {
-              const u = new URL(String(urlString));
-              return (u.hostname || '').toLowerCase().replace(/^www\./,'');
-            } catch (e) {
-              const m = String(urlString || '').toLowerCase().match(/:\/\/([^\/:?#]+)/);
-              return m ? m[1].replace(/^www\./,'') : '';
-            }
-          }
-      
-          function hostMatchesAllowed(hostname) {
-            if (!hostname) return false;
-            return allowedHosts.some(a => hostname === a || hostname.endsWith('.' + a));
-          }
-      
-          // read env provided by the step
-          let scriptsDir = process.env.SCRIPTS || '';
-          const explicitRaw = process.env.EXPLICIT_URLS || '';
-          const explicit = explicitRaw.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
-      
-          const candidates = ['scripts', 'rss-feeds/scripts', './scripts', './rss-feeds/scripts'];
-          if (!scriptsDir) {
-            for (const c of candidates) {
-              try {
-                if (fs.existsSync(path.join(c, 'sites.json')) && fs.existsSync(path.join(c, 'render_page.js'))) {
-                  scriptsDir = c;
-                  break;
-                }
-              } catch (e) { /* ignore */ }
-            }
-          }
-      
-          if (!scriptsDir) {
-            console.warn('Could not determine scripts directory. Skipping configured renders.');
-            process.exit(0);
-          }
-      
-          scriptsDir = scriptsDir.replace(/\/+$/, '');
-          const sitesFile = path.join(scriptsDir, 'sites.json');
-          if (!fs.existsSync(sitesFile)) {
-            console.warn(`sites.json not found at ${sitesFile} -> skipping configured renders`);
-            process.exit(0);
-          }
-      
-          // read & parse sites.json with simple sanitizer (remove // and /* */ and trailing commas)
-          let raw = fs.readFileSync(sitesFile, 'utf8');
-          let sitesObj = null;
-          try {
-            sitesObj = JSON.parse(raw);
-          } catch (e) {
-            // sanitize: remove // comments and /* */ blocks and trailing commas
-            let s = raw.replace(/\/\/.*(?=\n)/g, '');
-            s = s.replace(/\/\*[\s\S]*?\*\//g, '');
-            s = s.replace(/,\s*(\}|])/g, '$1');
-            try {
-              sitesObj = JSON.parse(s);
-              console.log('Parsed sites.json after basic sanitize (node).');
-            } catch (e2) {
-              console.error('Failed to parse sites.json in Node even after sanitize:', e2 && e2.message ? e2.message : e2);
-              process.exit(1);
-            }
-          }
-      
-          let sites = (sitesObj && sitesObj.sites) ? sitesObj.sites : (Array.isArray(sitesObj) ? sitesObj : []);
-      
-          const renderScript = path.join(scriptsDir, 'render_page.js');
-          if (!fs.existsSync(renderScript)) {
-            console.warn(`render_page.js not found at ${renderScript} -> skipping`);
-            process.exit(0);
-          }
-      
-          try { fs.mkdirSync(path.join(scriptsDir, 'rendered'), { recursive: true }); } catch(e){}
-      
-          for (const s of sites.filter(s => s.render_file)) {
-            const urlRaw = (s.url || '').trim();
-            if (!urlRaw) continue;
-            const host = hostOf(urlRaw);
-      
-            // se não estiver na whitelist, ignora
-            if (!hostMatchesAllowed(host)) {
-              console.log('Skipping (not in configured whitelist):', urlRaw);
-              continue;
-            }
-      
-            // se a URL já foi explicitamente tratada na etapa explícita, pula para evitar duplicação
-            if (explicit.includes(urlRaw)) {
-              console.log('Skipping configured render for (explicit handled):', urlRaw);
-              continue;
-            }
-      
-            const url = urlRaw;
-            const out = s.render_file;
-            console.log('Rendering', url, '->', out);
-            try {
-              const cmd = `node "${renderScript}" "${String(url).replace(/"/g,'\\"')}" "${String(out).replace(/"/g,'\\"')}"`;
-              cp.execSync(cmd, { stdio: 'inherit', timeout: 180000 });
-              console.log('-> Done:', url);
-            } catch (err) {
-              console.error('Render failed for', url, '-', err && err.message ? err.message : err);
-            }
-          }
-          NODE
+          echo "Using SCRIPTS='${SCRIPTS:-scripts}' and EXPLICIT_URLS provided"
+          SCRIPTS="${SCRIPTS:-scripts}"
+          if [ -z "$SCRIPTS" ]; then
+            echo "No scripts dir detected -> skip configured renders"
+            exit 0
+          fi
+          if [ -f "$SCRIPTS/render_configured.js" ]; then
+            node "$SCRIPTS/render_configured.js"
+          else
+            echo "render_configured.js not found at $SCRIPTS -> skipping"
+          fi
 
-    
+      - name: Show rendered files (debug)
+        working-directory: ${{ steps.detect.outputs.scripts_dir }}
+        run: |
+          echo "Contents of scripts/rendered (if any):"
+          SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
+          ls -la "$SCRIPTS/rendered" || echo "No rendered dir or empty"
+        env:
+          SCRIPTS: ${{ steps.detect.outputs.scripts_dir }}
+
+      - name: Upload rendered HTML as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rendered-html
+          path: ${{ steps.detect.outputs.scripts_dir }}/rendered
+          if-no-files-found: warn
+
       - name: Run linkedin extractor
         working-directory: ${{ steps.detect.outputs.scripts_dir }}
         run: |
-          node ./render_linkedin_extract.js \
-            "https://www.linkedin.com/groups/5146549/" \
-            "https://www.linkedin.com/groups/4682610/" \
-            "https://www.linkedin.com/groups/3875737/" \
-            "https://www.linkedin.com/search/results/content/?datePosted=%22past-week%22&keywords=the%20trade%20desk&origin=FACETED_SEARCH" \
-            "https://www.linkedin.com/search/results/content/?datePosted=%22past-week%22&keywords=pubmatic&origin=FACETED_SEARCH"
+          node render_linkedin_extract.js \
+            'https://www.linkedin.com/groups/5146549/' \
+            'https://www.linkedin.com/groups/4682610/' \
+            'https://www.linkedin.com/groups/3875737/' \
+            'https://www.linkedin.com/search/results/content/?datePosted=%22past-week%22&keywords=the%20trade%20desk&origin=FACETED_SEARCH' \
+            'https://www.linkedin.com/search/results/content/?datePosted=%22past-week%22&keywords=pubmatic&origin=FACETED_SEARCH'
         env:
           LINKEDIN_EMAIL: ${{ secrets.LINKEDIN_EMAIL || '' }}
           LINKEDIN_PASSWORD: ${{ secrets.LINKEDIN_PASSWORD || '' }}
           HEADLESS: 'true'
 
-
+      - name: Clean linkedin output files (.html .png)
+        working-directory: ${{ steps.detect.outputs.scripts_dir }}
+        run: |
+          SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
+          echo "Cleaning possible large debug files in $SCRIPTS/output ..."
+          rm -f "$SCRIPTS/output"/*.html "$SCRIPTS/output"/*.png || true
+          ls -la "$SCRIPTS/output" || true
 
       - name: Show produced linkedin files (debug)
         working-directory: ${{ steps.detect.outputs.scripts_dir }}
@@ -278,21 +192,12 @@ jobs:
         env:
           SCRIPTS: ${{ steps.detect.outputs.scripts_dir }}
 
-
       - name: Upload linkedin artifact
         uses: actions/upload-artifact@v4
         with:
           name: linkedin-output
           path: ${{ steps.detect.outputs.scripts_dir }}/output
           if-no-files-found: warn
-
-
-    
-      - name: Upload rendered HTML as artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: rendered-html
-          path: ${{ steps.detect.outputs.scripts_dir }}/rendered
 
   build:
     needs: render-on-selfhosted
@@ -397,6 +302,29 @@ jobs:
             exit 1
           fi
 
+      - name: List feeds dir (debug)
+        run: |
+          echo "=== Listing feeds/*.xml in workspace ==="
+          ls -la "${{ github.workspace }}/feeds" || true
+
+      - name: Show first lines of each feed (debug)
+        run: |
+          sh -c 'for f in "${{ github.workspace }}/feeds"/*.xml; do
+            if [ -f "$f" ]; then
+              echo "---- $f ----"
+              head -n 20 "$f" || true
+            fi
+          done'
+
+      - name: Upload feeds XMLs (artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: feeds-xml-${{ github.run_id }}-${{ github.run_number }}
+          path: feeds/*.xml
+          if-no-files-found: warn
+          retention-days: 7
+    
+
       - name: Install tiny extras for Excel export
         run: |
           python -m pip install --upgrade pip
@@ -414,7 +342,6 @@ jobs:
           path: feeds_summary.xlsx
           if-no-files-found: warn
           retention-days: 7
-    
 
       - name: Ensure output dir exists
         run: |
@@ -436,13 +363,6 @@ jobs:
           echo "zipname=$ZIPNAME" >> $GITHUB_OUTPUT
         shell: bash
 
-      - name: Upload feeds artifact (zip)
-        uses: actions/upload-artifact@v4
-        with:
-          name: feeds-${{ github.run_id }}-${{ github.run_number }}
-          path: ${{ steps.create_zip.outputs.zipname }}
-          if-no-files-found: warn
-
       - name: Merge feeds (generate dist/merged-feed.xml)
         run: |
           python -m pip install --upgrade pip
@@ -458,9 +378,21 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "actions@github.com"
           git add dist/merged-feed.xml || echo "no merged feed to add"
-          git commit -m "Update merged feed" || echo "no changes to commit"
-          git push
-
+          # commit if there are staged changes
+          if ! git diff --cached --quiet; then
+            git commit -m "Update merged feed" || echo "commit failed"
+            # fetch remote and rebase onto origin/main to avoid non-fast-forward
+            git fetch origin main --depth=1 || true
+            if git rebase origin/main; then
+              git push origin HEAD:main || echo "git push failed"
+            else
+              echo "Rebase failed; aborting push"
+              git rebase --abort || true
+            fi
+          else
+            echo "no changes to commit"
+          fi
+          
       - name: Show produced feeds
         run: |
           echo "Feeds dir listing:"
