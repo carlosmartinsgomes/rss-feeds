@@ -21,7 +21,7 @@ const RENDER_TARGETS = [
   ["https://adage.com/news/", `${SCRIPTS}/rendered/adage.html`],
   ["https://digiday.com/", `${SCRIPTS}/rendered/digiday.html`],
   ["https://www.modernhealthcare.com/latest-news/", `${SCRIPTS}/rendered/modernhealthcare.html`],
-  ["https://www.iotworldtoday.com/", `${SCRIPTS}/rendered/iotworldtoday.html`]
+  ["https://aibusiness.com/latest-news", `${SCRIPTS}/rendered/aibusiness.html`]
 ];
 
 const CONCURRENCY = Number(process.env.RENDER_CONCURRENCY || 4);
