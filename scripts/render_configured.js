@@ -34,7 +34,7 @@ const allowedHosts = [
   'stocktwits.com',
   'journals.lww.com',
   'inmodeinvestors.com',
-  'iotworldtoday.com',
+  'aibusiness.com',
   'businesswire.com'
 ];
 
