@@ -102,24 +102,43 @@ def normalize_link_for_dedupe(href):
         return href.strip().lower()
 
 
-def extract_items_from_html(html, cfg):
+def collect_article_nodes_in_dom_order(soup, container_cfg, base_url=None):
     """
-    Extrai items (title, link, description, date, full_text) de um HTML dado e uma config de site.
-    cfg é um dict com possiveis chaves: item_container, title, link, description, date, url
+    Recebe BeautifulSoup soup e um item_container string (lista separada por vírgulas).
+    Retorna uma lista de nodes em ordem DOM, tentando evitar duplicados triviais
+    (preferindo nodes com link e/ou título).
     """
-    soup = BeautifulSoup(html, 'html.parser')
-    container_sel = cfg.get('item_container') or 'article'
-    nodes = []
-    for sel in [s.strip() for s in container_sel.split(',')]:
+    selectors = [s.strip() for s in (container_cfg or '').split(',') if s.strip()]
+    counts = []
+    all_nodes = []
+    # compute counts per selector for debug
+    for sel in selectors:
         try:
             found = soup.select(sel)
-            if found:
-                nodes.extend(found)
+            counts.append((sel, len(found)))
         except Exception:
-            # selector inválido -> ignora
-            continue
+            counts.append((sel, 0))
 
-    # fallback generic: se nada encontrado, tenta 'li' e 'article'
+    # Try combined selection (preserves DOM order)
+    combined = ', '.join(selectors) if selectors else ''
+    nodes = []
+    if combined:
+        try:
+            nodes = soup.select(combined)
+        except Exception:
+            nodes = []
+
+    # If combined returned nothing, fallback to aggregating per selector (keeps insertion order)
+    if not nodes:
+        for sel in selectors:
+            try:
+                found = soup.select(sel)
+                if found:
+                    nodes.extend(found)
+            except Exception:
+                continue
+
+    # If still nothing, fallback to common generic tags
     if not nodes:
         for fallback in ('li', 'article', 'div'):
             try:
@@ -128,6 +147,62 @@ def extract_items_from_html(html, cfg):
                     nodes.extend(found)
             except Exception:
                 continue
+
+    # Deduplicate nodes quickly by normalized link or small title snippet while keeping DOM order
+    deduped = []
+    seen_keys = set()
+    for n in nodes:
+        key = ''
+        try:
+            a = n.select_one('a[href]')
+            if a and a.has_attr('href'):
+                href = a.get('href') or ''
+                if href:
+                    # normalize full absolute url
+                    try:
+                        href_abs = urljoin(base_url or '', href)
+                    except Exception:
+                        href_abs = href
+                    key = normalize_link_for_dedupe(href_abs)
+        except Exception:
+            key = ''
+
+        if not key:
+            # try small title snippet
+            try:
+                title_el = n.select_one('a') or n.select_one('h4') or n.select_one('h3') or n
+                title_txt = (title_el.get_text(" ", strip=True)[:200].strip().lower() if title_el else '')
+                if title_txt:
+                    key = title_txt
+            except Exception:
+                key = ''
+
+        if not key:
+            # fallback unique node id
+            key = f"__node_{id(n)}"
+
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        deduped.append(n)
+
+    # debug info: return counts and deduped nodes via attributes? We'll print counts here.
+    total_unique = len(deduped)
+    # attach debug info as attribute for caller if desired (not necessary, but print now)
+    print(f"extract_items_from_html debug selectors counts: {counts} total_nodes: {total_unique}")
+    return deduped
+
+
+def extract_items_from_html(html, cfg):
+    """
+    Extrai items (title, link, description, date, full_text) de um HTML dado e uma config de site.
+    cfg é um dict com possiveis chaves: item_container, title, link, description, date, url
+    """
+    soup = BeautifulSoup(html, 'html.parser')
+    container_sel = cfg.get('item_container') or 'article'
+
+    # Collect nodes in DOM order with dedupe
+    nodes = collect_article_nodes_in_dom_order(soup, container_sel, base_url=cfg.get('url'))
 
     items = []
     for node in nodes:
@@ -365,7 +440,7 @@ def dedupe_items(items):
     return out
 
 
-# ----- BUILD FEED: substituída para evitar usar full_text como fallback -----
+# ----- BUILD FEED: substituída para evitar usar full_text como fallback ----
 def build_feed(name, cfg, items):
     """
     items: lista de dicts com keys 'title','link','description','date','full_text'
@@ -516,7 +591,7 @@ def main():
             print(f'No items matched filters for {name} — falling back to all {len(items)} items')
             matched = items
 
-        # dedupe
+        # dedupe (final)
         deduped = dedupe_items(matched)
 
         # write feed
