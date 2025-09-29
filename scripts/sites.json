@@ -31,6 +31,7 @@
       "link": "a@href",
       "date": "h6.mt0_25.mb0.regular.grey-5.fs-small > span:first-child, h6 span",
       "description": "",
+      "render_file": "scripts/rendered/edsurge.html",
       "max_items": 200,
       "filters": { "keywords": [] }
     },
