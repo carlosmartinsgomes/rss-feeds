@@ -28,7 +28,8 @@ function hostMatchesAllowed(hostname, allowedHosts) {
 // WHITELIST: apenas estes hosts serão processados por este passo
 const allowedHosts = [
   'dzone.com',
-  'eetimes.com',
+  'https://www.eetimes.com/category/news-analysis/',
+  'https://www.edsurge.com/news',
   'mdpi.com',
   'medscape.com',
   'stocktwits.com',
