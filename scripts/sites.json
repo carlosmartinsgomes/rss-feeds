@@ -58,7 +58,7 @@
     },
     {
       "name": "medcitynews",
-      "url": "https://medcitynews.com/",
+      "url": "https://medcitynews.com/feed/",
       "item_container": "article, .post, .teaser",
       "title": "h1, h2 a, h3 a",
       "link": "h2 a@href, a@href",
