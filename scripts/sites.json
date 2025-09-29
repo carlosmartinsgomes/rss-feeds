@@ -59,11 +59,11 @@
     {
       "name": "medcitynews",
       "url": "https://medcitynews.com/feed/",
-      "item_container": "article, .post, .teaser",
-      "title": "h1, h2 a, h3 a",
-      "link": "h2 a@href, a@href",
-      "date": "time, .published, .byline",
-      "description": "p, .summary",
+      "item_container": "item",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
       "filters": { "keywords": ["a","inmode","device","acquisition","partnership","fda","clinical trial"], "exclude": ["opinion","review"] }
     },
     {
@@ -91,11 +91,12 @@
     {
       "name": "networkworld",
       "url": "https://www.networkworld.com/",
-      "item_container": "article, .news, .listing",
-      "title": "h1, h2 a, h3 a",
-      "link": "h2 a@href, a@href",
-      "date": "time, .date, .published",
-      "description": "p, .dek",
+      "item_container": "div.latest-content__content-featured > a:not(.nativo), a.card:not(.nativo), #latest a.card:not(.nativo), #article a.card:not(.nativo), #article > div > div.content-listing-articles__container.content-listing-articles__container--collapsed.content-listing-articles--collapsed a:not(.nativo)",
+      "title": "h3.card__title, .card__title, h3",
+      "link": "a@href",
+      "date": "span[itemprop='datePublished'], .card__info.card__info--light span > span, .card__info.card__info--light time, time, span",
+      "description": ".card__description, p.card__description, p",
+      "max_items": 18,
       "filters": { "keywords": [] }
     },
     {
@@ -478,14 +479,13 @@
     },
     {
       "name": "retaildive",
-      "url": "https://www.retaildive.com/",
-      "item_container": "article, li, div",
-      "title": "a, h2 a, h3 a",
-      "link": "a@href, h2 a@href",
-      "date": "time, .date",
-      "description": "p",
+      "url": "https://feeder.co/discover/ad39aff14f/retaildive-com-news",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
       "render_file": "scripts/rendered/retaildive.html",
-      "filters": { "keywords": ["onon","on holding","on holdings","running"] }
+      "filters": { "keywords": ["a","onon","on holding","on holdings","running"] }
     },
     {
       "name": "mdpi-jaestheticmed",
@@ -533,13 +533,24 @@
     {
       "name": "medscape-derm",
       "url": "https://www.medscape.com/index/list_13470_0",
-      "item_container": "article, li, div",
-      "title": "a, h2 a, h3 a",
-      "link": "a@href",
-      "date": "time, .date",
-      "description": "p",
+      "item_container": "#archives > ul > li, #archives li",
+      "title": "a.title, a",
+      "link": "a.title@href, a@href",
+      "date": "div.byline, .byline, time",
+      "description": "span.teaser, .teaser, p",
       "render_file": "scripts/rendered/medscape.html",
-      "filters": { "keywords": ["inmode","inmd"] }
+      "filters": { "keywords": ["inmode","morpheus8","facetite","bodytite","complication","adverse","review","case","experience"], "exclude":["spam","promotion","promo","course"] }
+    },
+    {
+      "name": "medscape-derm",
+      "url": "https://www.medscape.com/index/list_13470_1",
+      "item_container": "#archives > ul > li, #archives li",
+      "title": "a.title, a",
+      "link": "a.title@href, a@href",
+      "date": "div.byline, .byline, time",
+      "description": "span.teaser, .teaser, p",
+      "render_file": "scripts/rendered/medscape1.html",
+      "filters": { "keywords": ["inmode","morpheus8","facetite","bodytite","complication","adverse","review","case","experience"], "exclude":["spam","promotion","promo","course"] }
     },
     {
       "name": "modernhealthcare",
