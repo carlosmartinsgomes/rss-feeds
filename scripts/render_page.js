@@ -1,17 +1,17 @@
 #!/usr/bin/env node
 /**
- * scripts/render_page.js (patched)
+ * scripts/render_page.js (diagnostic patch)
+ *
+ * Substitui o ficheiro anterior. Guarda HTML, e quando o resultado for
+ * anormalmente pequeno grava também:
+ *  - screenshot (.png)
+ *  - debug JSON com eventos de rede e console (.debug.json)
  *
  * Uso:
- *   node scripts/render_page.js <url> <outPath>
- *   node scripts/render_page.js <url1> <url2> ...
+ *  node scripts/render_page.js <url> <outPath>
+ *  node scripts/render_page.js <url1> <url2> ...
  *
- * Alterações principais:
- *  - waitUntil 'networkidle'
- *  - NAV_TIMEOUT aumentado
- *  - espera por seletores-chaves (para sites que carregam via JS)
- *  - mais auto-scrolling e clicks em "accept cookies"/"load more"
- *  - tentativa agressiva de fechar overlays (clicar/remover)
+ * Controla HEADLESS via env HEADLESS (seta 'false' para headful quando possível).
  */
 
 const fs = require('fs');
@@ -32,7 +32,6 @@ function sanitizeFilename(s) {
     let outPath = null;
     let urls = [];
 
-    // Determina se caller forneceu outPath (segundo arg é um path tipo .html)
     if (argv.length >= 2 && argv[1] && (argv[1].endsWith('.html') || argv[1].startsWith('scripts/') || argv[1].startsWith('./') || argv[1].startsWith('/'))) {
       urls = [argv[0]];
       outPath = path.resolve(process.cwd(), argv[1]);
@@ -49,7 +48,10 @@ function sanitizeFilename(s) {
     try { fs.mkdirSync(renderedDir, { recursive: true }); } catch(e){}
 
     const headless = process.env.HEADLESS !== 'false';
-    const browser = await chromium.launch({ headless, args: ['--no-sandbox','--disable-setuid-sandbox'] });
+    const browser = await chromium.launch({
+      headless,
+      args: ['--no-sandbox','--disable-setuid-sandbox','--disable-blink-features=AutomationControlled']
+    });
 
     let anyFailed = false;
 
@@ -57,9 +59,11 @@ function sanitizeFilename(s) {
       const context = await browser.newContext({
         viewport: { width: 1400, height: 900 },
         userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        bypassCSP: true,
+        locale: 'en-US',
       });
 
-      // reduce basic webdriver detection
+      // small anti-detect init
       await context.addInitScript(() => {
         Object.defineProperty(navigator, 'webdriver', { get: () => false });
         Object.defineProperty(navigator, 'languages', { get: () => ['en-US','en'] });
@@ -67,36 +71,22 @@ function sanitizeFilename(s) {
         window.chrome = window.chrome || { runtime: {} };
       });
 
-      // small extra headers
-      context.setExtraHTTPHeaders({ 'accept-language': 'en-US,en;q=0.9' });
+      context.setExtraHTTPHeaders({ 'accept-language': 'en-US,en;q=0.9', 'referer': 'https://www.google.com/' });
 
-      // NAV timeout maior
-      const NAV_TIMEOUT = 60000;
+      const NAV_TIMEOUT = 90000;
 
-      // selectors common for cookie overlays and "accept"
       const overlaySelectors = [
-        '#onetrust-accept-btn-handler', // OneTrust
-        'button[aria-label*="accept"]',
-        'button[aria-label*="Accept"]',
-        'button[aria-label*="ACCEPT"]',
-        'button[title*="Accept"]',
-        '.cc-accept', '.cookie-accept', '.cookie-consent button', '.accept-cookies', '.consent-accept',
-        '.consent-banner button', '.optanon-allow-all', '#agree-button', '.onetrust-close-btn-handler'
+        '#onetrust-accept-btn-handler', 'button[aria-label*="accept"]', '.cc-accept', '.cookie-accept', '.consent-accept',
+        '.consent-banner', '.optanon-allow-all', '.onetrust-close-btn-handler', 'button[title*="Accept"]'
       ];
-
-      // see more / load more
-      const seeMoreButtons = [
-        'button[aria-label*="see more"]', 'button[aria-label*="See more"]',
-        'button.feed-shared-inline-show-more-text__see-more-less-toggle',
-        'button[data-more-button]', 'a.load-more', 'button.load-more', '.load-more'
-      ];
+      const seeMoreButtons = ['button[aria-label*="see more"]', 'button[data-more-button]', 'button.load-more', 'a.load-more'];
 
       async function tryClickAll(page, selectors, timeoutEach = 1200) {
         for (const sel of selectors) {
           try {
             const els = await page.$$(sel);
             for (const el of els) {
-              try { await el.click({ timeout: timeoutEach }); } catch(e) { /* ignore */ }
+              try { await el.click({ timeout: timeoutEach }); } catch(e) {}
             }
           } catch(e){}
         }
@@ -105,22 +95,15 @@ function sanitizeFilename(s) {
       async function removeOverlaysByJS(page) {
         try {
           await page.evaluate(() => {
-            const bad = [
-              '#onetrust-consent-sdk', '.cookie-consent', '.consent-banner', '.overlay--newsletter', '.newsletter-popup'
-            ];
-            for (const s of bad) {
-              document.querySelectorAll(s).forEach(el => {
-                try { el.remove(); } catch(e) {}
-              });
-            }
-            // also un-hide body if blocked by fixed overlay
+            const bad = ['#onetrust-consent-sdk', '.cookie-consent', '.consent-banner', '.overlay--newsletter', '.newsletter-popup'];
+            bad.forEach(s => document.querySelectorAll(s).forEach(el => el.remove()));
             document.documentElement.style.overflow = 'auto';
             document.body.style.overflow = 'auto';
           });
         } catch(e){}
       }
 
-      async function autoScroll(page, maxScrolls = 15, delay = 700) {
+      async function autoScroll(page, maxScrolls = 20, delay = 700) {
         for (let i = 0; i < maxScrolls; i++) {
           await page.evaluate(() => window.scrollBy(0, window.innerHeight));
           await page.waitForTimeout(delay);
@@ -139,72 +122,117 @@ function sanitizeFilename(s) {
 
         log(`Starting render for: ${url}`);
         let page = null;
+        // diagnostic collectors
+        const consoleEvents = [];
+        const networkEvents = [];
         try {
           page = await context.newPage();
 
-          // try goto with networkidle (wait for XHRs)
+          // attach listeners to collect data
+          page.on('console', msg => {
+            try {
+              consoleEvents.push({ type: 'console', text: msg.text(), location: msg.location(), timestamp: Date.now() });
+            } catch(e) {}
+          });
+          page.on('pageerror', errObj => {
+            consoleEvents.push({ type: 'pageerror', text: (errObj && errObj.message) ? errObj.message : String(errObj), timestamp: Date.now() });
+          });
+          page.on('request', req => {
+            networkEvents.push({ type: 'request', url: req.url(), method: req.method(), headers: req.headers(), timestamp: Date.now() });
+          });
+          page.on('requestfailed', req => {
+            networkEvents.push({ type: 'requestfailed', url: req.url(), failureText: req.failure() ? req.failure().errorText : null, timestamp: Date.now() });
+          });
+          page.on('response', async resp => {
+            try {
+              const headers = resp.headers();
+              networkEvents.push({ type: 'response', url: resp.url(), status: resp.status(), headers, timestamp: Date.now() });
+            } catch(e){}
+          });
+
+          // try goto networkidle first
           try {
             await page.goto(url, { waitUntil: 'networkidle', timeout: NAV_TIMEOUT });
           } catch(e) {
-            // fallback try domcontentloaded then wait
             try { await page.goto(url, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT }); } catch(e2){}
           }
 
-          // short initial wait
           await page.waitForTimeout(1200);
 
-          // try click accept cookie buttons aggressively
-          await tryClickAll(page, overlaySelectors, 1200);
-          // remove overlays via JS as fallback
+          // click overlays aggressively
+          await tryClickAll(page, overlaySelectors, 1000);
           await removeOverlaysByJS(page);
           await page.waitForTimeout(400);
 
-          // try "see more" buttons
-          await tryClickAll(page, seeMoreButtons, 1200);
+          // click see more
+          await tryClickAll(page, seeMoreButtons, 1000);
           await page.waitForTimeout(400);
 
-          // extra aggressive scrolling + wait for dynamic load
+          // scroll more
           await autoScroll(page, 12, 800);
 
-          // Special: for some hosts wait for key selectors (helps for EETimes / DarkReading / others)
+          // host-specific wait (EETimes)
           try {
             const host = (() => { try { return new URL(url).hostname; } catch(e) { return ''; } })();
             if (host && host.includes('eetimes.com')) {
-              // try to wait for either categoryFeatured-block or card-body or headline-title
               try {
-                await page.waitForSelector('#main .categoryFeatured-block, #main .segment-one .headline-title, #wallpaper_image .card-body', { timeout: 8000 });
+                await page.waitForSelector('#main, #wallpaper_image, .categoryFeatured-block, .card-body', { timeout: 15000 });
                 log('Host-specific selector(s) appeared for eetimes.com');
               } catch(e) {
                 log('Host-specific selector(s) did NOT appear within timeout for eetimes.com (continuing)');
               }
             }
-            // similar host-specific waits could be added here for other sites
-          } catch(e) {}
+          } catch(e){}
 
-          // another pass of clicks + scroll (sometimes more content loads after scroll)
-          await tryClickAll(page, overlaySelectors, 800);
-          await tryClickAll(page, seeMoreButtons, 800);
-          await autoScroll(page, 8, 700);
-
-          // final short wait
+          // more scrolling + click passes
+          await tryClickAll(page, overlaySelectors, 600);
+          await tryClickAll(page, seeMoreButtons, 600);
+          await autoScroll(page, 6, 600);
           await page.waitForTimeout(700);
 
-          // grab final content
+          // capture content
           let content = '';
           try {
-            // prefer full outerHTML
             content = await page.evaluate(() => document.documentElement.outerHTML);
-          } catch (e) {
+          } catch(e) {
             try { content = await page.content(); } catch(e2) { content = ''; }
           }
 
-          // write to requested outPath
+          // write content
           try {
             const dir = path.dirname(targetOut);
             fs.mkdirSync(dir, { recursive: true });
             fs.writeFileSync(targetOut, content, 'utf8');
             const stat = fs.statSync(targetOut);
             log(`Rendered ${url} -> ${targetOut} (status: saved, bytes: ${stat.size})`);
+
+            // if HTML too small, save debug info and screenshot
+            if (stat.size < 2000) {
+              const base = targetOut.replace(/\.html$/, '');
+              const debugPath = `${base}.debug.json`;
+              const screenshotPath = `${base}.debug.png`;
+              try {
+                // screenshot
+                await page.screenshot({ path: screenshotPath, fullPage: true }).catch(()=>{});
+              } catch(e){}
+
+              // save debug json
+              const dbg = {
+                url,
+                out: targetOut,
+                bytes: stat.size,
+                elapsed_s: Math.round((Date.now()-start)/1000),
+                consoleEvents,
+                networkEvents
+              };
+              try {
+                fs.writeFileSync(debugPath, JSON.stringify(dbg, null, 2), 'utf8');
+                log(`Wrote debug JSON: ${debugPath}`);
+                try { const s = fs.statSync(screenshotPath).size; log(`Wrote screenshot: ${screenshotPath} (bytes: ${s})`); } catch(e){}
+              } catch(e) {
+                warn('Failed to write debug json:', e && e.message ? e.message : e);
+              }
+            }
           } catch (e) {
             warn(`Failed to save rendered content to ${targetOut}:`, e && e.message ? e.message : e);
             anyFailed = true;
