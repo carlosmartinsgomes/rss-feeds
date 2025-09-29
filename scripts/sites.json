@@ -452,7 +452,7 @@
       "link": "link",
       "date": "pubDate",
       "description": "description",
-      "filters": { "keywords": ["hims","hers","hims&hers"] }
+      "filters": { "keywords": ["a","hims","hers","hims&hers"] }
     },
     {
       "name": "venturebeat",
