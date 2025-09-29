@@ -1,17 +1,20 @@
 #!/usr/bin/env node
 /**
- * scripts/render_page.js (diagnostic patch)
- *
- * Substitui o ficheiro anterior. Guarda HTML, e quando o resultado for
- * anormalmente pequeno grava também:
- *  - screenshot (.png)
- *  - debug JSON com eventos de rede e console (.debug.json)
+ * scripts/render_page.js
  *
  * Uso:
- *  node scripts/render_page.js <url> <outPath>
- *  node scripts/render_page.js <url1> <url2> ...
+ *   node scripts/render_page.js <url> <outPath>
+ *   node scripts/render_page.js <url1> <url2> ...
  *
- * Controla HEADLESS via env HEADLESS (seta 'false' para headful quando possível).
+ * - Se passares <outPath> (ex: scripts/rendered/modernhealthcare.html) irá gravar
+ *   o HTML renderizado nesse ficheiro.
+ * - Se passares apenas URLs, irá gravar ficheiros automáticos em ./scripts/rendered/
+ *
+ * Melhorias nesta versão:
+ * - retries para page.goto (3 tentativas)
+ * - setExtraHTTPHeaders mais completo para sobrepor sec-ch-ua que revela "HeadlessChrome"
+ * - adicionados args do Chromium que ajudam em alguns ambientes (--no-sandbox etc.)
+ * - grava aviso se o conteúdo renderizado for muito pequeno
  */
 
 const fs = require('fs');
@@ -32,6 +35,7 @@ function sanitizeFilename(s) {
     let outPath = null;
     let urls = [];
 
+    // Determina se caller forneceu outPath (segundo arg é um path tipo .html)
     if (argv.length >= 2 && argv[1] && (argv[1].endsWith('.html') || argv[1].startsWith('scripts/') || argv[1].startsWith('./') || argv[1].startsWith('/'))) {
       urls = [argv[0]];
       outPath = path.resolve(process.cwd(), argv[1]);
@@ -44,76 +48,51 @@ function sanitizeFilename(s) {
       process.exit(1);
     }
 
+    // cria pasta para outputs automáticos se necessário
     const renderedDir = path.resolve(process.cwd(), 'scripts', 'rendered');
     try { fs.mkdirSync(renderedDir, { recursive: true }); } catch(e){}
 
     const headless = process.env.HEADLESS !== 'false';
-    const browser = await chromium.launch({
-      headless,
-      args: ['--no-sandbox','--disable-setuid-sandbox','--disable-blink-features=AutomationControlled']
-    });
+    // adiciona alguns flags úteis; inclui --disable-http2 como tentativa (alguns servidores problemáticos)
+    const browser = await chromium.launch({ headless, args: ['--no-sandbox','--disable-setuid-sandbox','--disable-http2'] });
 
     let anyFailed = false;
 
     try {
+      // opções de context
       const context = await browser.newContext({
-        viewport: { width: 1400, height: 900 },
-        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        bypassCSP: true,
-        locale: 'en-US',
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36',
       });
 
-      // small anti-detect init
+      // init script para reduzir detecção básica
       await context.addInitScript(() => {
-        Object.defineProperty(navigator, 'webdriver', { get: () => false });
-        Object.defineProperty(navigator, 'languages', { get: () => ['en-US','en'] });
-        Object.defineProperty(navigator, 'plugins', { get: () => [1,2,3,4,5] });
-        window.chrome = window.chrome || { runtime: {} };
+        try {
+          Object.defineProperty(navigator, 'webdriver', { get: () => false });
+          Object.defineProperty(navigator, 'languages', { get: () => ['en-US','en'] });
+          Object.defineProperty(navigator, 'plugins', { get: () => [1,2,3,4,5] });
+          window.chrome = window.chrome || { runtime: {} };
+        } catch (e) {}
       });
 
-      context.setExtraHTTPHeaders({ 'accept-language': 'en-US,en;q=0.9', 'referer': 'https://www.google.com/' });
+      const page = await context.newPage();
 
-      const NAV_TIMEOUT = 90000;
+      // Cabeçalhos explícitos: sobrepor sec-ch-ua para não expor "HeadlessChrome"
+      await page.setExtraHTTPHeaders({
+        'accept-language': 'en-US,en;q=0.9',
+        // define sec-ch-ua sem a token HeadlessChrome
+        'sec-ch-ua': '"Chromium";v="140", "Not A;Brand";v="24"',
+        'sec-ch-ua-platform': '"Windows"',
+        'sec-ch-ua-mobile': '?0'
+      });
 
-      const overlaySelectors = [
-        '#onetrust-accept-btn-handler', 'button[aria-label*="accept"]', '.cc-accept', '.cookie-accept', '.consent-accept',
-        '.consent-banner', '.optanon-allow-all', '.onetrust-close-btn-handler', 'button[title*="Accept"]'
-      ];
-      const seeMoreButtons = ['button[aria-label*="see more"]', 'button[data-more-button]', 'button.load-more', 'a.load-more'];
-
-      async function tryClickAll(page, selectors, timeoutEach = 1200) {
-        for (const sel of selectors) {
-          try {
-            const els = await page.$$(sel);
-            for (const el of els) {
-              try { await el.click({ timeout: timeoutEach }); } catch(e) {}
-            }
-          } catch(e){}
-        }
-      }
-
-      async function removeOverlaysByJS(page) {
-        try {
-          await page.evaluate(() => {
-            const bad = ['#onetrust-consent-sdk', '.cookie-consent', '.consent-banner', '.overlay--newsletter', '.newsletter-popup'];
-            bad.forEach(s => document.querySelectorAll(s).forEach(el => el.remove()));
-            document.documentElement.style.overflow = 'auto';
-            document.body.style.overflow = 'auto';
-          });
-        } catch(e){}
-      }
-
-      async function autoScroll(page, maxScrolls = 20, delay = 700) {
-        for (let i = 0; i < maxScrolls; i++) {
-          await page.evaluate(() => window.scrollBy(0, window.innerHeight));
-          await page.waitForTimeout(delay);
-        }
-      }
+      // small navigation timeout protection
+      const NAV_TIMEOUT = 45000;
 
       for (const url of urls) {
         const start = Date.now();
         let targetOut = outPath;
         if (!targetOut) {
+          // create automatic file name
           const u = (() => { try { return new URL(url); } catch(e) { return null; } })();
           const hostpart = u ? sanitizeFilename(u.hostname + (u.pathname || '')) : sanitizeFilename(url);
           const ts = Date.now();
@@ -121,117 +100,100 @@ function sanitizeFilename(s) {
         }
 
         log(`Starting render for: ${url}`);
-        let page = null;
-        // diagnostic collectors
-        const consoleEvents = [];
-        const networkEvents = [];
         try {
-          page = await context.newPage();
-
-          // attach listeners to collect data
-          page.on('console', msg => {
+          // tenta a navegação com retries
+          let lastErr = null;
+          const maxAttempts = 3;
+          for (let attempt = 1; attempt <= maxAttempts; attempt++) {
             try {
-              consoleEvents.push({ type: 'console', text: msg.text(), location: msg.location(), timestamp: Date.now() });
-            } catch(e) {}
-          });
-          page.on('pageerror', errObj => {
-            consoleEvents.push({ type: 'pageerror', text: (errObj && errObj.message) ? errObj.message : String(errObj), timestamp: Date.now() });
-          });
-          page.on('request', req => {
-            networkEvents.push({ type: 'request', url: req.url(), method: req.method(), headers: req.headers(), timestamp: Date.now() });
-          });
-          page.on('requestfailed', req => {
-            networkEvents.push({ type: 'requestfailed', url: req.url(), failureText: req.failure() ? req.failure().errorText : null, timestamp: Date.now() });
-          });
-          page.on('response', async resp => {
-            try {
-              const headers = resp.headers();
-              networkEvents.push({ type: 'response', url: resp.url(), status: resp.status(), headers, timestamp: Date.now() });
-            } catch(e){}
-          });
-
-          // try goto networkidle first
-          try {
-            await page.goto(url, { waitUntil: 'networkidle', timeout: NAV_TIMEOUT });
-          } catch(e) {
-            try { await page.goto(url, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT }); } catch(e2){}
+              await page.goto(url, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT });
+              // pequena espera por conteúdo dinâmico
+              await page.waitForTimeout(1200);
+              // break se bem sucedido
+              lastErr = null;
+              break;
+            } catch (e) {
+              lastErr = e;
+              warn(`page.goto attempt ${attempt} failed for ${url}: ${e && e.message ? e.message : e}`);
+              // pause antes de novo intento, incremento
+              await page.waitForTimeout(1000 * attempt);
+            }
+          }
+          if (lastErr) {
+            warn(`All page.goto attempts failed for ${url}: ${lastErr && lastErr.message ? lastErr.message : lastErr}`);
+            // continuar (vai ainda assim tentar recolher o content() que pode ser um redirect/error page)
           }
 
-          await page.waitForTimeout(1200);
-
-          // click overlays aggressively
-          await tryClickAll(page, overlaySelectors, 1000);
-          await removeOverlaysByJS(page);
-          await page.waitForTimeout(400);
-
-          // click see more
-          await tryClickAll(page, seeMoreButtons, 1000);
-          await page.waitForTimeout(400);
-
-          // scroll more
-          await autoScroll(page, 12, 800);
-
-          // host-specific wait (EETimes)
-          try {
-            const host = (() => { try { return new URL(url).hostname; } catch(e) { return ''; } })();
-            if (host && host.includes('eetimes.com')) {
-              try {
-                await page.waitForSelector('#main, #wallpaper_image, .categoryFeatured-block, .card-body', { timeout: 15000 });
-                log('Host-specific selector(s) appeared for eetimes.com');
-              } catch(e) {
-                log('Host-specific selector(s) did NOT appear within timeout for eetimes.com (continuing)');
+          // try to close common overlays/cookies/dialogs (non-click fallback to hide)
+          const overlaySelectors = [
+            'button[aria-label*="close"]', 'button[aria-label*="Close"]',
+            'button[aria-label*="dismiss"]', 'button[aria-label*="Dismiss"]',
+            'button[aria-label*="Accept"]', 'button[aria-label*="Accept cookies"]',
+            'button[data-control-name="accept_cookies"]', '.cookie-consent', '.consent-banner',
+            '.newsletter-popup', '.newsletter-modal', '.overlay--newsletter'
+          ];
+          for (const sel of overlaySelectors) {
+            try {
+              const els = await page.$$(sel);
+              for (const e of els) {
+                try { await e.click({ timeout: 1500 }); } catch(e2) { /* ignore click errors */ }
               }
-            }
-          } catch(e){}
+            } catch(e){}
+          }
+          // small wait after clicks
+          await page.waitForTimeout(400);
 
-          // more scrolling + click passes
-          await tryClickAll(page, overlaySelectors, 600);
-          await tryClickAll(page, seeMoreButtons, 600);
-          await autoScroll(page, 6, 600);
+          // expand "see more" / "read more" type buttons
+          const seeMoreButtons = [
+            'button[aria-label*="see more"]', 'button[aria-label*="ver mais"]', 'button.feed-shared-inline-show-more-text__see-more-less-toggle',
+            'button[aria-label*="See more"]', 'button[data-more-button]'
+          ];
+          for (const sel of seeMoreButtons) {
+            try {
+              const btns = await page.$$(sel);
+              for (const b of btns) {
+                try { await b.click({ timeout: 1200 }); } catch(e) {}
+              }
+            } catch(e){}
+          }
+          await page.waitForTimeout(400);
+
+          // auto scroll to try to load lazy content
+          async function autoScroll(maxScrolls = 8, delay = 700) {
+            for (let i = 0; i < maxScrolls; i++) {
+              await page.evaluate(() => window.scrollBy(0, window.innerHeight));
+              await page.waitForTimeout(delay);
+            }
+          }
+          await autoScroll(8, 700);
+
+          // attempt to click "load more" if present
+          const loadMoreSelectors = ['button.load-more', 'button[data-control-name="load_more"]', 'button[aria-label*="Load more"]'];
+          for (const sel of loadMoreSelectors) {
+            try {
+              const btns = await page.$$(sel);
+              for (const b of btns) {
+                try { await b.click({ timeout: 1500 }); await page.waitForTimeout(500); } catch(e) {}
+              }
+            } catch(e){}
+          }
+
+          // final short wait
           await page.waitForTimeout(700);
 
-          // capture content
-          let content = '';
-          try {
-            content = await page.evaluate(() => document.documentElement.outerHTML);
-          } catch(e) {
-            try { content = await page.content(); } catch(e2) { content = ''; }
-          }
+          // grab final content
+          const content = await page.content();
 
-          // write content
+          // write to requested outPath
           try {
             const dir = path.dirname(targetOut);
             fs.mkdirSync(dir, { recursive: true });
             fs.writeFileSync(targetOut, content, 'utf8');
-            const stat = fs.statSync(targetOut);
-            log(`Rendered ${url} -> ${targetOut} (status: saved, bytes: ${stat.size})`);
-
-            // if HTML too small, save debug info and screenshot
-            if (stat.size < 2000) {
-              const base = targetOut.replace(/\.html$/, '');
-              const debugPath = `${base}.debug.json`;
-              const screenshotPath = `${base}.debug.png`;
-              try {
-                // screenshot
-                await page.screenshot({ path: screenshotPath, fullPage: true }).catch(()=>{});
-              } catch(e){}
-
-              // save debug json
-              const dbg = {
-                url,
-                out: targetOut,
-                bytes: stat.size,
-                elapsed_s: Math.round((Date.now()-start)/1000),
-                consoleEvents,
-                networkEvents
-              };
-              try {
-                fs.writeFileSync(debugPath, JSON.stringify(dbg, null, 2), 'utf8');
-                log(`Wrote debug JSON: ${debugPath}`);
-                try { const s = fs.statSync(screenshotPath).size; log(`Wrote screenshot: ${screenshotPath} (bytes: ${s})`); } catch(e){}
-              } catch(e) {
-                warn('Failed to write debug json:', e && e.message ? e.message : e);
-              }
+            const bytes = Buffer.byteLength(content, 'utf8');
+            if (bytes < 2000) {
+              warn(`Rendered ${url} -> ${targetOut} (status: saved, bytes: ${bytes}) - SMALL RENDER (server might have rejected or HTTP2 failed)`);
+            } else {
+              log(`Rendered ${url} -> ${targetOut} (status: saved, bytes: ${bytes})`);
             }
           } catch (e) {
             warn(`Failed to save rendered content to ${targetOut}:`, e && e.message ? e.message : e);
@@ -240,12 +202,9 @@ function sanitizeFilename(s) {
 
           const elapsed = Math.round((Date.now() - start) / 1000);
           log(`-> Done: ${url} (elapsed ${elapsed}s)`);
-
         } catch (pageErr) {
           warn(`Render failed for ${url} - ${pageErr && pageErr.message ? pageErr.message : pageErr}`);
           anyFailed = true;
-        } finally {
-          try { if (page) await page.close(); } catch(e){}
         }
       } // end for urls
 
