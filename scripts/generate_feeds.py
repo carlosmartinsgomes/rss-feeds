@@ -519,15 +519,40 @@ def main():
             rf_path = rf
             if not os.path.isabs(rf_path) and not rf_path.startswith('scripts'):
                 rf_path = os.path.join('scripts', rf_path)
+
+            MIN_RENDERED_BYTES = 2000  # se o ficheiro renderizado for menor que isto consideramos inválido
+
             if os.path.exists(rf_path):
                 try:
-                    html = open(rf_path, 'r', encoding='utf-8').read()
-                    print(f'Using rendered file: {rf_path} for {name}')
+                    size = os.path.getsize(rf_path)
+                    if size < MIN_RENDERED_BYTES:
+                        print(f'WARNING: rendered file {rf_path} exists but is small ({size} bytes) for {name}; attempting live fetch fallback')
+                        try:
+                            html = fetch_html(url)
+                            # tenta sobrescrever o ficheiro renderizado com o resultado live (útil para artifact)
+                            try:
+                                with open(rf_path, 'w', encoding='utf-8') as fh:
+                                    fh.write(html)
+                                print(f'Overwrote small rendered file {rf_path} with live fetch ({len(html)} bytes)')
+                            except Exception as e:
+                                print('Could not overwrite rendered file with live fetch:', e)
+                        except Exception as e:
+                            print('Live fetch fallback failed, will try to use the small rendered file anyway:', e)
+                            try:
+                                html = open(rf_path, 'r', encoding='utf-8').read()
+                                print(f'Using small rendered file: {rf_path} for {name}')
+                            except Exception as e2:
+                                print('Failed reading small rendered file:', e2)
+                                html = None
+                    else:
+                        html = open(rf_path, 'r', encoding='utf-8').read()
+                        print(f'Using rendered file: {rf_path} for {name} (size: {size} bytes)')
                 except Exception as e:
                     print('Failed reading rendered file:', e)
                     html = None
             else:
                 print(f'No rendered file found at {rf_path} for {name}')
+
         if html is None:
             # fallback to requests
             try:
