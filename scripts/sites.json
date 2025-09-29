@@ -64,7 +64,7 @@
       "link": "h2 a@href, a@href",
       "date": "time, .published, .byline",
       "description": "p, .summary",
-      "filters": { "keywords": ["inmode","device","acquisition","partnership","fda","clinical trial"], "exclude": ["opinion","review"] }
+      "filters": { "keywords": ["a","inmode","device","acquisition","partnership","fda","clinical trial"], "exclude": ["opinion","review"] }
     },
     {
       "name": "mobihealthnews",
