@@ -1,21 +1,17 @@
 #!/usr/bin/env node
 /**
- * scripts/render_page.js
+ * scripts/render_page.js (patched)
  *
  * Uso:
- *   node scripts/render_page.js <url> <outPath> [waitSelector] [timeout_ms] [maxScrollMs]
+ *   node scripts/render_page.js <url> <outPath>
  *   node scripts/render_page.js <url1> <url2> ...
  *
- * - Se passares <outPath> (ex: scripts/rendered/modernhealthcare.html) irá gravar
- *   o HTML renderizado nesse ficheiro.
- * - Se passares apenas URLs, irá gravar ficheiros automáticos em ./scripts/rendered/
- *
- * Melhorias incluídas:
- * - optional waitSelector + timeout: espera pelo selector representativo antes de seguir
- * - scroll adaptativo: rola até não haver aumento no scrollHeight (ou até limite)
- * - tenta fechar overlays (click) e como fallback esconde-os via JS
- * - tenta clicar em load-more repetidamente
- * - logging mais detalhado
+ * Alterações principais:
+ *  - waitUntil 'networkidle'
+ *  - NAV_TIMEOUT aumentado
+ *  - espera por seletores-chaves (para sites que carregam via JS)
+ *  - mais auto-scrolling e clicks em "accept cookies"/"load more"
+ *  - tentativa agressiva de fechar overlays (clicar/remover)
  */
 
 const fs = require('fs');
@@ -36,7 +32,7 @@ function sanitizeFilename(s) {
     let outPath = null;
     let urls = [];
 
-    // Detect if second arg is a path (endswith .html or looks like scripts/...)
+    // Determina se caller forneceu outPath (segundo arg é um path tipo .html)
     if (argv.length >= 2 && argv[1] && (argv[1].endsWith('.html') || argv[1].startsWith('scripts/') || argv[1].startsWith('./') || argv[1].startsWith('/'))) {
       urls = [argv[0]];
       outPath = path.resolve(process.cwd(), argv[1]);
@@ -45,16 +41,10 @@ function sanitizeFilename(s) {
     }
 
     if (!urls || urls.length === 0) {
-      console.log('USO: node render_page.js <url> <outPath> [waitSelector] [timeout_ms] [maxScrollMs]');
+      console.log('USO: node render_page.js <url> <outPath>   OR   node render_page.js <url1> <url2> ...');
       process.exit(1);
     }
 
-    // optional parameters for waiting and scrolling
-    const waitSelector = argv[2] || null;
-    const WAIT_TIMEOUT = parseInt(argv[3] || '30000', 10); // ms
-    const MAX_SCROLL_MS = parseInt(argv[4] || '30000', 10); // how long to allow adaptive scrolling
-
-    // create rendered dir
     const renderedDir = path.resolve(process.cwd(), 'scripts', 'rendered');
     try { fs.mkdirSync(renderedDir, { recursive: true }); } catch(e){}
 
@@ -65,11 +55,11 @@ function sanitizeFilename(s) {
 
     try {
       const context = await browser.newContext({
+        viewport: { width: 1400, height: 900 },
         userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        // viewport default left to Playwright
       });
 
-      // reduce simple detection
+      // reduce basic webdriver detection
       await context.addInitScript(() => {
         Object.defineProperty(navigator, 'webdriver', { get: () => false });
         Object.defineProperty(navigator, 'languages', { get: () => ['en-US','en'] });
@@ -77,98 +67,65 @@ function sanitizeFilename(s) {
         window.chrome = window.chrome || { runtime: {} };
       });
 
-      const page = await context.newPage();
-      await page.setExtraHTTPHeaders({ 'accept-language': 'en-US,en;q=0.9' });
+      // small extra headers
+      context.setExtraHTTPHeaders({ 'accept-language': 'en-US,en;q=0.9' });
 
-      // helpers
-      async function tryClickSelectors(selArray) {
-        for (const sel of selArray) {
+      // NAV timeout maior
+      const NAV_TIMEOUT = 60000;
+
+      // selectors common for cookie overlays and "accept"
+      const overlaySelectors = [
+        '#onetrust-accept-btn-handler', // OneTrust
+        'button[aria-label*="accept"]',
+        'button[aria-label*="Accept"]',
+        'button[aria-label*="ACCEPT"]',
+        'button[title*="Accept"]',
+        '.cc-accept', '.cookie-accept', '.cookie-consent button', '.accept-cookies', '.consent-accept',
+        '.consent-banner button', '.optanon-allow-all', '#agree-button', '.onetrust-close-btn-handler'
+      ];
+
+      // see more / load more
+      const seeMoreButtons = [
+        'button[aria-label*="see more"]', 'button[aria-label*="See more"]',
+        'button.feed-shared-inline-show-more-text__see-more-less-toggle',
+        'button[data-more-button]', 'a.load-more', 'button.load-more', '.load-more'
+      ];
+
+      async function tryClickAll(page, selectors, timeoutEach = 1200) {
+        for (const sel of selectors) {
           try {
             const els = await page.$$(sel);
-            if (!els || els.length === 0) continue;
-            for (const e of els) {
-              try { await e.click({ timeout: 1200 }); await page.waitForTimeout(200); } catch(e){ /* ignore */ }
+            for (const el of els) {
+              try { await el.click({ timeout: timeoutEach }); } catch(e) { /* ignore */ }
             }
-            // if we clicked something, give the page a bit to settle
-            await page.waitForTimeout(300);
-          } catch (e) {
-            // ignore
-          }
+          } catch(e){}
         }
       }
 
-      async function hideSelectorsViaJS(selArray) {
+      async function removeOverlaysByJS(page) {
         try {
-          await page.evaluate((sels) => {
-            for (const s of sels) {
-              try {
-                const elts = Array.from(document.querySelectorAll(s || ''));
-                for (const el of elts) {
-                  // hide element as fallback
-                  el.style.display = 'none';
-                }
-              } catch(e){}
+          await page.evaluate(() => {
+            const bad = [
+              '#onetrust-consent-sdk', '.cookie-consent', '.consent-banner', '.overlay--newsletter', '.newsletter-popup'
+            ];
+            for (const s of bad) {
+              document.querySelectorAll(s).forEach(el => {
+                try { el.remove(); } catch(e) {}
+              });
             }
-          }, selArray);
-          await page.waitForTimeout(200);
+            // also un-hide body if blocked by fixed overlay
+            document.documentElement.style.overflow = 'auto';
+            document.body.style.overflow = 'auto';
+          });
         } catch(e){}
       }
 
-      async function adaptiveScroll(maxMs) {
-        // scroll until scrollHeight stops increasing or until maxMs reached
-        const start = Date.now();
-        let lastHeight = await page.evaluate(() => document.body ? document.body.scrollHeight : 0);
-        let stableLoops = 0;
-        const maxStable = 3; // require a few loops with no change to stop
-        while (Date.now() - start < maxMs && stableLoops < maxStable) {
+      async function autoScroll(page, maxScrolls = 15, delay = 700) {
+        for (let i = 0; i < maxScrolls; i++) {
           await page.evaluate(() => window.scrollBy(0, window.innerHeight));
-          await page.waitForTimeout(600);
-          const newHeight = await page.evaluate(() => document.body ? document.body.scrollHeight : 0);
-          if (newHeight > lastHeight) {
-            stableLoops = 0;
-            lastHeight = newHeight;
-            // small extra wait to let lazy fetched items appear
-            await page.waitForTimeout(400);
-          } else {
-            stableLoops += 1;
-            // small jitter
-            await page.waitForTimeout(250);
-          }
-        }
-        return lastHeight;
-      }
-
-      async function clickLoadMoreRepeatedly(buttonSelectors, attempts = 5, perWait = 800) {
-        for (let i = 0; i < attempts; i++) {
-          let clickedAny = false;
-          for (const sel of buttonSelectors) {
-            try {
-              const els = await page.$$(sel);
-              for (const b of els) {
-                try { await b.click({ timeout: 1500 }); clickedAny = true; } catch(e) {}
-              }
-            } catch(e){}
-          }
-          if (!clickedAny) break;
-          await page.waitForTimeout(perWait);
+          await page.waitForTimeout(delay);
         }
       }
-
-      // selectors heuristics
-      const overlaySelectors = [
-        'button[aria-label*="close"]', 'button[aria-label*="Close"]',
-        'button[aria-label*="dismiss"]', 'button[aria-label*="Dismiss"]',
-        'button[aria-label*="Accept"]', 'button[aria-label*="Accept cookies"]',
-        'button[data-control-name="accept_cookies"]', '.cookie-consent', '.consent-banner',
-        '.newsletter-popup', '.newsletter-modal', '.overlay--newsletter', '.onetrust-close-btn-handler', '#onetrust-accept-btn-handler'
-      ];
-      const seeMoreButtons = [
-        'button[aria-label*="see more"]', 'button[aria-label*="See more"]', 'button.feed-shared-inline-show-more-text__see-more-less-toggle',
-        'button[data-more-button]', 'a.load-more', 'button.load-more'
-      ];
-      const loadMoreSelectors = ['button.load-more', 'button[data-control-name="load_more"]', 'button[aria-label*="Load more"]'];
-
-      const NAV_TIMEOUT = 45000;
 
       for (const url of urls) {
         const start = Date.now();
@@ -181,56 +138,73 @@ function sanitizeFilename(s) {
         }
 
         log(`Starting render for: ${url}`);
+        let page = null;
         try {
-          // goto: use domcontentloaded so we can control waits + scrolls manually
-          await page.goto(url, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT }).catch(()=>{});
+          page = await context.newPage();
+
+          // try goto with networkidle (wait for XHRs)
+          try {
+            await page.goto(url, { waitUntil: 'networkidle', timeout: NAV_TIMEOUT });
+          } catch(e) {
+            // fallback try domcontentloaded then wait
+            try { await page.goto(url, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT }); } catch(e2){}
+          }
+
           // short initial wait
           await page.waitForTimeout(1200);
 
-          // 1) try to close overlays by clicking common selectors
-          await tryClickSelectors(overlaySelectors);
-          // fallback: try hiding them via JS if still present
-          await hideSelectorsViaJS(overlaySelectors);
+          // try click accept cookie buttons aggressively
+          await tryClickAll(page, overlaySelectors, 1200);
+          // remove overlays via JS as fallback
+          await removeOverlaysByJS(page);
+          await page.waitForTimeout(400);
 
-          // 2) try to expand "see more" areas
-          await tryClickSelectors(seeMoreButtons);
+          // try "see more" buttons
+          await tryClickAll(page, seeMoreButtons, 1200);
+          await page.waitForTimeout(400);
 
-          // 3) If user provided waitSelector: wait for it (within WAIT_TIMEOUT)
-          if (waitSelector) {
-            try {
-              log(`Waiting for selector "${waitSelector}" (timeout ${WAIT_TIMEOUT}ms) ...`);
-              await page.waitForSelector(waitSelector, { timeout: WAIT_TIMEOUT });
-              log(`Selector "${waitSelector}" appeared.`);
-              // do a short adaptive scroll after it appears
-              await adaptiveScroll(4000);
-            } catch (e) {
-              warn(`waitForSelector("${waitSelector}") timed out — will attempt adaptive scroll anyway.`);
-              // proceed with adaptive scroll to try and load more content
-              await adaptiveScroll(MAX_SCROLL_MS);
+          // extra aggressive scrolling + wait for dynamic load
+          await autoScroll(page, 12, 800);
+
+          // Special: for some hosts wait for key selectors (helps for EETimes / DarkReading / others)
+          try {
+            const host = (() => { try { return new URL(url).hostname; } catch(e) { return ''; } })();
+            if (host && host.includes('eetimes.com')) {
+              // try to wait for either categoryFeatured-block or card-body or headline-title
+              try {
+                await page.waitForSelector('#main .categoryFeatured-block, #main .segment-one .headline-title, #wallpaper_image .card-body', { timeout: 8000 });
+                log('Host-specific selector(s) appeared for eetimes.com');
+              } catch(e) {
+                log('Host-specific selector(s) did NOT appear within timeout for eetimes.com (continuing)');
+              }
             }
-          } else {
-            // no waitSelector provided: do a moderate adaptive scroll
-            await adaptiveScroll(8000);
-          }
+            // similar host-specific waits could be added here for other sites
+          } catch(e) {}
 
-          // 4) Try clicking any "load more" buttons repeatably
-          await clickLoadMoreRepeatedly(loadMoreSelectors, 6, 700);
+          // another pass of clicks + scroll (sometimes more content loads after scroll)
+          await tryClickAll(page, overlaySelectors, 800);
+          await tryClickAll(page, seeMoreButtons, 800);
+          await autoScroll(page, 8, 700);
 
-          // 5) Final adaptive scroll to catch any last lazy loads
-          await adaptiveScroll(5000);
-
-          // short final pause
+          // final short wait
           await page.waitForTimeout(700);
 
-          // Grab final content
-          const content = await page.content();
+          // grab final content
+          let content = '';
+          try {
+            // prefer full outerHTML
+            content = await page.evaluate(() => document.documentElement.outerHTML);
+          } catch (e) {
+            try { content = await page.content(); } catch(e2) { content = ''; }
+          }
 
-          // Write output
+          // write to requested outPath
           try {
             const dir = path.dirname(targetOut);
             fs.mkdirSync(dir, { recursive: true });
             fs.writeFileSync(targetOut, content, 'utf8');
-            log(`Rendered ${url} -> ${targetOut} (status: saved)`);
+            const stat = fs.statSync(targetOut);
+            log(`Rendered ${url} -> ${targetOut} (status: saved, bytes: ${stat.size})`);
           } catch (e) {
             warn(`Failed to save rendered content to ${targetOut}:`, e && e.message ? e.message : e);
             anyFailed = true;
@@ -238,9 +212,12 @@ function sanitizeFilename(s) {
 
           const elapsed = Math.round((Date.now() - start) / 1000);
           log(`-> Done: ${url} (elapsed ${elapsed}s)`);
+
         } catch (pageErr) {
           warn(`Render failed for ${url} - ${pageErr && pageErr.message ? pageErr.message : pageErr}`);
           anyFailed = true;
+        } finally {
+          try { if (page) await page.close(); } catch(e){}
         }
       } // end for urls
 
