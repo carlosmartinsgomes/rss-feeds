@@ -554,7 +554,7 @@
     },
     {
       "name": "healio-derm",
-      "url": "https://www.healio.com/dermatology",
+      "url": "https://www.healio.com/news/dermatology",
       "item_container": "article, .card, .listing-item, .article",
       "title": "a, h2 a",
       "link": "a@href",
