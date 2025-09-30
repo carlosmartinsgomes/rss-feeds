@@ -96,7 +96,7 @@
       "link": "a@href",
       "date": "span[itemprop='datePublished'], .card__info.card__info--light span > span, .card__info.card__info--light time, time, span",
       "description": ".card__description, p.card__description, p",
-      "max_items": 200,
+      "max_items": 20,
       "filters": { "keywords": [] }
     },
     {
@@ -437,11 +437,11 @@
     {
       "name": "scworld",
       "url": "https://www.scworld.com/",
-      "item_container": "article, li, div",
-      "title": "a, h2 a, h3 a",
+      "item_container": " #__next > div > div > main > div > div.homepage_landingContent__VCzdO.landing-content > div > div > div.layout.layout1.hero.hero-8-4.dynamicLayout_fg__JY7ts.position-relative.container-xxl > div > div.Regions_contentColumn__zwode.content-column.col-md-8 > div article, #__next > div > div > main > div > div.homepage_landingContent__VCzdO.landing-content > div > div > div.layout.layout2.hero.hero-8-4.dynamicLayout_fg__JY7ts.position-relative.container-xxl > div > div.Regions_contentColumn__zwode.content-column.col-md-8 section ul li, #__next > div > div > main > div > div.homepage_landingContent__VCzdO.landing-content > div > div > div.layout.layout3.content.content-2-7-3.dynamicLayout_fg__JY7ts.position-relative.container-xxl > div > div.Regions_contentColumn__zwode.content-column.col-md-2 > div:nth-child(2) ul li, #__next > div > div > main > div > div.homepage_landingContent__VCzdO.landing-content > div > div > div.layout.layout3.content.content-2-7-3.dynamicLayout_fg__JY7ts.position-relative.container-xxl > div > div.Regions_contentColumn__zwode.content-column.col-md-2 > div:nth-child(1) ul li, #__next > div > div > main > div > div.homepage_landingContent__VCzdO.landing-content > div > div > div.layout.layout3.content.content-2-7-3.dynamicLayout_fg__JY7ts.position-relative.container-xxl > div > div.Regions_contentColumn__zwode.content-column.col-md-7 > section > div.py-3.py-md-4.mt-0.mb-0 > div article",
+      "title": "h1[itemprop='headline'], h4[itemprop='headline'], h4.p-0.pb-1.m-0.text-large.fw-semibold, h5[itemprop='headline'], h5.font-heading, h5[itemprop='name']",
       "link": "a@href",
-      "date": "time, .date",
-      "description": "p",
+      "date": "time[datetime], time.non-interactive, p time",
+      "description": "div[itemprop='abstract'] p, div.font-body-large p, p.text-break.text-muted.font-body-regular > div > p, p.text-small, p",
       "render_file": "scripts/rendered/scworld.html",
       "filters": { "keywords": ["a","ftnt","fortinet","rubrik","crowdstrike"] }
     },
@@ -480,11 +480,11 @@
     {
       "name": "retaildive",
       "url": "https://feeder.co/discover/ad39aff14f/retaildive-com-news",
-      "item_container": "item",
-      "title": "title",
-      "link": "link",
-      "date": "pubDate",
-      "description": "description",
+      "item_container": ".feed-list-item, li",
+      "title": ".entry-title, a",
+      "link": "a@href",
+      "date": ".entry-date, time",
+      "description": ".summary, p",
       "render_file": "scripts/rendered/retaildive.html",
       "filters": { "keywords": ["a","onon","on holding","on holdings","running"] }
     },
