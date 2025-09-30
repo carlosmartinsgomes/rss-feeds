@@ -195,14 +195,54 @@ def collect_article_nodes_in_dom_order(soup, container_cfg, base_url=None):
 
 def extract_items_from_html(html, cfg):
     """
-    Extrai items (title, link, description, date, full_text) de um HTML dado e uma config de site.
+    Extrai items (title, link, description, date, full_text) de um HTML/ XML dado e uma config de site.
     cfg é um dict com possiveis chaves: item_container, title, link, description, date, url
+    Ajustes:
+      - se detectado conteúdo XML / rss (ou cfg.item_container == 'item') usa BeautifulSoup(..., 'xml')
+      - aceita <link>texto</link> como link (quando não existe href)
+      - adiciona pubDate/dc:date como seletores de data
     """
-    soup = BeautifulSoup(html, 'html.parser')
-    container_sel = cfg.get('item_container') or 'article'
+    # detectar se é feed XML / RSS
+    is_xml = False
+    try:
+        head = (html or '').lstrip()[:200].lower()
+        if head.startswith('<?xml') or '<rss' in (html or '')[:2000].lower():
+            is_xml = True
+    except Exception:
+        is_xml = False
 
-    # Collect nodes in DOM order with dedupe
-    nodes = collect_article_nodes_in_dom_order(soup, container_sel, base_url=cfg.get('url'))
+    # também respeitar indicação explícita na cfg (item_container == 'item' => RSS)
+    if (cfg.get('item_container') or '').strip().lower() == 'item':
+        is_xml = True
+
+    parser_to_use = 'xml' if is_xml else 'html.parser'
+    soup = BeautifulSoup(html, parser_to_use)
+
+    container_sel = cfg.get('item_container') or 'article'
+    nodes = []
+    for sel in [s.strip() for s in container_sel.split(',')]:
+        try:
+            found = soup.select(sel)
+            if found:
+                nodes.extend(found)
+        except Exception:
+            # selector inválido -> ignora
+            continue
+
+    # fallback generic: se nada encontrado, tenta 'li' e 'article' e (se XML) 'item'
+    if not nodes:
+        fallbacks = []
+        if is_xml:
+            fallbacks = ('item', 'li', 'article', 'div')
+        else:
+            fallbacks = ('li', 'article', 'div')
+        for fallback in fallbacks:
+            try:
+                found = soup.select(fallback)
+                if found:
+                    nodes.extend(found)
+            except Exception:
+                continue
 
     items = []
     for node in nodes:
@@ -252,16 +292,32 @@ def extract_items_from_html(html, cfg):
                         except Exception:
                             el = None
                         if el:
+                            # primeiro tenta atributo href (HTML)
                             candidate = el.get('href') or ''
+                            # se não encontrou href, tenta texto interno (útil para <link> em RSS)
+                            if not candidate:
+                                candidate = el.get_text(" ", strip=True) or ''
                             if candidate and not _bad_href_re.search(candidate):
                                 link = urljoin(cfg.get('url', ''), candidate)
                                 break
             else:
+                # Primeiro tentar âncora (HTML)
                 a = node.find('a')
                 if a and a.has_attr('href'):
                     candidate = a.get('href')
                     if candidate and not _bad_href_re.search(candidate):
                         link = urljoin(cfg.get('url', ''), candidate)
+
+            # if link still empty and this might be XML (RSS), check for <link> child element text
+            if not link and is_xml:
+                try:
+                    link_tag = node.find('link')
+                    if link_tag:
+                        candidate = (link_tag.get_text() or '').strip()
+                        if candidate and not _bad_href_re.search(candidate):
+                            link = urljoin(cfg.get('url', ''), candidate)
+                except Exception:
+                    pass
 
             # if link still empty, try to find any anchor in node but avoid bad hrefs
             if not link:
@@ -312,14 +368,14 @@ def extract_items_from_html(html, cfg):
                 except Exception:
                     pass
 
-            # Date (best effort)
+            # Date (best effort) -> adicionadas tags de RSS/pubDate/dc:date
             date = ''
             tried_selectors = []
             date_selectors = []
             if cfg.get('date'):
                 date_selectors = [s.strip() for s in cfg.get('date').split(',') if s.strip()]
-            # ensure defaults
-            date_selectors += ['time', '.date', 'span.date', '.timestamp']
+            # ensure defaults (adicionei pubDate/pubdate/dc:date)
+            date_selectors += ['time', '.date', 'span.date', '.timestamp', 'pubDate', 'pubdate', 'dc:date']
 
             def find_date_in(element):
                 for ds in date_selectors:
@@ -332,6 +388,17 @@ def extract_items_from_html(html, cfg):
                         txt = el.get_text(strip=True)
                         if txt:
                             return txt
+                # se XML, tentar tags diretas (ex.: <pubDate> como filho)
+                if is_xml:
+                    for tagname in ('pubDate', 'pubdate', 'dc:date', 'date'):
+                        try:
+                            ttag = element.find(tagname)
+                            if ttag:
+                                txt = (ttag.get_text() or '').strip()
+                                if txt:
+                                    return txt
+                        except Exception:
+                            continue
                 return None
 
             # 1) try node itself
