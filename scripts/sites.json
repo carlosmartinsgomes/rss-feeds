@@ -480,6 +480,7 @@
     {
       "name": "retaildive",
       "url": "https://feeder.co/discover/ad39aff14f/retaildive-com-news",
+      "item_container": "item",
       "title": "title",
       "link": "link",
       "date": "pubDate",
