@@ -91,7 +91,7 @@
     {
       "name": "networkworld",
       "url": "https://www.networkworld.com/",
-      "item_container": "div.latest-content__content-featured > a:not(.nativo), a.card:not(.nativo), #latest a.card:not(.nativo), #article a.card:not(.nativo), #article > div > div.content-listing-articles__container.content-listing-articles__container--collapsed.content-listing-articles--collapsed a:not(.nativo)",
+      "item_container": "#latest a.card, #latest a, #article a.card, #article a, a.card",
       "title": "h3.card__title, .card__title, h3",
       "link": "a@href",
       "date": "span[itemprop='datePublished'], .card__info.card__info--light span > span, .card__info.card__info--light time, time, span",
