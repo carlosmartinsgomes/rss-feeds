@@ -672,13 +672,12 @@
     
     {
       "name": "theverge",
-      "url": "https://www.theverge.com/",
-      "item_container": "article, .c-compact-river__entry, .news-item",
-      "title": ".c-entry-box--compact__title a, h1, h2 a",
-      "link": ".c-entry-box--compact__title a@href, a@href",
-      "date": ".c-byline__item time, time",
-      "description": ".c-entry-summary p, p",
-      "render_file": "scripts/rendered/theverge.html",
+      "url": "https://www.theverge.com/rss/index.xml",
+      "item_container": "item",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
       "filters": { "keywords": ["duol","duolingo","inmode","device","acquisition","partnership","fda","clinical trial"], "exclude": ["opinion","review"] }
     },
     
