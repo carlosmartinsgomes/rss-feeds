@@ -102,389 +102,374 @@ def normalize_link_for_dedupe(href):
         return href.strip().lower()
 
 
-def collect_article_nodes_in_dom_order(soup, container_cfg, base_url=None):
+def extract_items_from_html(html, cfg):
     """
-    Recebe BeautifulSoup soup e um item_container string (lista separada por vírgulas).
-    Retorna uma lista de nodes em ordem DOM, tentando evitar duplicados triviais
-    (preferindo nodes com link e/ou título).
+    Extrai items (title, link, description, date, full_text) de um HTML ou XML dado e uma config de site.
+    cfg é um dict com possiveis chaves: item_container, title, link, description, date, url
     """
-    selectors = [s.strip() for s in (container_cfg or '').split(',') if s.strip()]
-    counts = []
-    all_nodes = []
-    # compute counts per selector for debug
-    for sel in selectors:
-        try:
-            found = soup.select(sel)
-            counts.append((sel, len(found)))
-        except Exception:
-            counts.append((sel, 0))
+    # detectar se é um feed XML/Atom
+    is_xml = False
+    preview = (html or '').lstrip()[:200].lower()
+    if preview.startswith('<?xml') or '<rss' in preview or '<feed' in preview:
+        is_xml = True
 
-    # Try combined selection (preserves DOM order)
-    combined = ', '.join(selectors) if selectors else ''
-    nodes = []
-    if combined:
-        try:
-            nodes = soup.select(combined)
-        except Exception:
+    # debug
+    if is_xml:
+        print(f"extract_items_from_html debug: is_xml=True html_len={len(html or '')}")
+    else:
+        print(f"extract_items_from_html debug: is_xml=False html_len={len(html or '')}")
+
+    items = []
+    try:
+        if is_xml:
+            # usar parser XML para feeds
+            soup = BeautifulSoup(html, 'xml')
+            container_sel = cfg.get('item_container') or ''
             nodes = []
+            # se o item_container for especificado como nomes de tags (ex: "item" ou "entry")
+            if container_sel:
+                for s in [t.strip() for t in container_sel.split(',') if t.strip()]:
+                    # tentativa 1: tratar como tag name
+                    try:
+                        found = soup.find_all(s)
+                        if found:
+                            nodes.extend(found)
+                    except Exception:
+                        pass
+                    # tentativa 2: tratar como CSS selector (pouco comum em xml, mas tentamos)
+                    try:
+                        found2 = soup.select(s)
+                        if found2:
+                            nodes.extend(found2)
+                    except Exception:
+                        pass
+            # fallback common feed tags
+            if not nodes:
+                nodes = soup.find_all(['item', 'entry']) or []
 
-    # If combined returned nothing, fallback to aggregating per selector (keeps insertion order)
-    if not nodes:
-        for sel in selectors:
+            # remover None/duplicados
+            nodes = [n for n in nodes if n is not None]
+            # debug
+            print("extract_items_from_html debug selectors counts:", [(cfg.get('item_container') or 'item/entry', len(nodes))], " total_nodes:", len(nodes))
+
+            for node in nodes:
+                try:
+                    title = ''
+                    link = ''
+                    date = ''
+                    desc = ''
+
+                    # title: <title> or <headline> or <title> child
+                    tnode = node.find('title')
+                    if tnode and tnode.string:
+                        title = tnode.string.strip()
+                    else:
+                        # atom: may have <headline> or <name> or <summary>
+                        tnode = node.find(['name', 'headline'])
+                        if tnode and getattr(tnode, 'string', None):
+                            title = tnode.string.strip()
+                        else:
+                            # as last resort, text of node
+                            title = (node.get_text(" ", strip=True) or '')[:1000]
+
+                    # link: <link> content OR <link href="..."> (Atom)
+                    lnode = node.find('link')
+                    if lnode:
+                        # atom-style: <link href="..." rel="alternate"/>
+                        href = lnode.get('href') or lnode.get('HREF') or None
+                        if href:
+                            link = urljoin(cfg.get('url', ''), href)
+                        else:
+                            # sometimes <link> contains url text
+                            txt = (lnode.string or '').strip()
+                            if txt:
+                                link = urljoin(cfg.get('url', ''), txt)
+                            else:
+                                # in RSS sometimes there are multiple link tags; try attributes of others
+                                # check for link with rel='alternate'
+                                alt = node.find('link', attrs={'rel': 'alternate'})
+                                if alt and alt.get('href'):
+                                    link = urljoin(cfg.get('url', ''), alt.get('href'))
+                    # fallback: <guid>
+                    if not link:
+                        g = node.find('guid')
+                        if g and getattr(g, 'string', None):
+                            candidate = g.string.strip()
+                            if candidate and not _bad_href_re.search(candidate):
+                                link = urljoin(cfg.get('url', ''), candidate)
+                    # if still not found, check for any <link> text children
+                    if not link:
+                        # sometimes link is inside <url> or <link> children as text
+                        ltxt = node.find(['link', 'url'])
+                        if ltxt and getattr(ltxt, 'string', None):
+                            candidate = ltxt.string.strip()
+                            if candidate and not _bad_href_re.search(candidate):
+                                link = urljoin(cfg.get('url', ''), candidate)
+
+                    # description: <description>, <summary>, <content:encoded>
+                    dnode = node.find('description')
+                    if dnode and getattr(dnode, 'string', None):
+                        desc = dnode.string.strip()
+                    else:
+                        sn = node.find('summary')
+                        if sn and getattr(sn, 'string', None):
+                            desc = sn.string.strip()
+                        else:
+                            ce = node.find(lambda tag: (tag.name or '').lower() == 'content:encoded')
+                            if ce and getattr(ce, 'string', None):
+                                desc = ce.string.strip()
+                            else:
+                                # try <content> or <dc:description>
+                                c = node.find(lambda tag: (tag.name or '').lower() in ('content', 'content:encoded', 'dc:description'))
+                                if c and getattr(c, 'string', None):
+                                    desc = c.string.strip()
+
+                    # date: pubDate, published, updated, lastBuildDate
+                    dnode = node.find('pubDate') or node.find('published') or node.find('updated') or node.find('dc:date')
+                    if dnode and getattr(dnode, 'string', None):
+                        date = dnode.string.strip()
+                    else:
+                        # sometimes date is an attribute
+                        # e.g. <updated> or <published> with text
+                        date = (node.find('updated') or node.find('published') or node.find('pubDate') or None)
+                        if date and getattr(date, 'string', None):
+                            date = date.string.strip()
+                        else:
+                            date = ''
+
+                    full_text = (title or '') + ' ' + (desc or '') + ' ' + (node.get_text(" ", strip=True) or '')
+
+                    items.append({
+                        'title': title or '',
+                        'link': link or '',
+                        'description': desc or '',
+                        'date': date or '',
+                        'full_text': full_text or ''
+                    })
+                except Exception:
+                    continue
+
+            return items
+
+        # ----------------------------------------------------------
+        # HTML path (existing behavior)
+        # ----------------------------------------------------------
+        soup = BeautifulSoup(html, 'html.parser')
+        container_sel = cfg.get('item_container') or 'article'
+        nodes = []
+        for sel in [s.strip() for s in container_sel.split(',')]:
             try:
                 found = soup.select(sel)
                 if found:
                     nodes.extend(found)
             except Exception:
+                # selector inválido -> ignora
                 continue
 
-    # If still nothing, fallback to common generic tags
-    if not nodes:
-        for fallback in ('li', 'article', 'div'):
-            try:
-                found = soup.select(fallback)
-                if found:
-                    nodes.extend(found)
-            except Exception:
-                continue
-
-    # Deduplicate nodes quickly by normalized link or small title snippet while keeping DOM order
-    deduped = []
-    seen_keys = set()
-    for n in nodes:
-        key = ''
-        try:
-            a = n.select_one('a[href]')
-            if a and a.has_attr('href'):
-                href = a.get('href') or ''
-                if href:
-                    # normalize full absolute url
-                    try:
-                        href_abs = urljoin(base_url or '', href)
-                    except Exception:
-                        href_abs = href
-                    key = normalize_link_for_dedupe(href_abs)
-        except Exception:
-            key = ''
-
-        if not key:
-            # try small title snippet
-            try:
-                title_el = n.select_one('a') or n.select_one('h4') or n.select_one('h3') or n
-                title_txt = (title_el.get_text(" ", strip=True)[:200].strip().lower() if title_el else '')
-                if title_txt:
-                    key = title_txt
-            except Exception:
-                key = ''
-
-        if not key:
-            # fallback unique node id
-            key = f"__node_{id(n)}"
-
-        if key in seen_keys:
-            continue
-        seen_keys.add(key)
-        deduped.append(n)
-
-    # debug info: return counts and deduped nodes via attributes? We'll print counts here.
-    total_unique = len(deduped)
-    # attach debug info as attribute for caller if desired (not necessary, but print now)
-    print(f"extract_items_from_html debug selectors counts: {counts} total_nodes: {total_unique}")
-    return deduped
-
-def extract_items_from_html(html, cfg):
-    """
-    Extrai items (title, link, description, date, full_text) de um HTML/ XML dado e uma config de site.
-    Melhorias:
-      - detecta RSS/XML e adapta seletores (usa find/find_all para tags simples em XML)
-      - aceita <link>texto</link> como link
-      - adiciona pubDate/dc:date como seletores de data
-      - imprime debug sobre detecção XML e contagens por selector
-    """
-    soup = None
-    is_xml = False
-    try:
-        head = (html or '').lstrip()[:200].lower()
-        if head.startswith('<?xml') or '<rss' in (html or '')[:2000].lower() or '<feed' in (html or '')[:2000].lower():
-            is_xml = True
-    except Exception:
-        is_xml = False
-
-    if (cfg.get('item_container') or '').strip().lower() == 'item':
-        is_xml = True
-
-    parser_to_use = 'xml' if is_xml else 'html.parser'
-    try:
-        soup = BeautifulSoup(html or '', parser_to_use)
-    except Exception:
-        soup = BeautifulSoup(html or '', 'html.parser')
-        is_xml = False
-
-    # helper to decide if selector is a "simple tag" (no CSS operators)
-    def is_simple_tag(sel):
-        return bool(re.match(r'^[A-Za-z0-9:_-]+$', sel))
-
-    # try to find nodes using either CSS select (HTML) or find_all (XML simple tags)
-    container_sel = cfg.get('item_container') or 'article'
-    nodes = []
-    sel_list = [s.strip() for s in container_sel.split(',') if s.strip()]
-
-    # debug: count found per selector
-    sel_counts = []
-    for sel in sel_list:
-        found = []
-        try:
-            if is_xml and is_simple_tag(sel):
-                found = soup.find_all(sel)
-            else:
-                # try CSS select for complex selectors or HTML
+        # fallback generic: se nada encontrado, tenta 'li' e 'article'
+        if not nodes:
+            for fallback in ('li', 'article', 'div'):
                 try:
-                    found = soup.select(sel)
-                except Exception:
-                    # fallback to find_all with tag if selector looks like a tag
-                    if is_simple_tag(sel):
-                        found = soup.find_all(sel)
-                    else:
-                        found = []
-        except Exception:
-            found = []
-        sel_counts.append((sel, len(found)))
-        if found:
-            nodes.extend(found)
-
-    # fallback generic: se nada encontrado, tenta alguns fallbacks
-    if not nodes:
-        for fallback in (['item', 'li', 'article', 'div'] if is_xml else ['li', 'article', 'div']):
-            try:
-                if is_xml and fallback == 'item':
-                    found = soup.find_all('item')
-                else:
                     found = soup.select(fallback)
-                if found:
-                    nodes.extend(found)
-                    break
-            except Exception:
-                try:
-                    found = soup.find_all(fallback)
                     if found:
                         nodes.extend(found)
-                        break
                 except Exception:
                     continue
 
-    # DEBUG: imprime deteccao XML e contagens
-    try:
-        print(f"extract_items_from_html debug: is_xml={is_xml} html_len={len(html or '')}")
-        print("extract_items_from_html debug selectors counts:", sel_counts, " total_nodes:", len(nodes))
-    except Exception:
-        pass
-
-    items = []
-    for node in nodes:
+        # debug: counts per selector (simple)
         try:
-            title = ''
-            link = ''
-            date = ''
-            desc = ''
-            title_sel = cfg.get('title')
-            link_sel = cfg.get('link')
-            desc_sel = cfg.get('description')
-
-            # helper para obter elemento dependendo de XML/HTML
-            def get_one(el_node, selector):
-                if not selector:
-                    return None
-                if is_xml and is_simple_tag(selector):
-                    return el_node.find(selector)
+            sel_list = [s.strip() for s in container_sel.split(',') if s.strip()]
+            counts = []
+            for s in sel_list:
                 try:
-                    return el_node.select_one(selector)
+                    c = len(soup.select(s))
                 except Exception:
-                    try:
-                        # tentativa de fallback: se for um nome de tag simples
-                        if is_simple_tag(selector):
-                            return el_node.find(selector)
-                    except Exception:
-                        return None
-                return None
+                    c = 0
+                counts.append((s, c))
+            total_nodes = len(nodes)
+            print("extract_items_from_html debug selectors counts:", counts, "total_nodes:", total_nodes)
+        except Exception:
+            pass
 
-            # Title extraction
-            if title_sel:
-                for s in [t.strip() for t in title_sel.split(',')]:
-                    el = get_one(node, s)
-                    if el:
-                        title = (el.get_text() or '').strip()
-                        break
-            else:
-                t = None
-                try:
-                    t = node.find(['h1', 'h2', 'h3', 'a'])
-                except Exception:
-                    t = None
-                if t:
-                    title = (t.get_text() or '').strip()
+        for node in nodes:
+            try:
+                title = ''
+                link = ''
+                date = ''
+                desc = ''
+                title_sel = cfg.get('title')
+                link_sel = cfg.get('link')
+                desc_sel = cfg.get('description')
 
-            # Link extraction (suporta "a@href")
-            if link_sel:
-                parts = [p.strip() for p in link_sel.split(',')]
-                for ps in parts:
-                    if '@' in ps:
-                        sel, attr = ps.split('@', 1)
-                        el = get_one(node, sel.strip())
-                        if el and el.has_attr(attr):
-                            candidate = el.get(attr) or ''
-                            if candidate and not _bad_href_re.search(candidate):
-                                link = urljoin(cfg.get('url', ''), candidate)
-                                break
-                    else:
-                        el = get_one(node, ps)
+                # Title extraction
+                if title_sel:
+                    for s in [t.strip() for t in title_sel.split(',')]:
+                        try:
+                            el = node.select_one(s)
+                        except Exception:
+                            el = None
                         if el:
-                            # primeiro tenta atributo href (HTML)
-                            candidate = ''
+                            title = el.get_text(strip=True)
+                            break
+                else:
+                    t = node.find(['h1', 'h2', 'h3', 'a'])
+                    if t:
+                        title = t.get_text(strip=True)
+
+                # Link extraction
+                # support selectors like "a@href" or ".c-title a@href"
+                if link_sel:
+                    parts = [p.strip() for p in link_sel.split(',')]
+                    for ps in parts:
+                        if '@' in ps:
+                            sel, attr = ps.split('@', 1)
                             try:
-                                candidate = el.get('href') or ''
+                                el = node.select_one(sel.strip())
                             except Exception:
-                                candidate = ''
-                            # se não encontrou href, tenta texto interno (útil para <link> em RSS)
-                            if not candidate:
-                                candidate = (el.get_text() or '').strip()
-                            if candidate and not _bad_href_re.search(candidate):
-                                link = urljoin(cfg.get('url', ''), candidate)
-                                break
-            else:
-                # fallback: procura a primeira âncora com href
-                try:
-                    a = node.find('a', href=True)
-                    if a:
-                        h = a.get('href') or ''
-                        if h and not _bad_href_re.search(h):
-                            link = urljoin(cfg.get('url', ''), h)
-                except Exception:
-                    pass
-
-            # extra tentativa para RSS: <link>texto</link>
-            if not link and is_xml:
-                try:
-                    lt = node.find('link')
-                    if lt:
-                        candidate = (lt.get_text() or '').strip()
-                        if candidate and not _bad_href_re.search(candidate):
-                            link = urljoin(cfg.get('url', ''), candidate)
-                except Exception:
-                    pass
-
-            # Description extraction
-            if desc_sel:
-                for s in [t.strip() for t in desc_sel.split(',')]:
-                    el = get_one(node, s)
-                    if el:
-                        desc = el.get_text(" ", strip=True)
-                        break
-            else:
-                p = None
-                try:
-                    p = node.find('p')
-                except Exception:
-                    p = None
-                if p:
-                    desc = p.get_text(" ", strip=True)
-
-            # fallback for title/description duplication
-            if desc and title and desc.strip() == title.strip():
-                try:
-                    a_try = None
-                    try:
-                        a_try = node.select_one('a.link, h4 a.title, a.title, a')
-                    except Exception:
-                        a_try = node.find('a')
-                    if a_try and a_try.has_attr('title'):
-                        a_title_attr = (a_try.get('title') or '').strip()
-                        if a_title_attr and a_title_attr != title:
-                            desc = a_title_attr
-                    if (not desc or desc.strip() == title.strip()):
-                        pprev = node.find_previous('p')
-                        if pprev:
-                            ptxt = pprev.get_text(" ", strip=True)
-                            if ptxt and ptxt != title:
-                                desc = ptxt
-                    if (not desc or desc.strip() == title.strip()):
-                        pnext = node.find_next('p')
-                        if pnext:
-                            ptxt = pnext.get_text(" ", strip=True)
-                            if ptxt and ptxt != title:
-                                desc = ptxt
-                except Exception:
-                    pass
-
-            # Date selectors (adicionados pubDate e dc:date)
-            date = ''
-            date_selectors = []
-            if cfg.get('date'):
-                date_selectors = [s.strip() for s in cfg.get('date').split(',') if s.strip()]
-            date_selectors += ['time', '.date', 'span.date', '.timestamp', 'pubDate', 'pubdate', 'dc:date', 'date']
-
-            def find_date_in(element):
-                for ds in date_selectors:
-                    try:
-                        if is_xml and is_simple_tag(ds):
-                            el = element.find(ds)
+                                el = None
+                            if el and el.has_attr(attr):
+                                candidate = el.get(attr) or ''
+                                if candidate and not _bad_href_re.search(candidate):
+                                    link = urljoin(cfg.get('url', ''), candidate)
+                                    break
                         else:
                             try:
-                                el = element.select_one(ds)
+                                el = node.select_one(ps)
                             except Exception:
-                                if is_simple_tag(ds):
-                                    el = element.find(ds)
-                                else:
-                                    el = None
-                    except Exception:
-                        el = None
-                    if el:
-                        txt = (el.get_text() or '').strip()
-                        if txt:
-                            return txt
-                return None
+                                el = None
+                            if el:
+                                candidate = el.get('href') or ''
+                                if candidate and not _bad_href_re.search(candidate):
+                                    link = urljoin(cfg.get('url', ''), candidate)
+                                    break
+                else:
+                    a = node.find('a')
+                    if a and a.has_attr('href'):
+                        candidate = a.get('href')
+                        if candidate and not _bad_href_re.search(candidate):
+                            link = urljoin(cfg.get('url', ''), candidate)
 
-            # procurar data no nó, ancestrais e irmãos (como antes)
-            date = find_date_in(node) or ''
-            if not date:
-                ancestor = node
-                for _ in range(3):
-                    ancestor = getattr(ancestor, 'parent', None)
-                    if ancestor is None:
-                        break
-                    found = find_date_in(ancestor)
-                    if found:
-                        date = found
-                        break
-            if not date:
-                try:
-                    prev_sib = node.find_previous_sibling()
-                    if prev_sib:
-                        found = find_date_in(prev_sib)
+                # if link still empty, try to find any anchor in node but avoid bad hrefs
+                if not link:
+                    try:
+                        for a in node.find_all('a', href=True):
+                            h = a.get('href') or ''
+                            if h and not _bad_href_re.search(h):
+                                link = urljoin(cfg.get('url', ''), h)
+                                break
+                    except Exception:
+                        pass
+
+                # Description extraction
+                if desc_sel:
+                    for s in [t.strip() for t in desc_sel.split(',')]:
+                        try:
+                            el = node.select_one(s)
+                        except Exception:
+                            el = None
+                        if el:
+                            desc = el.get_text(" ", strip=True)
+                            break
+                else:
+                    p = node.find('p')
+                    if p:
+                        desc = p.get_text(" ", strip=True)
+
+                # If desc == title, try to obtain a better description (fallbacks)
+                if desc and title and desc.strip() == title.strip():
+                    try:
+                        a_try = node.select_one('a.link, h4 a.title, a.title, a')
+                        if a_try and a_try.has_attr('title'):
+                            a_title_attr = (a_try.get('title') or '').strip()
+                            if a_title_attr and a_title_attr != title:
+                                desc = a_title_attr
+                        if (not desc or desc.strip() == title.strip()):
+                            pprev = node.find_previous('p')
+                            if pprev:
+                                ptxt = pprev.get_text(" ", strip=True)
+                                if ptxt and ptxt != title:
+                                    desc = ptxt
+                        if (not desc or desc.strip() == title.strip()):
+                            pnext = node.find_next('p')
+                            if pnext:
+                                ptxt = pnext.get_text(" ", strip=True)
+                                if ptxt and ptxt != title:
+                                    desc = ptxt
+                    except Exception:
+                        pass
+
+                # Date (best effort)
+                date = ''
+                tried_selectors = []
+                date_selectors = []
+                if cfg.get('date'):
+                    date_selectors = [s.strip() for s in cfg.get('date').split(',') if s.strip()]
+                # ensure defaults
+                date_selectors += ['time', '.date', 'span.date', '.timestamp']
+
+                def find_date_in(element):
+                    for ds in date_selectors:
+                        tried_selectors.append(ds)
+                        try:
+                            el = element.select_one(ds)
+                        except Exception:
+                            el = None
+                        if el:
+                            txt = el.get_text(strip=True)
+                            if txt:
+                                return txt
+                    return None
+
+                # 1) try node itself
+                date = find_date_in(node) or ''
+                # 2) if not found, try up to 3 ancestors
+                if not date:
+                    ancestor = node
+                    for _ in range(3):
+                        ancestor = getattr(ancestor, 'parent', None)
+                        if ancestor is None:
+                            break
+                        found = find_date_in(ancestor)
                         if found:
                             date = found
-                    if not date:
-                        next_sib = node.find_next_sibling()
-                        if next_sib:
-                            found = find_date_in(next_sib)
+                            break
+                # 3) try siblings (previous / next)
+                if not date:
+                    try:
+                        prev_sib = node.find_previous_sibling()
+                        if prev_sib:
+                            found = find_date_in(prev_sib)
                             if found:
                                 date = found
-                except Exception:
-                    pass
+                        if not date:
+                            next_sib = node.find_next_sibling()
+                            if next_sib:
+                                found = find_date_in(next_sib)
+                                if found:
+                                    date = found
+                    except Exception:
+                        pass
 
-            full_text = (title or '') + ' ' + (desc or '') + ' ' + text_of_node(node)
+                # fallback: full text
+                full_text = (title or '') + ' ' + (desc or '') + ' ' + text_of_node(node)
 
-            items.append({
-                'title': title or '',
-                'link': link or '',
-                'description': desc or '',
-                'date': date or '',
-                'full_text': full_text or ''
-            })
-        except Exception:
-            continue
+                items.append({
+                    'title': title or '',
+                    'link': link or '',
+                    'description': desc or '',
+                    'date': date or '',
+                    'full_text': full_text or ''
+                })
+            except Exception:
+                # ignorar item problemático, continuar
+                continue
+
+    except Exception as e:
+        print('extract_items_from_html: unexpected error', e)
+        # no matter what, devolver o que tiver sido apanhado
+        return items
 
     return items
-
 
 
 def parse_feed(items):
@@ -546,7 +531,7 @@ def dedupe_items(items):
     return out
 
 
-# ----- BUILD FEED: substituída para evitar usar full_text como fallback ----
+# ----- BUILD FEED: substituída para evitar usar full_text como fallback -----
 def build_feed(name, cfg, items):
     """
     items: lista de dicts com keys 'title','link','description','date','full_text'
@@ -625,40 +610,15 @@ def main():
             rf_path = rf
             if not os.path.isabs(rf_path) and not rf_path.startswith('scripts'):
                 rf_path = os.path.join('scripts', rf_path)
-
-            MIN_RENDERED_BYTES = 2000  # se o ficheiro renderizado for menor que isto consideramos inválido
-
             if os.path.exists(rf_path):
                 try:
-                    size = os.path.getsize(rf_path)
-                    if size < MIN_RENDERED_BYTES:
-                        print(f'WARNING: rendered file {rf_path} exists but is small ({size} bytes) for {name}; attempting live fetch fallback')
-                        try:
-                            html = fetch_html(url)
-                            # tenta sobrescrever o ficheiro renderizado com o resultado live (útil para artifact)
-                            try:
-                                with open(rf_path, 'w', encoding='utf-8') as fh:
-                                    fh.write(html)
-                                print(f'Overwrote small rendered file {rf_path} with live fetch ({len(html)} bytes)')
-                            except Exception as e:
-                                print('Could not overwrite rendered file with live fetch:', e)
-                        except Exception as e:
-                            print('Live fetch fallback failed, will try to use the small rendered file anyway:', e)
-                            try:
-                                html = open(rf_path, 'r', encoding='utf-8').read()
-                                print(f'Using small rendered file: {rf_path} for {name}')
-                            except Exception as e2:
-                                print('Failed reading small rendered file:', e2)
-                                html = None
-                    else:
-                        html = open(rf_path, 'r', encoding='utf-8').read()
-                        print(f'Using rendered file: {rf_path} for {name} (size: {size} bytes)')
+                    html = open(rf_path, 'r', encoding='utf-8').read()
+                    print(f'Using rendered file: {rf_path} for {name}')
                 except Exception as e:
                     print('Failed reading rendered file:', e)
                     html = None
             else:
                 print(f'No rendered file found at {rf_path} for {name}')
-
         if html is None:
             # fallback to requests
             try:
@@ -722,7 +682,7 @@ def main():
             print(f'No items matched filters for {name} — falling back to all {len(items)} items')
             matched = items
 
-        # dedupe (final)
+        # dedupe
         deduped = dedupe_items(matched)
 
         # write feed
