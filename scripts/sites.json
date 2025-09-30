@@ -443,7 +443,7 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/scworld.html",
-      "filters": { "keywords": ["ftnt","fortinet","rubrik","crowdstrike"] }
+      "filters": { "keywords": ["a","ftnt","fortinet","rubrik","crowdstrike"] }
     },
     {
       "name": "fiercehealthcare",
