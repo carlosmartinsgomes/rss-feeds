@@ -427,11 +427,31 @@
     {
       "name": "thenewstack",
       "url": "https://thenewstack.io/",
-      "item_container": "#tns-frontpage-page-one-featured, #tns-frontpage-page-one-latest, #tns-frontpage-page-two-more-stories",
-      "title": "#tns-frontpage-featured-lead-content a.frontpage-link > div.col-50.lead-details-block > div.post-title, #tns-frontpage-featured-more-featured-block .featured-post-block .post-title, #tns-frontpage-page-one-latest-content .latest-post-link-wrap .post-title, #tns-frontpage-page-two-more-stories-content .more-stories-link-wrap .post-title",
-      "link": "#tns-frontpage-featured-lead-content a.frontpage-link@href, #tns-frontpage-featured-more-featured-block .featured-post-block a.frontpage-link@href, #tns-frontpage-page-one-latest-content .latest-post-link-wrap@href, #tns-frontpage-page-two-more-stories-content .more-stories-link-wrap@href",
-      "date": ".post-byline .post-date, .post-date",
-      "description": "#tns-frontpage-featured-lead-content a.frontpage-link .post-excerpt, .post-excerpt",
+      "item_container": [
+        "#tns-frontpage-page-one-featured a.frontpage-link, #tns-frontpage-featured-lead-content > a",   // featured: pega todos os links "frontpage-link" (lead + mais)
+        "#tns-frontpage-page-one-latest-content a.latest-post-link-wrap",                               // latest: cada a.latest-post-link-wrap
+        "#tns-frontpage-page-two-more-stories-content a.more-stories-link-wrap"                         // more stories: cada a.more-stories-link-wrap
+      ],
+      "title": [
+        "div.post-title, .post-title",                              // featured items title (lead uses div.post-title)
+        "div.post-title",                                           // latest
+        "div.post-title"                                            // more stories
+      ],
+      "link": [
+        "@href",                                                    // when item_container is an <a>, the container's href is the link
+        "@href",
+        "@href"
+      ],
+      "date": [
+        "div.post-byline .post-date, .post-byline .post-date",      // featured lead has post-excerpt + post-byline
+        "div.post-byline .post-date",
+        "div.post-byline .post-date"
+      ],
+      "description": [
+        "#tns-frontpage-featured-lead-content > a > div.col-50.lead-details-block > div.post-excerpt", // only lead has excerpt
+        "", 
+        ""
+      ]
       "filters": { "keywords": ["a","ddog","datadog"] }
     },
     {
@@ -502,11 +522,36 @@
     {
       "name": "retaildive",
       "url": "https://www.retaildive.com/",
-      "item_container": "#skip-link-target > section > div > div > div > div:nth-child(1) > section, #skip-link-target > section > div > div > div > div:nth-child(2) > section, #main-content > section > ul > li > div.medium-8.columns, #skip-link-target > div > div > aside > div.sidebar-box.js-pressrelease-sidebar-box ul.sidebar-box-list > li.sidebar-box-list__item",
-      "title": "#hero-item-title > a, #skip-link-target > section > div > div > div > div:nth-child(2) > section ol li h3 > a, h3.feed__title a, a.sidebar-box-list__item-title",
-      "link": "#hero-item-title > a@href, #skip-link-target > section > div > div > div > div:nth-child(2) > section ol li h3 > a@href, h3.feed__title a@href, a.sidebar-box-list__item-title@href, a@href",
-      "date": "",
-      "description": "p.hero-article__teaser, p.feed__description",
+      "item_container": [
+        "#skip-link-target > section > div > div > div > div:nth-child(1) > section",                       // hero (1 item)
+        "#skip-link-target > section > div > div > div > div:nth-child(2) > section ol li",                // top stories: cada li é um item
+        "#main-content > section > ul > li > div.medium-8.columns",                                        // latest: cada div.medium-8.columns é um item
+        "#skip-link-target > div > div > aside > div.sidebar-box.js-pressrelease-sidebar-box ul.sidebar-box-list > li.sidebar-box-list__item" // company announcements: cada li é um item
+      ],
+      "title": [
+        "#skip-link-target > section > div > div > div > div:nth-child(1) > section h1#hero-item-title > a",        // hero title
+        "#skip-link-target > section > div > div > div > div:nth-child(2) > section ol li h3 a",                   // top stories title (aplica a todos os li)
+        "div.medium-8.columns h3.feed__title a, div.medium-8.columns h3 a",                                        // latest titles (vários padrões)
+        "div.sidebar-box-title-container > a, li.sidebar-box-list__item div.sidebar-box-title-container > a"       // company announcements title
+      ],
+      "link": [
+        "#skip-link-target > section > div > div > div > div:nth-child(1) > section h1#hero-item-title > a@href",
+        "#skip-link-target > section > div > div > div > div:nth-child(2) > section ol li h3 a@href",
+        "div.medium-8.columns h3.feed__title a@href, div.medium-8.columns h3 a@href",
+        "div.sidebar-box-title-container > a@href, li.sidebar-box-list__item div.sidebar-box-title-container > a@href"
+      ],
+      "date": [
+        "", // hero não necessário
+        "", // top stories não tem date na list view
+        ".feed__description ~ .post-byline .post-date, .feed__description ~ .post-byline .post-date", // (fallbacks) se existir
+        "" // company announcements normalmente não têm pubDate na list => pode deixar vazio
+      ],
+      "description": [
+        "#skip-link-target > section > div > div > div > div:nth-child(1) > section > p.hero-article__teaser, #skip-link-target > section > div > div > div > div:nth-child(1) > section > p",
+        "#main-content > section > ul > li > div.medium-8.columns > p, div.medium-8.columns p.feed__description",
+        "div.medium-8.columns p.feed__description",
+        "" // company announcements: normalmente não precisas de long description (usa título e link)
+      ]
       "render_file": "scripts/rendered/retaildive.html",
       "filters": { "keywords": ["a","onon","on holding","on holdings","running","etsy"] }
     },
