@@ -425,14 +425,14 @@
       "filters": { "keywords": ["ddog","datadog"] }
     },
     {
-      "name": "thenewstack-feed",
-      "url": "https://thenewstack.io/blog/feed/",
-      "item_container": "item",
-      "title": "title",
-      "link": "link",
-      "date": "pubDate",
-      "description": "description",
-      "filters": { "keywords": ["ddog","datadog"] }
+      "name": "thenewstack",
+      "url": "https://thenewstack.io/",
+      "item_container": "#tns-frontpage-page-one-featured, #tns-frontpage-page-one-latest, #tns-frontpage-page-two-more-stories",
+      "title": "#tns-frontpage-featured-lead-content a.frontpage-link > div.col-50.lead-details-block > div.post-title, #tns-frontpage-featured-more-featured-block .featured-post-block .post-title, #tns-frontpage-page-one-latest-content .latest-post-link-wrap .post-title, #tns-frontpage-page-two-more-stories-content .more-stories-link-wrap .post-title",
+      "link": "#tns-frontpage-featured-lead-content a.frontpage-link@href, #tns-frontpage-featured-more-featured-block .featured-post-block a.frontpage-link@href, #tns-frontpage-page-one-latest-content .latest-post-link-wrap@href, #tns-frontpage-page-two-more-stories-content .more-stories-link-wrap@href",
+      "date": ".post-byline .post-date, .post-date",
+      "description": "#tns-frontpage-featured-lead-content a.frontpage-link .post-excerpt, .post-excerpt",
+      "filters": { "keywords": ["a","ddog","datadog"] }
     },
     {
       "name": "scworld",
