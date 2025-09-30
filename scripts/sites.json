@@ -307,13 +307,13 @@
     {
       "name": "videoweek",
       "url": "https://videoweek.com/",
-      "item_container": "article, li, div",
-      "title": "a, h2 a, h3 a",
-      "link": "a@href, h2 a@href",
-      "date": "time, .date",
-      "description": "p",
+      "item_container": "#post-27709 > div > div.fusion-fullwidth.fullwidth-box.fusion-builder-row-7.fusion-flex-container.nonhundred-percent-fullwidth.non-hundred-percent-height-scrolling > div > div.fusion-layout-column.fusion_builder_column.fusion-builder-column-11.fusion_builder_column_2_3.\\32 _3.fusion-flex-column > div",
+      "title": "h2.blog-shortcode-post-title a, h2.entry-title a, h2 a",
+      "link": "h2.blog-shortcode-post-title a@href, h2.entry-title a@href, h2 a@href",
+      "date": "span.updated, .fusion-date-box .fusion-date .fusion-month-year",
+      "description": "",
       "render_file": "scripts/rendered/videoweek.html",
-      "filters": { "keywords": ["supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"] }
+      "filters": { "keywords": ["a","supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"] }
     },
     {
       "name": "marketingdive-search-trade-desk",
@@ -467,15 +467,37 @@
       "filters": { "keywords": ["iot","samsara","mndy","monday.com"] }
     },
     {
-      "name": "wwd-footwear",
-      "url": "https://wwd.com/footwear-news/",
-      "item_container": "article, li, div",
-      "title": "a, h2 a, h3 a",
-      "link": "a@href",
-      "date": "time, .date",
-      "description": "p",
-      "render_file": "scripts/rendered/wwd-footwear.html",
-      "filters": { "keywords": ["onon","on holding","on holdings","running"] }
+      "name": "wwd-on-holding",
+      "url": "https://wwd.com/tag/on-holding/",
+      "item_container": "div.river-items-wrapper > div",
+      "title": ".c-title__link, h3.c-title a, #title-of-a-story > a",
+      "link": ".c-title__link@href, h3.c-title a@href, #title-of-a-story > a@href",
+      "date": "time.c-timestamp@datetime, time.c-timestamp",
+      "description": ".c-dek",
+      "render_file": "scripts/rendered/wwd-on-holding.html",
+      "filters": { "keywords": ["a","onon","on holding","on holdings","running"] }
+    },
+    {
+      "name": "wwd-on-running",
+      "url": "https://wwd.com/tag/on-running/",
+      "item_container": "div.river-items-wrapper > div",
+      "title": ".c-title__link, h3.c-title a, #title-of-a-story > a",
+      "link": ".c-title__link@href, h3.c-title a@href, #title-of-a-story > a@href",
+      "date": "time.c-timestamp@datetime, time.c-timestamp",
+      "description": ".c-dek",
+      "render_file": "scripts/rendered/wwd-on-running.html",
+      "filters": { "keywords": ["a","onon","on holding","on holdings","running"] }
+    },
+    {
+      "name": "wwd-on-holding-ag",
+      "url": "https://wwd.com/tag/on-holding-ag/",
+      "item_container": "div.river-items-wrapper > div",
+      "title": ".c-title__link, h3.c-title a, #title-of-a-story > a",
+      "link": ".c-title__link@href, h3.c-title a@href, #title-of-a-story > a@href",
+      "date": "time.c-timestamp@datetime, time.c-timestamp",
+      "description": ".c-dek",
+      "render_file": "scripts/rendered/wwd-on-holding-ag.html",
+      "filters": { "keywords": ["a","onon","on holding","on holdings","running"] }
     },
     {
       "name": "retaildive",
