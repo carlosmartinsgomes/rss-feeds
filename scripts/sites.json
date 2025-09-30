@@ -531,7 +531,7 @@
       "filters": { "keywords": ["inmode","inmd"] }
     },
     {
-      "name": "medscape-derm",
+      "name": "medscape-derm0",
       "url": "https://www.medscape.com/index/list_13470_0",
       "item_container": "#archives > ul > li, #archives li",
       "title": "a.title, a",
@@ -542,7 +542,7 @@
       "filters": { "keywords": ["a","inmode","morpheus8","facetite","bodytite","complication","adverse","review","case","experience"], "exclude":["spam","promotion","promo","course"] }
     },
     {
-      "name": "medscape-derm",
+      "name": "medscape-derm1",
       "url": "https://www.medscape.com/index/list_13470_1",
       "item_container": "#archives > ul > li, #archives li",
       "title": "a.title, a",
