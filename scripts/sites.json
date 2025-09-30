@@ -307,10 +307,10 @@
     {
       "name": "videoweek",
       "url": "https://videoweek.com/",
-      "item_container": "#post-27709 > div > div.fusion-fullwidth.fullwidth-box.fusion-builder-row-7.fusion-flex-container.nonhundred-percent-fullwidth.non-hundred-percent-height-scrolling > div > div.fusion-layout-column.fusion_builder_column.fusion-builder-column-11.fusion_builder_column_2_3.\\32 _3.fusion-flex-column > div",
-      "title": "h2.blog-shortcode-post-title a, h2.entry-title a, h2 a",
-      "link": "h2.blog-shortcode-post-title a@href, h2.entry-title a@href, h2 a@href",
-      "date": "span.updated, .fusion-date-box .fusion-date .fusion-month-year",
+      "item_container": "article[id^='blog-'], .fusion-posts-container article, article.fusion-post-medium-alternate, article.fusion-post-large-alternate",
+      "title": "h2.blog-shortcode-post-title.entry-title a, h2.entry-title a, h2.blog-shortcode-post-title a, h2 a",
+      "link": "h2.blog-shortcode-post-title.entry-title a@href, h2.entry-title a@href, h2.blog-shortcode-post-title a@href, a@href",
+      "date": "div.fusion-date-box .fusion-date, div.fusion-date-box .fusion-month-year, span.updated, time",
       "description": "",
       "render_file": "scripts/rendered/videoweek.html",
       "filters": { "keywords": ["a","supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"] }
@@ -508,7 +508,7 @@
       "date": "div.post-byline .post-date, .feed__description ~ .post-byline .post-date",
       "description": "#skip-link-target > section > div > div > div > div:nth-child(1) > section > p.hero-article__teaser, #main-content > section > ul > li > div.medium-8.columns > p, div.medium-8.columns p.feed__description",
       "render_file": "scripts/rendered/retaildive.html",
-      "filters": { "keywords": ["a","onon","on holding","on holdings","running","etsy"] }
+      "filters": { "keywords": ["a","onon","on holding","on holdings","running","etsy","pinterest"] }
     },
     {
       "name": "mdpi-jaestheticmed",
