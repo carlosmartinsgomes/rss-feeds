@@ -479,14 +479,14 @@
     },
     {
       "name": "retaildive",
-      "url": "https://feeder.co/discover/ad39aff14f/retaildive-com-news",
-      "item_container": ".feed-list-item, li",
-      "title": ".entry-title, a",
-      "link": "a@href",
-      "date": ".entry-date, time",
-      "description": ".summary, p",
+      "url": "https://www.retaildive.com/",
+      "item_container": "#skip-link-target > section > div > div > div > div:nth-child(1) > section, #skip-link-target > section > div > div > div > div:nth-child(2) > section, #main-content > section > ul > li > div.medium-8.columns, #skip-link-target > div > div > aside > div.sidebar-box.js-pressrelease-sidebar-box ul.sidebar-box-list > li.sidebar-box-list__item",
+      "title": "#hero-item-title > a, #skip-link-target > section > div > div > div > div:nth-child(2) > section ol li h3 > a, h3.feed__title a, a.sidebar-box-list__item-title",
+      "link": "#hero-item-title > a@href, #skip-link-target > section > div > div > div > div:nth-child(2) > section ol li h3 > a@href, h3.feed__title a@href, a.sidebar-box-list__item-title@href, a@href",
+      "date": "",
+      "description": "p.hero-article__teaser, p.feed__description",
       "render_file": "scripts/rendered/retaildive.html",
-      "filters": { "keywords": ["a","onon","on holding","on holdings","running"] }
+      "filters": { "keywords": ["a","onon","on holding","on holdings","running","etsy"] }
     },
     {
       "name": "mdpi-jaestheticmed",
