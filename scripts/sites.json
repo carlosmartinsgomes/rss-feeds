@@ -722,7 +722,16 @@
       "date": "time, .date",
       "description": "p",
       "filters": { "keywords": [] }
+    },
+    {
+      "name": "pubmed1",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/rss/search/1V5bX9N3xU3xSJpkGPHllgs-O51O2vlZIMoNTTc3myuR0kCgXD/?limit=15&utm_campaign=pubmed-2&fc=20251003170108",
+      "item_container": "item",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
+      "filters": { "keywords": [] }
     }
-    
   ]
 }
