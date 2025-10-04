@@ -724,8 +724,68 @@
       "filters": { "keywords": [] }
     },
     {
-      "name": "pubmed1",
-      "url": "https://pubmed.ncbi.nlm.nih.gov/rss/search/1V5bX9N3xU3xSJpkGPHllgs-O51O2vlZIMoNTTc3myuR0kCgXD/?limit=15&utm_campaign=pubmed-2&fc=20251003170108",
+      "name": "PubmedINMDtech_trials",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/rss/search/1hasycEfiSSk6lzJibu2gZlHPzriEC8wbuDYJIWrdyKYBRiQVk/?limit=15&utm_campaign=pubmed-2&fc=20251004161424",
+      "item_container": "item",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
+      "filters": { "keywords": [] }
+    },
+    {
+      "name": "PubmedINMDtech_random&reviews",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/rss/search/1-khLOXmKonAtzl6Nm32nY3bXaECuKSjBwdscK0kZGbl7img2z/?limit=15&utm_campaign=pubmed-2&fc=20251004161616",
+      "item_container": "item",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
+      "filters": { "keywords": [] }
+    },
+    {
+      "name": "PubmedINMDtech_complications&follow-up&safety&adverse_event",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/rss/search/1d9iTY4hH_PsaJk0Zq_6P5f8XY0d8oRC0tsZY3N6Fa9fjkxEmZ/?limit=15&utm_campaign=pubmed-2&fc=20251004161915",
+      "item_container": "item",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
+      "filters": { "keywords": [] }
+    },
+    {
+      "name": "PubmedRIVALStech_trials",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/rss/search/1LkKTHPdB0KczcGZqm2oxIuaJfj0o1O4rbZb3cxSydRU18u5lF/?limit=15&utm_campaign=pubmed-2&fc=20251003170744",
+      "item_container": "item",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
+      "filters": { "keywords": [] }
+    },
+    {
+      "name": "PubmedRIVALStech_random&reviews",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/rss/search/1JcY43SP_RPTSNKNxypJY-Bj79r9h973dPIu3h4yqWJ1C_Awjr/?limit=15&utm_campaign=pubmed-2&fc=20251004162651",
+      "item_container": "item",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
+      "filters": { "keywords": [] }
+    },
+    {
+      "name": "PubmedRIVALStech_complications&follow-up&safety&adverse_event",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/rss/search/1lS0N-smva-DZUmXWq71jxWZqgRXRuQ8X_nPktgwd_plyfr91P/?limit=15&utm_campaign=pubmed-2&fc=20251004163432",
+      "item_container": "item",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
+      "filters": { "keywords": [] }
+    },
+    {
+      "name": "PubmedINMDvsAnyRival",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/rss/search/1pCNTBTnGJ4bzn_XattW_Kyji7EBH8UdZeehGkHwAIVi-93sZt/?limit=15&utm_campaign=pubmed-2&fc=20251004163959",
       "item_container": "item",
       "title": "title",
       "link": "link",
