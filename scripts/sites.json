@@ -792,6 +792,16 @@
       "date": "pubDate",
       "description": "description",
       "filters": { "keywords": [] }
+    },
+    {
+      "name": "ClinicalTrial",
+      "url": "https://clinicaltrials.gov/api/rss?dateField=LastUpdatePostDate",
+      "item_container": "item",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
+      "filters": { "keywords": [] }
     }
   ]
 }
