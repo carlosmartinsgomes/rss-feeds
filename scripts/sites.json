@@ -935,14 +935,15 @@
     },
     {
       "name": "FDA510k",
-      "url": "https://api.fda.gov/device/510k.json",
+      "url": "https://api.fda.gov/device/510k.json?limit=100",
       "item_container": "results",
-      "title": "openfda.device_name OR device_name",
-      "link": "k_number OR event_id",
-      "date": "decision_date OR date_received",
-      "description": "summary OR event_description",
-      "max_items": 200,
-      "filters": { "keywords": [
+      "title": "openfda.device_name, device_name",
+      "link": "k_number",
+      "date": "decision_date, decision_date",
+      "description": "summary, device_description",
+      "max_items": 100,
+      "filters": {
+        "keywords": [
           "Morpheus8","Morpheus 8","radiofrequency microneedle","radiofrequency microneedling",
           "RF microneedle","RF microneedling","microneedle","microneedles","microneedling",
           "FaceTite","BodyTite","RFAL","radiofrequency-assisted lipolysis",
@@ -955,14 +956,15 @@
     },
     {
       "name": "MAUDEopenFDA",
-      "url": "https://api.fda.gov/device/event.json",
+      "url": "https://api.fda.gov/device/event.json?limit=100",
       "item_container": "results",
-      "title": "openfda.device_name OR device_name",
-      "link": "k_number OR event_id",
-      "date": "decision_date OR date_received",
-      "description": "summary OR event_description",
-      "max_items": 200,
-      "filters": { "keywords": [
+      "title": "openfda.device_name, device_name",
+      "link": "event_id",
+      "date": "date_received, event_date",
+      "description": "event_description, summary",
+      "max_items": 100,
+      "filters": {
+        "keywords": [
           "Morpheus8","Morpheus 8","radiofrequency microneedle","radiofrequency microneedling",
           "RF microneedle","RF microneedling","microneedle","microneedles","microneedling",
           "FaceTite","BodyTite","RFAL","radiofrequency-assisted lipolysis",
