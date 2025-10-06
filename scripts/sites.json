@@ -937,10 +937,10 @@
       "name": "FDA510k-decisoes&regulatory_summaries&mudancas_indicacoes",
       "url": "https://api.fda.gov/device/510k.json?limit=100",
       "item_container": "results",
-      "title": "openfda.device_name OR device_name OR device",
+      "title": "openfda.device_name OR device_name",
       "link": "k_number",
       "date": "decision_date OR date_received",
-      "description": "statement_or_summary OR decision_description OR summary",
+      "description": "statement_or_summary OR decision_description OR applicant OR openfda.device_name",
       "max_items": 200,
       "filters": {
         "keywords": [
@@ -958,10 +958,10 @@
       "name": "MAUDEopenFDA-Regulatorios_Seguranca",
       "url": "https://api.fda.gov/device/event.json?limit=100",
       "item_container": "results",
-      "title": "openfda.device_name OR device.generic_name OR device.brand_name OR device[0].generic_name",
-      "link": "report_number OR mdr_report_key OR event_key OR device.device_event_key",
-      "date": "date_received OR date_report OR report_date",
-      "description": "mdr_text[0].text OR event_description OR summary",
+      "title": "openfda.device_name OR device[0].brand_name OR device[0].generic_name OR device_name",
+      "link": "mdr_report_key OR report_number",
+      "date": "date_received OR report_date OR date_of_event",
+      "description": "mdr_text[0].text OR mdr_text",
       "max_items": 200,
       "filters": {
         "keywords": [
