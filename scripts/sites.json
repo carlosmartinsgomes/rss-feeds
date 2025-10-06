@@ -932,6 +932,46 @@
       "date": "pubDate",
       "description": "description",
       "filters": { "keywords": [] }
+    },
+    {
+      "name": "FDA510k",
+      "url": "https://api.fda.gov/device/510k.json",
+      "item_container": "results",
+      "title": "openfda.device_name OR device_name",
+      "link": "k_number OR event_id",
+      "date": "decision_date OR date_received",
+      "description": "summary OR event_description",
+      "max_items": 200,
+      "filters": { "keywords": [
+          "Morpheus8","Morpheus 8","radiofrequency microneedle","radiofrequency microneedling",
+          "RF microneedle","RF microneedling","microneedle","microneedles","microneedling",
+          "FaceTite","BodyTite","RFAL","radiofrequency-assisted lipolysis",
+          "InMode","Inmode","InMode Ltd",
+          "Syneron","Syneron Candela","Profound","Profound RF","ProfoundRF",
+          "Ultherapy","microfocused ultrasound","MFU","Thermage","monopolar radiofrequency",
+          "Lumenis","Lutronic","Merz","Cynosure","BTL",
+          "burn","necrosis","infection","device malfunction","device failure",
+          "adverse event","adverse events","serious adverse event","death","complication","safety"]}
+    },
+    {
+      "name": "MAUDEopenFDA",
+      "url": "https://api.fda.gov/device/event.json",
+      "item_container": "results",
+      "title": "openfda.device_name OR device_name",
+      "link": "k_number OR event_id",
+      "date": "decision_date OR date_received",
+      "description": "summary OR event_description",
+      "max_items": 200,
+      "filters": { "keywords": [
+          "Morpheus8","Morpheus 8","radiofrequency microneedle","radiofrequency microneedling",
+          "RF microneedle","RF microneedling","microneedle","microneedles","microneedling",
+          "FaceTite","BodyTite","RFAL","radiofrequency-assisted lipolysis",
+          "InMode","Inmode","InMode Ltd",
+          "Syneron","Syneron Candela","Profound","Profound RF","ProfoundRF",
+          "Ultherapy","microfocused ultrasound","MFU","Thermage","monopolar radiofrequency",
+          "Lumenis","Lutronic","Merz","Cynosure","BTL",
+          "burn","necrosis","infection","device malfunction","device failure",
+          "adverse event","adverse events","serious adverse event","death","complication","safety"]}
     }
   ]
 }
