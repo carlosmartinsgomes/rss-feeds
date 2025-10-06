@@ -226,7 +226,7 @@
       "filters": { "keywords": ["supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"] }
     },
     {
-      "name": "thedrum-adtech",
+      "name": "thedrum-adtech-ttd",
       "url": "https://www.thedrum.com/profile/the-trade-desk/featured",
       "item_container": "article, li, div",
       "title": "a, h2 a, h3 a",
@@ -237,7 +237,7 @@
       "filters": { "keywords": ["supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"] }
     },
     {
-      "name": "thedrum-adtech",
+      "name": "thedrum-adtech-pubm",
       "url": "https://www.thedrum.com/profile/pubmatic/featured",
       "item_container": "article, li, div",
       "title": "a, h2 a, h3 a",
@@ -936,12 +936,14 @@
     {
       "name": "FDA510k",
       "url": "https://api.fda.gov/device/510k.json?limit=100",
+      "response_type": "json",
       "item_container": "results",
-      "title": "openfda.device_name, device_name",
-      "link": "k_number",
-      "date": "decision_date, decision_date",
-      "description": "summary, device_description",
-      "max_items": 100,
+      "json_fields": {
+        "title": ["openfda.device_name", "device_name"],
+        "link": ["k_number"],
+        "date": ["decision_date", "date_received"],
+        "description": ["statement_or_summary", "decision_description"]},
+      "max_items": 200,
       "filters": {
         "keywords": [
           "a","Morpheus8","Morpheus 8","radiofrequency microneedle","radiofrequency microneedling",
