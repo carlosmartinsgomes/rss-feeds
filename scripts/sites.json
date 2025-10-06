@@ -794,14 +794,144 @@
       "filters": { "keywords": [] }
     },
     {
-      "name": "ClinicalTrial",
-      "url": "https://clinicaltrials.gov/api/rss?dateField=LastUpdatePostDate",
+      "name": "EuropePMC-INMDtech_trials",
+      "url": "https://europepmc.org/searchrss?query=(%22Morpheus8%22%20OR%20%22radiofrequency%20microneedl*%22%20OR%20%22RF%20microneedl*%22%20OR%20%22FaceTite%22%20OR%20%22BodyTite%22%20OR%20%22radiofrequency-assisted%20lipolysis%22%20OR%20%22RFAL%22)%20AND%20(trial%20OR%20clinical%20OR%20%22clinical%20trial%22)&sortBy=FIRST_PDATE_D+desc&page=1&mode=rss",
       "item_container": "item",
       "title": "title",
       "link": "link",
       "date": "pubDate",
       "description": "description",
       "filters": { "keywords": [] }
-    }
+    },
+    {
+      "name": "EuropePMC-INMD_random&reviews",
+      "url": "https://europepmc.org/searchrss?query=(%22Morpheus8%22%20OR%20%22radiofrequency%20microneedl*%22%20OR%20%22RF%20microneedl*%22%20OR%20%22FaceTite%22%20OR%20%22BodyTite%22%20OR%20%22radiofrequency-assisted%20lipolysis%22%20OR%20%22RFAL%22)%20AND%20(randomized%20OR%20%22randomized%20controlled%20trial%22%20OR%20%22review%22%20OR%20%22systematic%20review%22)&sortBy=FIRST_PDATE_D+desc&page=1&mode=rss",
+      "item_container": "item",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
+      "filters": { "keywords": [] }
+    },
+    {
+      "name": "EuropePMC-INMDtech_complications&follow-up&safety&adverse_event",
+      "url": "https://europepmc.org/searchrss?query=(%22Morpheus8%22%20OR%20%22radiofrequency%20microneedl*%22%20OR%20%22RF%20microneedl*%22%20OR%20%22FaceTite%22%20OR%20%22BodyTite%22%20OR%20%22radiofrequency-assisted%20lipolysis%22%20OR%20%22RFAL%22)%20AND%20(%22follow-up%22%20OR%20%22follow%20up%22%20OR%20complication%20OR%20complications%20OR%20%22adverse%20event%22%20OR%20%22adverse%20events%22%20OR%20safety)&sortBy=FIRST_PDATE_D+desc&page=1&mode=rss",
+      "item_container": "item",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
+      "filters": { "keywords": [] }
+    },
+    {
+      "name": "EuropePMC-RIVALStech_trials",
+      "url": "https://europepmc.org/searchrss?query=(%22microfocused%20ultrasound%22%20OR%20%22Ultherapy%22%20OR%20%22MFU%22%20OR%20%22Thermage%22%20OR%20%22monopolar%20radiofrequency%22)%20AND%20(trial%20OR%20%22clinical%20trial%22)&sortBy=FIRST_PDATE_D+desc&page=1&mode=rss",
+      "item_container": "item",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
+      "filters": { "keywords": [] }
+    },
+    {
+      "name": "EuropePMC-RIVALStech_random&reviews",
+      "url": "https://europepmc.org/searchrss?query=(%22microfocused%20ultrasound%22%20OR%20%22Ultherapy%22%20OR%20%22MFU%22%20OR%20%22Thermage%22%20OR%20%22monopolar%20radiofrequency%22%20OR%20%22Profound%20radiofrequency%22%20OR%20%22ProfoundRF%22%20OR%20Syneron%20OR%20%22Syneron%20Candela%22)%20AND%20(randomized%20OR%20%22randomized%20controlled%20trial%22%20OR%20%22review%22%20OR%20%22systematic%20review%22)&sortBy=FIRST_PDATE_D+desc&page=1&mode=rss",
+      "item_container": "item",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
+      "filters": { "keywords": [] }
+    },
+    {
+      "name": "EuropePMC-RIVALStech_complications&follow-up&safety&adverse_event",
+      "url": "https://europepmc.org/searchrss?query=(%22microfocused%20ultrasound%22%20OR%20%22Ultherapy%22%20OR%20%22MFU%22%20OR%20%22Thermage%22%20OR%20%22monopolar%20radiofrequency%22%20OR%20%22Profound%20radiofrequency%22%20OR%20%22ProfoundRF%22%20OR%20Syneron%20OR%20%22Syneron%20Candela%22)%20AND%20(%22follow-up%22%20OR%20%22follow%20up%22%20OR%20complication%20OR%20complications%20OR%20%22adverse%20event%22%20OR%20safety)&sortBy=FIRST_PDATE_D+desc&page=1&mode=rss",
+      "item_container": "item",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
+      "filters": { "keywords": [] }
+    },
+    {
+      "name": "EuropePMC-INMDvsAnyRival",
+      "url": "https://europepmc.org/searchrss?query=(%22Morpheus8%22%20OR%20%22radiofrequency%20microneedl*%22%20OR%20%22RF%20microneedl*%22%20OR%20%22FaceTite%22%20OR%20%22BodyTite%22%20OR%20%22radiofrequency-assisted%20lipolysis%22%20OR%20%22RFAL%22)%20AND%20(%22Ultherapy%22%20OR%20%22microfocused%20ultrasound%22%20OR%20%22MFU%22%20OR%20%22Thermage%22%20OR%20%22monopolar%20radiofrequency%22%20OR%20%22Profound%20radiofrequency%22%20OR%20%22ProfoundRF%22%20OR%20Syneron%20OR%20%22Syneron%20Candela%22)&sortBy=FIRST_PDATE_D+desc&page=1&mode=rss",
+      "item_container": "item",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
+      "filters": { "keywords": [] }
+    },
+    {
+      "name": "pubmed1",
+      "url": "",
+      "item_container": "item",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
+      "filters": { "keywords": [] }
+    },
+    {
+      "name": "pubmed1",
+      "url": "",
+      "item_container": "item",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
+      "filters": { "keywords": [] }
+    },
+    {
+      "name": "pubmed1",
+      "url": "",
+      "item_container": "item",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
+      "filters": { "keywords": [] }
+    },
+    {
+      "name": "pubmed1",
+      "url": "",
+      "item_container": "item",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
+      "filters": { "keywords": [] }
+    },
+    {
+      "name": "pubmed1",
+      "url": "",
+      "item_container": "item",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
+      "filters": { "keywords": [] }
+    },
+    {
+      "name": "pubmed1",
+      "url": "",
+      "item_container": "item",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
+      "filters": { "keywords": [] }
+    },
+    {
+      "name": "pubmed1",
+      "url": "",
+      "item_container": "item",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
+      "filters": { "keywords": [] }
+    },
   ]
 }
