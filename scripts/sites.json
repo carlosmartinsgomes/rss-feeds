@@ -864,8 +864,8 @@
       "filters": { "keywords": [] }
     },
     {
-      "name": "pubmed1",
-      "url": "",
+      "name": "ClinicalTrialsINMDtech_trials",
+      "url": "https://clinicaltrials.gov/api/rss?term=%28Morpheus8+OR+radiofrequency+%28microneedle+OR+microneedles+OR+microneedling%29+OR+RF+%28microneedle+OR+microneedles+OR+microneedling%29+OR+FaceTite+OR+BodyTite+OR+radiofrequency-assisted+lipolysis+OR+RFAL%29+AND+%28trial+OR+clinical+OR+clinical+trial%29&dateField=LastUpdatePostDate",
       "item_container": "item",
       "title": "title",
       "link": "link",
@@ -874,8 +874,8 @@
       "filters": { "keywords": [] }
     },
     {
-      "name": "pubmed1",
-      "url": "",
+      "name": "ClinicalTrialsINMD_random&reviews",
+      "url": "https://clinicaltrials.gov/api/rss?term=%28Morpheus8+OR+radiofrequency+%28microneedle+OR+microneedles+OR+microneedling%29+OR+RF+%28microneedle+OR+microneedles+OR+microneedling%29+OR+FaceTite+OR+BodyTite+OR+radiofrequency-assisted+lipolysis+OR+RFAL%29+AND+%28randomized+OR+randomized+controlled+trial+OR+review+OR+systematic+review%29&dateField=LastUpdatePostDate",
       "item_container": "item",
       "title": "title",
       "link": "link",
@@ -884,8 +884,8 @@
       "filters": { "keywords": [] }
     },
     {
-      "name": "pubmed1",
-      "url": "",
+      "name": "ClinicalTrialsINMDtech_complications&follow-up&safety&adverse_event",
+      "url": "https://clinicaltrials.gov/api/rss?term=%28Morpheus8+OR+radiofrequency+%28microneedle+OR+microneedles+OR+microneedling%29+OR+RF+%28microneedle+OR+microneedles+OR+microneedling%29+OR+FaceTite+OR+BodyTite+OR+radiofrequency-assisted+lipolysis+OR+RFAL%29+AND+%28follow-up+OR+follow+up+OR+complication+OR+complications+OR+adverse+event+OR+adverse+events+OR+safety%29&dateField=LastUpdatePostDate",
       "item_container": "item",
       "title": "title",
       "link": "link",
@@ -894,8 +894,8 @@
       "filters": { "keywords": [] }
     },
     {
-      "name": "pubmed1",
-      "url": "",
+      "name": "ClinicalTrialsRIVALStech_trials",
+      "url": "https://clinicaltrials.gov/api/rss?term=%28microfocused+ultrasound+OR+Ultherapy+OR+MFU+OR+Thermage+OR+monopolar+radiofrequency%29+AND+%28trial+OR+clinical+trial%29&dateField=LastUpdatePostDate",
       "item_container": "item",
       "title": "title",
       "link": "link",
@@ -904,8 +904,8 @@
       "filters": { "keywords": [] }
     },
     {
-      "name": "pubmed1",
-      "url": "",
+      "name": "ClinicalTrialsRIVALStech_random&reviews",
+      "url": "https://clinicaltrials.gov/api/rss?term=%28microfocused+ultrasound+OR+Ultherapy+OR+MFU+OR+Thermage+OR+monopolar+radiofrequency+OR+Profound+radiofrequency+OR+ProfoundRF+OR+Syneron+OR+Syneron+Candela%29+AND+%28randomized+OR+randomized+controlled+trial+OR+review+OR+systematic+review%29&dateField=StudyFirstPostDate",
       "item_container": "item",
       "title": "title",
       "link": "link",
@@ -914,8 +914,8 @@
       "filters": { "keywords": [] }
     },
     {
-      "name": "pubmed1",
-      "url": "",
+      "name": "ClinicalTrialsRIVALStech_complications&follow-up&safety&adverse_event",
+      "url": "https://clinicaltrials.gov/api/rss?term=%28microfocused+ultrasound+OR+Ultherapy+OR+MFU+OR+Thermage+OR+monopolar+radiofrequency+OR+Profound+radiofrequency+OR+ProfoundRF+OR+Syneron+OR+Syneron+Candela%29+AND+%28follow-up+OR+follow+up+OR+complication+OR+complications+OR+adverse+event+OR+safety%29&dateField=LastUpdatePostDate",
       "item_container": "item",
       "title": "title",
       "link": "link",
@@ -924,14 +924,14 @@
       "filters": { "keywords": [] }
     },
     {
-      "name": "pubmed1",
-      "url": "",
+      "name": "ClinicalTrialsINMDvsAnyRival",
+      "url": "https://clinicaltrials.gov/api/rss?term=%28Morpheus8+OR+radiofrequency+%28microneedle+OR+microneedles+OR+microneedling%29+OR+RF+%28microneedle+OR+microneedles+OR+microneedling%29+OR+FaceTite+OR+BodyTite+OR+radiofrequency-assisted+lipolysis+OR+RFAL%29+AND+%28Ultherapy+OR+microfocused+ultrasound+OR+MFU+OR+Thermage+OR+monopolar+radiofrequency+OR+Profound+radiofrequency+OR+ProfoundRF+OR+Syneron+OR+Syneron+Candela%29&dateField=LastUpdatePostDate",
       "item_container": "item",
       "title": "title",
       "link": "link",
       "date": "pubDate",
       "description": "description",
       "filters": { "keywords": [] }
-    },
+    }
   ]
 }
