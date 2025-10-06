@@ -936,13 +936,11 @@
     {
       "name": "FDA510k",
       "url": "https://api.fda.gov/device/510k.json?limit=100",
-      "response_type": "json",
       "item_container": "results",
-      "json_fields": {
-        "title": ["openfda.device_name", "device_name"],
-        "link": ["k_number"],
-        "date": ["decision_date", "date_received"],
-        "description": ["statement_or_summary", "decision_description"]},
+      "title": "openfda.device_name OR device_name OR device",
+      "link": "k_number",
+      "date": "decision_date OR date_received",
+      "description": "statement_or_summary OR decision_description OR summary",
       "max_items": 200,
       "filters": {
         "keywords": [
@@ -960,11 +958,11 @@
       "name": "MAUDEopenFDA",
       "url": "https://api.fda.gov/device/event.json?limit=100",
       "item_container": "results",
-      "title": "openfda.device_name, device_name",
-      "link": "event_id",
-      "date": "date_received, event_date",
-      "description": "event_description, summary",
-      "max_items": 100,
+      "title": "openfda.device_name OR device.generic_name OR device.brand_name OR device[0].generic_name",
+      "link": "report_number OR mdr_report_key OR event_key OR device.device_event_key",
+      "date": "date_received OR date_report OR report_date",
+      "description": "mdr_text[0].text OR event_description OR summary",
+      "max_items": 200,
       "filters": {
         "keywords": [
           "a","Morpheus8","Morpheus 8","radiofrequency microneedle","radiofrequency microneedling",
