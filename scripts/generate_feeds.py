@@ -62,14 +62,26 @@ def load_sites():
         return []
 
 
-def fetch_html(url, timeout=20):
+def fetch_url(url, timeout=20):
+    """
+    Substitui a antiga fetch_html: devolve objecto Response.
+    Mantém headers user-agent.
+    """
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36',
-        'Accept-Language': 'en-US,en;q=0.9'
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept': '*/*'
     }
     r = requests.get(url, headers=headers, timeout=timeout)
     r.raise_for_status()
-    return r.text
+    return r
+
+
+def fetch_html(url, timeout=20):
+    """
+    Mantive para compatibilidade: devolve apenas texto (usado quando render_file está presente).
+    """
+    return fetch_url(url, timeout=timeout).text
 
 
 def text_of_node(node):
@@ -100,6 +112,209 @@ def normalize_link_for_dedupe(href):
         return cleaned
     except Exception:
         return href.strip().lower()
+
+
+# ---------------------- JSON HANDLER ADDED ----------------------
+def get_value_from_record(record, path):
+    """
+    path: 'openfda.device_name' or 'device_name' or 'mdr_text[0].text'
+    retorna uma string (se for lista, junta com '; ' ou escolhe o primeiro)
+    """
+    if not path or record is None:
+        return None
+    path = path.strip()
+    # support bracket indices like mdr_text[0].text
+    # split on '.' but keep bracketed indices
+    parts = []
+    for part in re.split(r'\.(?![^\[]*\])', path):
+        parts.append(part)
+
+    cur = record
+    try:
+        for p in parts:
+            # handle OR if someone passed an expression (should be handled above)
+            if ' OR ' in p:
+                p = p.split(' OR ')[0].strip()
+            # handle bracket indices
+            m = re.match(r'^([^\[]+)\[(\d+)\]$', p)
+            if m:
+                key = m.group(1)
+                idx = int(m.group(2))
+                if isinstance(cur, dict):
+                    cur = cur.get(key)
+                if isinstance(cur, list):
+                    if 0 <= idx < len(cur):
+                        cur = cur[idx]
+                    else:
+                        return None
+                else:
+                    return None
+                continue
+
+            # normal path
+            if isinstance(cur, dict):
+                cur = cur.get(p)
+            elif isinstance(cur, list):
+                # if cur is a list and p is a key name, try to map each item if dicts, else take first element
+                if not cur:
+                    return None
+                # if list of dicts and first dict has key p, use list of those values
+                if isinstance(cur[0], dict) and p in cur[0]:
+                    vals = []
+                    for it in cur:
+                        v = it.get(p)
+                        if v is not None:
+                            vals.append(v)
+                    if vals:
+                        # flatten simple lists of strings
+                        if all(not isinstance(v, (dict, list)) for v in vals):
+                            return "; ".join(str(v) for v in vals if v)
+                        else:
+                            cur = vals
+                    else:
+                        cur = None
+                else:
+                    # fallback: take first element and continue
+                    cur = cur[0]
+                    # attempt to get attribute from it
+                    if isinstance(cur, dict):
+                        cur = cur.get(p)
+            else:
+                # cannot traverse further
+                return None
+
+        # final normalization
+        if cur is None:
+            return None
+        if isinstance(cur, list):
+            # join stringifiable values
+            txts = []
+            for it in cur:
+                if isinstance(it, dict):
+                    # attempt to get text-ish keys?
+                    continue
+                if it is None:
+                    continue
+                txts.append(str(it))
+            if not txts:
+                return None
+            return "; ".join(txts)
+        else:
+            return str(cur)
+    except Exception:
+        return None
+
+
+def choose_first_available(record, selector_expr):
+    """
+    selector_expr pode ser "openfda.device_name OR device_name OR k_number"
+    tenta cada alternativa e retorna o primeiro valor não-nulo.
+    """
+    if not selector_expr:
+        return None
+    for alt in [s.strip() for s in re.split(r'\s+OR\s+', selector_expr, flags=re.I)]:
+        if not alt:
+            continue
+        val = get_value_from_record(record, alt)
+        if val not in (None, "", "[]"):
+            return val
+    return None
+
+
+def extract_items_from_json(json_obj, cfg):
+    """
+    Extrai items de um JSON (openFDA etc) segundo cfg (mesmo formato sites.json).
+    Retorna lista de dicts: {'title','link','description','date','full_text'}
+    """
+    items = []
+    if not isinstance(json_obj, dict):
+        return items
+
+    containers = cfg.get('item_container') or ''
+    container_paths = []
+    if isinstance(containers, list):
+        container_paths = containers
+    elif isinstance(containers, str):
+        for s in [t.strip() for t in containers.split(',') if t.strip()]:
+            container_paths.append(s)
+    else:
+        container_paths = []
+
+    found_records = []
+
+    # try each container path
+    for path in container_paths:
+        if not path:
+            continue
+        cur = json_obj
+        # allow simple 'results' or nested 'meta.results' etc
+        parts = path.split('.')
+        for p in parts:
+            if cur is None:
+                break
+            if isinstance(cur, dict):
+                cur = cur.get(p)
+            else:
+                # if cur is list and p is numeric? break
+                break
+        if isinstance(cur, list):
+            found_records.extend(cur)
+        elif isinstance(cur, dict):
+            # if dict contains 'results' as list, use it
+            if 'results' in cur and isinstance(cur['results'], list):
+                found_records.extend(cur['results'])
+            else:
+                # single record
+                found_records.append(cur)
+
+    # fallback common names
+    if not found_records:
+        for try_name in ("results", "data", "items"):
+            if try_name in json_obj and isinstance(json_obj[try_name], list):
+                found_records = json_obj[try_name]
+                break
+
+    # final fallback: if top-level is a list
+    if not found_records and isinstance(json_obj, list):
+        found_records = json_obj
+
+    if not found_records:
+        return items
+
+    for rec in found_records:
+        try:
+            title = choose_first_available(rec, cfg.get('title', '')) or ''
+            link = choose_first_available(rec, cfg.get('link', '')) or ''
+            date = choose_first_available(rec, cfg.get('date', '')) or ''
+            desc = choose_first_available(rec, cfg.get('description', '')) or ''
+
+            # small heuristic to build link for known FDA k_number values
+            link_cfg = cfg.get('link', '') or ''
+            if link and not link.startswith('http'):
+                if 'k_number' in link_cfg or cfg.get('name', '').lower().startswith('fda510k'):
+                    # normalizar K prefix se necessário (remove spaces)
+                    k = link.strip()
+                    # if looks like K923368 or 923368, build pmn url
+                    if re.match(r'^[Kk]?\d+$', k) or re.match(r'^[Kk]\d+$', k):
+                        knum = k.upper().lstrip('K')
+                        # construct a simple lookup URL (pragmatic)
+                        link = f"https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfpmn/pmn.cfm?ID={knum}"
+                # else leave as-is
+
+            full_text = ' '.join([t for t in (title, desc, json.dumps(rec, ensure_ascii=False)[:1000]) if t])
+
+            items.append({
+                'title': title or '',
+                'link': link or '',
+                'description': desc or '',
+                'date': date or '',
+                'full_text': full_text or ''
+            })
+        except Exception:
+            continue
+
+    return items
+# ---------------------- END JSON HANDLER ----------------------
 
 
 def extract_items_from_html(html, cfg):
@@ -603,6 +818,7 @@ def main():
             continue
         print(f'--- Processing {name} ({url}) ---')
         html = None
+        resp = None
         # prefer rendered file if exists
         rf = cfg.get('render_file')
         if rf:
@@ -620,48 +836,52 @@ def main():
             else:
                 print(f'No rendered file found at {rf_path} for {name}')
         if html is None:
-            # fallback to requests
+            # fallback to requests; use fetch_url to inspect headers
             try:
                 print(f'Fetching {url} via requests...')
-                html = fetch_html(url)
+                resp = fetch_url(url)
+                # do not call resp.raise_for_status() again, fetch_url already did
             except Exception as e:
                 print(f'Request error for {url}: {e}')
-                html = ''
+                resp = None
 
         items = []
+        # if we have a rendered HTML file, treat as HTML
         if html:
             try:
                 items = extract_items_from_html(html, cfg)
-
-                # --- DEBUG: imprimir amostra dos items extraidos DO HTML (antes de filtros) ---
-                try:
-                    print(f"DEBUG: sample extracted items for {name} (first 20):")
-                    for i, it in enumerate(items[:20]):
-                        t = (it.get('title') or '')[:200]
-                        l = (it.get('link') or '')[:200]
-                        d_present = bool(it.get('description'))
-                        print(f"  [{i}] title='{t}' link='{l}' desc_present={d_present}")
-                except Exception:
-                    pass
-
-                if not items:
-                    # fallback generic li selector
-                    soup = BeautifulSoup(html, 'html.parser')
-                    nodes = soup.select('li')
-                    if nodes:
-                        print(f'Fallback: found {len(nodes)} nodes with selector \'li\'')
-                        for n in nodes[:200]:
-                            title = n.get_text(" ", strip=True)[:200]
-                            link = ''
-                            a = n.find('a')
-                            if a and a.has_attr('href'):
-                                h = a.get('href') or ''
-                                if not _bad_href_re.search(h):
-                                    link = urljoin(cfg.get('url', ''), h)
-                            items.append({'title': title, 'link': link, 'description': '', 'date': '', 'full_text': title})
             except Exception as e:
-                print('Error parsing HTML:', e)
+                print('Error parsing rendered HTML:', e)
                 items = []
+        elif resp is not None:
+            # Decide JSON vs HTML based on Content-Type or content startswith
+            ctype = resp.headers.get('Content-Type', '').lower()
+            body = resp.text or ''
+            is_json = False
+            if 'application/json' in ctype or body.strip().startswith('{') or body.strip().startswith('['):
+                is_json = True
+
+            if is_json:
+                print(f"Detected JSON response for {name}; parsing with JSON handler")
+                try:
+                    json_obj = resp.json()
+                except Exception:
+                    try:
+                        json_obj = json.loads(body)
+                    except Exception:
+                        json_obj = None
+                if json_obj is not None:
+                    items = extract_items_from_json(json_obj, cfg)
+                else:
+                    print(f"Warning: failed to parse JSON for {name}; falling back to HTML parsing")
+                    items = extract_items_from_html(body, cfg)
+            else:
+                # treat as HTML
+                try:
+                    items = extract_items_from_html(body, cfg)
+                except Exception as e:
+                    print('Error parsing HTML response:', e)
+                    items = []
         else:
             items = []
 
