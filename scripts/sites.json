@@ -934,7 +934,7 @@
       "filters": { "keywords": [] }
     },
     {
-      "name": "FDA510k",
+      "name": "FDA510k-decisoes&regulatory_summaries&mudancas_indicacoes",
       "url": "https://api.fda.gov/device/510k.json?limit=100",
       "item_container": "results",
       "title": "openfda.device_name OR device_name OR device",
@@ -955,7 +955,7 @@
           "adverse event","adverse events","serious adverse event","death","complication","safety"]}
     },
     {
-      "name": "MAUDEopenFDA",
+      "name": "MAUDEopenFDA-Regulatorios_Seguranca",
       "url": "https://api.fda.gov/device/event.json?limit=100",
       "item_container": "results",
       "title": "openfda.device_name OR device.generic_name OR device.brand_name OR device[0].generic_name",
