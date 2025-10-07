@@ -276,48 +276,216 @@ def try_resolve_maude_page(mdr_id, product_code, session, debug=False):
 
 
 # ---------------- Updated JSON extraction with resolution + ordering ----------------
+# ----------------- helpers para resolver páginas FDA -----------------
+def _page_looks_empty(html_text):
+    if not html_text:
+        return True
+    low = html_text.lower()
+    for token in ('0 records found', 'no records found', 'no matching records', 'no record found'):
+        if token in low:
+            return True
+    # não considerar uma página curta automaticamente vazia; deixamos heurística simples
+    return False
+
+def try_resolve_pmn_page(k_number, session, debug=False):
+    """
+    Tenta construir pmn.cfm válido a partir de k_number (ex: 'K223369' ou '223369').
+    Retorna (url, title, decision_date, description) ou (None, None, None, None).
+    """
+    if not k_number:
+        return None, None, None, None
+    kn = str(k_number).strip()
+    digits = ''.join(re.findall(r'\d+', kn))
+    candidates = []
+    if kn.upper().startswith('K'):
+        candidates.append(kn.upper())
+    if digits:
+        candidates.append(digits.zfill(6))
+        candidates.append(digits)
+    candidates.append(kn)
+
+    tried = set()
+    for c in candidates:
+        if not c or c in tried:
+            continue
+        tried.add(c)
+        patterns = [
+            f"https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfpmn/pmn.cfm?ID={c}",
+            f"https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfpmn/pmn.cfm?ID=K{c}"
+        ]
+        for url in patterns:
+            try:
+                r = session.get(url, timeout=12)
+                if r.status_code != 200:
+                    continue
+                html = r.text
+                if _page_looks_empty(html):
+                    continue
+                soup = BeautifulSoup(html, 'html.parser')
+                # try common title positions
+                title = ''
+                h1 = soup.find('h1')
+                if h1 and h1.get_text(strip=True):
+                    title = h1.get_text(strip=True)
+                if not title:
+                    ttag = soup.find('title')
+                    title = ttag.get_text(strip=True) if ttag else ''
+
+                # decision date heuristics
+                txt = soup.get_text(" ", strip=True)
+                dec_match = re.search(r'Decision Date[:\s]*([A-Za-z0-9, \-/]+)', txt, re.IGNORECASE)
+                decision_date = dec_match.group(1).strip() if dec_match else ''
+                # description heuristics: summary near 'Summary' or 'Statement' headings
+                desc = ''
+                # procurar por rótulos "Summary" ou "Statement of" ou "Summary:" e apanhar parágrafo seguinte
+                for lbl in ('Summary', 'Statement', 'Statement or Summary', 'Statement of'):
+                    node = soup.find(text=re.compile(r'\b' + re.escape(lbl) + r'\b', re.IGNORECASE))
+                    if node:
+                        # pega próximo parágrafo ou próximo elemento de texto
+                        parent = getattr(node, 'parent', None)
+                        if parent:
+                            nxt = parent.find_next('p')
+                            if nxt and nxt.get_text(strip=True):
+                                desc = nxt.get_text(" ", strip=True)
+                                break
+                # fallback: usar primeiras 300 chars do text se desc vazio
+                if not desc:
+                    body = soup.get_text(" ", strip=True)
+                    desc = (body[:500] + '...') if len(body) > 500 else body
+
+                return url, title or '', decision_date or '', desc or ''
+            except Exception:
+                continue
+    return None, None, None, None
+
+
+def try_resolve_maude_page(mdr_id, product_code, session, debug=False):
+    """
+    Tenta construir Detail.CFM link para MAUDE e validar.
+    Retorna (url, title, date_received, description) ou (None,...).
+    """
+    if not mdr_id:
+        return None, None, None, None
+    pc = (product_code or '').strip()
+    url = f"https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfMAUDE/Detail.CFM?MDRFOI__ID={mdr_id}&pc={pc}"
+    try:
+        r = session.get(url, timeout=12)
+        if r.status_code != 200:
+            return None, None, None, None
+        html = r.text
+        if _page_looks_empty(html):
+            return None, None, None, None
+        soup = BeautifulSoup(html, 'html.parser')
+        title = soup.find('title').get_text(strip=True) if soup.find('title') else ''
+        txt = soup.get_text(" ", strip=True)
+        date_match = re.search(r'Date Received[:\s]*([A-Za-z0-9, \-/]+)', txt, re.IGNORECASE)
+        date_val = date_match.group(1).strip() if date_match else ''
+        desc = ''
+        # procurar por 'Description of Event or Problem' no texto mdr_text
+        m = re.search(r'Description of Event or Problem[:\s]*(.{20,400})', txt, re.IGNORECASE)
+        if m:
+            desc = m.group(1).strip()[:500]
+        if not desc:
+            desc = (txt[:500] + '...') if len(txt) > 500 else txt
+        return url, title, date_val, desc
+    except Exception:
+        return None, None, None, None
+
+# ---------------- helpers para extrair campos JSON ----------------
+def get_json_path_value(j, path):
+    """
+    Permite paths simples com '.' e índices tipo device[0].field
+    ou simplesmente nomes alternados 'a OR b' -> tenta primeiro que exista.
+    """
+    if not path:
+        return None
+    # suportar 'OR' alternativo
+    if ' OR ' in path:
+        for p in [s.strip() for s in path.split(' OR ')]:
+            v = get_json_path_value(j, p)
+            if v is not None and v != '':
+                return v
+        return None
+    # se for uma lista de campos separados por ',' devolve primeira não-vazia (não usado aqui)
+    if isinstance(path, str) and ',' in path:
+        for p in [s.strip() for s in path.split(',')]:
+            v = get_json_path_value(j, p)
+            if v is not None and v != '':
+                return v
+        return None
+    # path com pontos e índices
+    cur = j
+    for part in re.split(r'\.(?![^\[]*\])', path):  # split on dots not inside []
+        if not part:
+            continue
+        m = re.match(r'([^\[]+)\[(\d+)\]$', part)
+        if m:
+            key = m.group(1)
+            idx = int(m.group(2))
+            if isinstance(cur, dict):
+                cur = cur.get(key)
+            else:
+                return None
+            if isinstance(cur, list):
+                if idx < len(cur):
+                    cur = cur[idx]
+                else:
+                    return None
+            else:
+                return None
+        else:
+            if isinstance(cur, dict):
+                cur = cur.get(part)
+            else:
+                return None
+        if cur is None:
+            return None
+    return cur
+
+def parse_field_from_json(entry, spec):
+    if not spec:
+        return None
+    if isinstance(spec, str):
+        return get_json_path_value(entry, spec)
+    return None
+
+
+# ---------------- nova função JSON -> items ----------------
 def extract_items_from_json_obj(jobj, cfg):
-    """
-    jobj: loaded JSON (dict)
-    cfg: site config
-    returns list of item dicts: {'title','link','description','date','full_text','_raw_entry'}
-    """
     items = []
     container = cfg.get('item_container') or 'results'
-    if isinstance(container, list):
-        container_candidates = container
+    # supporte strings com vírgula
+    if isinstance(container, str):
+        containers = [c.strip() for c in container.split(',') if c.strip()]
     else:
-        container_candidates = [c.strip() for c in str(container).split(',') if c.strip()]
+        containers = container if isinstance(container, list) else [container]
 
+    # localizar o nodo certo
     nodes = None
-    for cand in container_candidates:
-        val = get_json_path_value(jobj, cand)
+    for cand in containers:
+        val = get_json_path_value(jobj, cand) if isinstance(cand, str) else None
         if isinstance(val, list):
             nodes = val
-            break
-        if isinstance(val, dict) and 'results' in val and isinstance(val['results'], list):
-            nodes = val['results']
             break
     if nodes is None:
         nodes = jobj.get('results') if isinstance(jobj.get('results'), list) else []
 
-    print(f"Detected JSON container '{container_candidates}' -> {len(nodes)} items")
+    print(f"Detected JSON container '{containers}' -> {len(nodes)} items")
 
     title_spec = cfg.get('title') or ''
     link_spec = cfg.get('link') or ''
     date_spec = cfg.get('date') or ''
     desc_spec = cfg.get('description') or ''
 
-    # session to reuse TCP connections for detail page fetches
     session = requests.Session()
-    json_detail_fetch = cfg.get('json_detail_fetch', False)
-
+    json_detail_fetch = bool(cfg.get('json_detail_fetch', False))
+    # guarda se precisarmos de ordenar por mdr_id_num
     for entry in nodes:
         try:
-            title = parse_field_from_json(entry, title_spec) if title_spec else ''
-            raw_link_val = parse_field_from_json(entry, link_spec) if link_spec else ''
-            desc = parse_field_from_json(entry, desc_spec) if desc_spec else ''
-            # fallback description candidates
+            title = parse_field_from_json(entry, title_spec) or ''
+            raw_link_val = parse_field_from_json(entry, link_spec) or ''
+            desc = parse_field_from_json(entry, desc_spec) or ''
+            # fallback para description
             if not desc:
                 for cand in ('statement_or_summary', 'summary', 'event_description', 'mdr_text'):
                     v = parse_field_from_json(entry, cand)
@@ -325,8 +493,7 @@ def extract_items_from_json_obj(jobj, cfg):
                         desc = v
                         break
 
-            # date raw
-            date_raw = parse_field_from_json(entry, date_spec) if date_spec else ''
+            date_raw = parse_field_from_json(entry, date_spec) or ''
             if not date_raw:
                 for cand in ('decision_date', 'date_received', 'report_date', 'date_report', 'date_of_event'):
                     v = parse_field_from_json(entry, cand)
@@ -344,27 +511,25 @@ def extract_items_from_json_obj(jobj, cfg):
                     except Exception:
                         date = s
 
-            # build link heuristics for FDA endpoints
+            # link resolving
             link = ''
+            mdr_id_num = None
             if 'api.fda.gov' in cfg.get('url',''):
-                # detect if this is 510k vs event
                 if '/device/510k' in cfg.get('url',''):
-                    # prefer k_number field
                     knum = parse_field_from_json(entry, 'k_number') or raw_link_val or ''
-                    # attempt several strategies to resolve to a pmn.cfm page
-                    if knum and json_detail_fetch:
-                        url_resolved, resolved_title, resolved_date = try_resolve_pmn_page(knum, session)
-                        if url_resolved:
-                            link = url_resolved
-                            # if we scraped a title/date from the PMN page, override
-                            if resolved_title:
-                                title = resolved_title
-                            if resolved_date:
+                    if json_detail_fetch and knum:
+                        resolved_url, rtitle, rdate, rdesc = try_resolve_pmn_page(knum, session)
+                        if resolved_url:
+                            link = resolved_url
+                            if rtitle:
+                                title = rtitle
+                            if rdate and not date:
                                 try:
-                                    date = dateparser.parse(resolved_date).isoformat()
+                                    date = dateparser.parse(rdate).isoformat()
                                 except Exception:
-                                    date = resolved_date
-                    # fallback: if still empty, create a conservative link using k_number digits
+                                    date = rdate
+                            if rdesc and not desc:
+                                desc = rdesc
                     if not link and knum:
                         digits = ''.join(re.findall(r'\d+', knum))
                         if digits:
@@ -372,68 +537,75 @@ def extract_items_from_json_obj(jobj, cfg):
                         else:
                             link = f'https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfpmn/pmn.cfm?ID={knum}'
                 elif '/device/event' in cfg.get('url',''):
-                    # MAUDE events - try to build the Detail.CFM link using possible ids
-                    candidate_id = parse_field_from_json(entry, 'mdr_report_key') or parse_field_from_json(entry, 'report_number') or parse_field_from_json(entry, 'event_key') or raw_link_val or ''
-                    # product code
+                    # candidate id para MAUDE
+                    cand_id = parse_field_from_json(entry, 'mdr_report_key') or parse_field_from_json(entry, 'report_number') or parse_field_from_json(entry, 'event_key') or raw_link_val or ''
+                    # tenta extrair product code
                     product_code = parse_field_from_json(entry, 'device[0].device_report_product_code') or parse_field_from_json(entry, 'product_code') or ''
-                    if candidate_id and json_detail_fetch:
-                        url_resolved, resolved_title, resolved_date = try_resolve_maude_page(candidate_id, product_code, session)
-                        if url_resolved:
-                            link = url_resolved
-                            if resolved_title:
-                                title = resolved_title
-                            if resolved_date:
+                    # get numeric id if present
+                    digits = ''.join(re.findall(r'\d+', str(cand_id)))
+                    if digits:
+                        mdr_id_num = int(digits)
+                    if json_detail_fetch and cand_id:
+                        resolved_url, rtitle, rdate, rdesc = try_resolve_maude_page(cand_id, product_code, session)
+                        if resolved_url:
+                            link = resolved_url
+                            if rtitle:
+                                title = rtitle
+                            if rdate and not date:
                                 try:
-                                    date = dateparser.parse(resolved_date).isoformat()
+                                    date = dateparser.parse(rdate).isoformat()
                                 except Exception:
-                                    date = resolved_date
-                    # fallback generic link if unresolved
-                    if not link and candidate_id:
-                        # keep product code when present
+                                    date = rdate
+                            if rdesc and not desc:
+                                desc = rdesc
+                    if not link and cand_id:
                         pc = product_code or ''
-                        link = f"https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfMAUDE/Detail.CFM?MDRFOI__ID={candidate_id}&pc={pc}"
-            # generic fallback: if link_spec returned a URL-like value use it
+                        link = f"https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfMAUDE/Detail.CFM?MDRFOI__ID={cand_id}&pc={pc}"
+                        if mdr_id_num is None and digits:
+                            mdr_id_num = int(digits)
+
+            # generic fallback
             if not link and raw_link_val:
-                if raw_link_val.lower().startswith('http'):
+                if str(raw_link_val).lower().startswith('http'):
                     link = raw_link_val
                 else:
-                    # try attach to base url
-                    link = urljoin(cfg.get('url',''), raw_link_val)
+                    link = urljoin(cfg.get('url',''), str(raw_link_val))
 
-            full_text = (title or '') + ' ' + (desc or '') + ' ' + (json.dumps(entry, ensure_ascii=False)[:2000])
-            items.append({
+            full_text = (title or '') + ' ' + (desc or '') + ' ' + json.dumps(entry, ensure_ascii=False)[:1500]
+            itm = {
                 'title': title or '',
                 'link': link or '',
                 'description': desc or '',
                 'date': date or '',
                 'full_text': full_text or '',
                 '_raw_entry': entry
-            })
+            }
+            if mdr_id_num is not None:
+                itm['mdr_id_num'] = mdr_id_num
+            items.append(itm)
         except Exception:
             continue
 
-    # Post-processing ordering: if cfg indicates sort_by_date, enforce it (desc by default)
-    sort_by = cfg.get('json_sort') or cfg.get('sort_by') or None
-    if not sort_by:
-        # set sensible default per endpoint
+    # ordering: respeitar cfg.json_sort (ex: "decision_date:desc" ou "mdr_id:asc")
+    sort_cfg = cfg.get('json_sort') or cfg.get('sort_by') or None
+    if not sort_cfg:
         if '/device/510k' in cfg.get('url',''):
-            sort_by = 'decision_date:desc'
+            sort_cfg = 'decision_date:desc'
         elif '/device/event' in cfg.get('url',''):
-            sort_by = 'date_received:desc'
-    if sort_by:
-        field, _, direction = sort_by.partition(':')
-        reverse = (direction.lower() != 'asc')
-        def _key_fn(it):
-            d = it.get('date') or ''
-            try:
-                return dateparser.parse(d)
-            except Exception:
-                return d or ''
-        try:
-            items = sorted(items, key=_key_fn, reverse=reverse)
-        except Exception:
-            pass
-
+            # para replicar teu Excel: MAUDE era crescente (mais recentes no final)
+            sort_cfg = 'mdr_id:asc'
+    if sort_cfg:
+        field, _, direction = sort_cfg.partition(':')
+        reverse = (direction.lower() == 'desc')
+        if field == 'mdr_id':
+            items = sorted(items, key=lambda it: it.get('mdr_id_num') or 0, reverse=reverse)
+        elif field in ('decision_date', 'date_received', 'date', 'report_date'):
+            def _k(it):
+                try:
+                    return dateparser.parse(it.get('date') or '')
+                except Exception:
+                    return it.get('date') or ''
+            items = sorted(items, key=_k, reverse=reverse)
     return items
 
 
@@ -852,8 +1024,14 @@ def main():
         # IMPORTANT: do NOT fallback to all items if none matched (user requirement).
         # If you want previous behavior add cfg.filters.fallback_to_all = True
         if not matched:
-            print(f'No items matched filters for {name} — returning 0 items (no fallback).')
-            matched = []
+            fallback_flag = bool(cfg.get('filters', {}).get('fallback_to_all', False))
+            if fallback_flag and items:
+                print(f'No items matched filters for {name} — falling back to all {len(items)} items because fallback_to_all=True')
+                matched = items
+            else:
+                print(f'No items matched filters for {name} — NOT falling back (fallback_to_all not set).')
+                matched = []
+
 
         # dedupe
         deduped = dedupe_items(matched)
