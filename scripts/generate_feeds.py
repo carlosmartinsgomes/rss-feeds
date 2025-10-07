@@ -153,118 +153,254 @@ def parse_field_from_json(item, spec):
     return ''
 
 # ---------------- JSON -> items extraction ----------------
+# ---------------- new helpers for resolving FDA detail pages ----------------
+def _is_page_not_found_or_empty(html_text):
+    # heurísticas simples para detectar "0 records found" ou páginas vazias do site FDA
+    if not html_text:
+        return True
+    low = html_text.lower()
+    for token in ('0 records found', 'no records found', 'no matching records', 'no record found', 'no data found'):
+        if token in low:
+            return True
+    # também rejeita páginas muito curtas
+    if len(low) < 500:
+        # pequenas páginas podem ser válidas, mas para o caso FDA muitas pages são maiores
+        return False
+    return False
+
+def try_resolve_pmn_page(k_number, session, debug=False):
+    """
+    Tenta várias formas de construir um link pmn.cfm para um dado k_number.
+    Retorna tuple (url, title, decision_date) do primeiro sucesso, ou (None, None, None).
+    """
+    if not k_number:
+        return None, None, None
+
+    # clean
+    kn = str(k_number).strip()
+    # normalize: if already like 'K223369' keep; also extract digits
+    digits = ''.join(re.findall(r'\d+', kn))
+    candidates = []
+    # candidate 1: K + digits (if user provided 'K...' ou 'k...')
+    if kn.upper().startswith('K'):
+        candidates.append(kn.upper())
+    # candidate 2: digits only zero-padded 6
+    if digits:
+        candidates.append(digits.zfill(6))
+    # candidate 3: raw digits (no padding)
+    if digits:
+        candidates.append(digits)
+    # candidate 4: the raw k_number
+    candidates.append(kn)
+
+    tried = set()
+    for c in candidates:
+        if not c or c in tried:
+            continue
+        tried.add(c)
+        # try both patterns: ID={c} and ID=K{c} (some pages expect Kxxxxx)
+        patterns = [f"https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfpmn/pmn.cfm?ID={c}",
+                    f"https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfpmn/pmn.cfm?ID=K{c}"]
+        for url in patterns:
+            try:
+                r = session.get(url, timeout=12)
+                if r.status_code != 200:
+                    continue
+                html = r.text
+                # quick check for "no records"
+                if '0 records found' in html.lower() or 'no records found' in html.lower():
+                    continue
+                # heuristic success: parse title and decision date
+                # title often in a <h1> or in <div class="...title..."> - fallback to <title>
+                soup = BeautifulSoup(html, 'html.parser')
+                title = None
+                # try common places
+                h1 = soup.find('h1')
+                if h1 and h1.get_text(strip=True):
+                    title = h1.get_text(strip=True)
+                if not title:
+                    # some PMN pages use <font size> or <div class="bodycopy"> - fallback to html <title>
+                    ttag = soup.find('title')
+                    if ttag and ttag.get_text(strip=True):
+                        title = ttag.get_text(strip=True)
+                # decision date heuristics: search for text "Decision Date" or 'Decision Date:'
+                dec_date = None
+                txt = soup.get_text(" ", strip=True)
+                m = re.search(r'Decision Date[:\s]*([A-Za-z0-9, \-/]+)', txt, re.IGNORECASE)
+                if m:
+                    dec_date = m.group(1).strip()
+                # other fallback: 'Decision:' token
+                if not dec_date:
+                    m2 = re.search(r'Decision[:\s]*([A-Za-z0-9, \-/]+)', txt, re.IGNORECASE)
+                    if m2:
+                        dec_date = m2.group(1).strip()
+                # if we found a title or content assume it is valid
+                if title or (dec_date and len(dec_date) > 3):
+                    return url, (title or ''), (dec_date or '')
+            except Exception:
+                continue
+    return None, None, None
+
+def try_resolve_maude_page(mdr_id, product_code, session, debug=False):
+    """
+    Tenta construir Detail.CFM?MDRFOI__ID={mdr_id}&pc={product_code}
+    retorna (url, title, date_received)
+    """
+    if not mdr_id:
+        return None, None, None
+    pcs = product_code or ''
+    # Try exact template requested by user
+    url = f"https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfMAUDE/Detail.CFM?MDRFOI__ID={mdr_id}&pc={pcs}"
+    try:
+        r = session.get(url, timeout=12)
+        if r.status_code == 200:
+            html = r.text
+            if '0 records found' in html.lower() or 'no records found' in html.lower():
+                return None, None, None
+            soup = BeautifulSoup(html, 'html.parser')
+            # title heuristics
+            title = ''
+            ttag = soup.find('title')
+            if ttag:
+                title = ttag.get_text(strip=True)
+            # date: search for 'Date Received' or 'Event Date' text
+            txt = soup.get_text(" ", strip=True)
+            date_match = re.search(r'Date Received[:\s]*([A-Za-z0-9,\-/]+)', txt, re.IGNORECASE)
+            if not date_match:
+                date_match = re.search(r'Date of Event[:\s]*([A-Za-z0-9,\-/]+)', txt, re.IGNORECASE)
+            date_val = date_match.group(1).strip() if date_match else ''
+            return url, title, date_val
+    except Exception:
+        return None, None, None
+    return None, None, None
+
+
+# ---------------- Updated JSON extraction with resolution + ordering ----------------
 def extract_items_from_json_obj(jobj, cfg):
     """
     jobj: loaded JSON (dict)
     cfg: site config
-    returns list of item dicts: {'title','link','description','date','full_text'}
+    returns list of item dicts: {'title','link','description','date','full_text','_raw_entry'}
     """
     items = []
     container = cfg.get('item_container') or 'results'
-    # support container being list or comma-separated
     if isinstance(container, list):
         container_candidates = container
     else:
         container_candidates = [c.strip() for c in str(container).split(',') if c.strip()]
 
     nodes = None
-    # Try each candidate path until we find a list
     for cand in container_candidates:
-        # cand may be 'results' or 'data.results' etc.
         val = get_json_path_value(jobj, cand)
         if isinstance(val, list):
             nodes = val
             break
-        # if val is dict maybe has 'results' inside
-        if isinstance(val, dict):
-            if 'results' in val and isinstance(val['results'], list):
-                nodes = val['results']
-                break
+        if isinstance(val, dict) and 'results' in val and isinstance(val['results'], list):
+            nodes = val['results']
+            break
     if nodes is None:
-        # fallback to top-level 'results'
-        if 'results' in jobj and isinstance(jobj['results'], list):
-            nodes = jobj['results']
-        else:
-            # can't find list
-            nodes = []
+        nodes = jobj.get('results') if isinstance(jobj.get('results'), list) else []
 
-    # debug
     print(f"Detected JSON container '{container_candidates}' -> {len(nodes)} items")
 
-    # helper to build link heuristics for FDA
-    def build_fda_link(entry, cfg_url, candidate_value):
-        # if candidate_value already looks like http, return as is
-        if not candidate_value:
-            return ''
-        if candidate_value.lower().startswith('http'):
-            return candidate_value
-        # heuristics for 510k: key often k_number e.g. "K923368". extract digits and zero-pad to 6 -> build pmn URL
-        try:
-            if 'api.fda.gov' in cfg_url and '/device/510k' in cfg_url:
-                # try k_number, pmn, or other id
-                k = candidate_value
-                digits = ''.join(re.findall(r'\d+', k))
-                if digits:
-                    digits = digits.zfill(6)
-                    return f'https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfpmn/pmn.cfm?ID={digits}'
-            # heuristics for event (MAUDE)
-            if 'api.fda.gov' in cfg_url and '/device/event' in cfg_url:
-                # prefer report_number or mdr_report_key
-                idv = candidate_value
-                # if look like '2032227-2020-110170' just insert
-                return f'https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfmaude/detail.cfm?mdr_id={idv}'
-        except Exception:
-            pass
-        # fallback: if just an id, return it as-is
-        return candidate_value
-
-    # field specs
     title_spec = cfg.get('title') or ''
     link_spec = cfg.get('link') or ''
     date_spec = cfg.get('date') or ''
     desc_spec = cfg.get('description') or ''
 
-    # allow link_spec to be like 'k_number OR event_id' (we'll resolve)
+    # session to reuse TCP connections for detail page fetches
+    session = requests.Session()
+    json_detail_fetch = cfg.get('json_detail_fetch', False)
+
     for entry in nodes:
         try:
             title = parse_field_from_json(entry, title_spec) if title_spec else ''
             raw_link_val = parse_field_from_json(entry, link_spec) if link_spec else ''
-            link = build_fda_link(entry, cfg.get('url',''), raw_link_val)
-
-            # description: try spec, else try 'summary', 'statement_or_summary', 'event_description' etc.
             desc = parse_field_from_json(entry, desc_spec) if desc_spec else ''
+            # fallback description candidates
             if not desc:
-                for cand in ('summary','statement_or_summary','event_description','mdr_text','product_description'):
+                for cand in ('statement_or_summary', 'summary', 'event_description', 'mdr_text'):
                     v = parse_field_from_json(entry, cand)
                     if v:
                         desc = v
                         break
 
-            # date: try spec; if numeric YMD parse
+            # date raw
             date_raw = parse_field_from_json(entry, date_spec) if date_spec else ''
             if not date_raw:
-                for cand in ('decision_date','date_received','report_date','date_report','date_of_event'):
+                for cand in ('decision_date', 'date_received', 'report_date', 'date_report', 'date_of_event'):
                     v = parse_field_from_json(entry, cand)
                     if v:
                         date_raw = v
                         break
-            # try to normalize date like '19920310' -> '1992-03-10'
             date = ''
             if date_raw:
-                s = date_raw.strip()
-                # if purely digits and length 8 -> YYYYMMDD
+                s = str(date_raw).strip()
                 if re.match(r'^\d{8}$', s):
                     date = f"{s[0:4]}-{s[4:6]}-{s[6:8]}"
                 else:
-                    # try parse with dateutil
                     try:
-                        dt = dateparser.parse(s)
-                        date = dt.isoformat()
+                        date = dateparser.parse(s).isoformat()
                     except Exception:
                         date = s
 
-            full_text = (title or '') + ' ' + (desc or '') + ' ' + json.dumps(entry, ensure_ascii=False)[:2000]
+            # build link heuristics for FDA endpoints
+            link = ''
+            if 'api.fda.gov' in cfg.get('url',''):
+                # detect if this is 510k vs event
+                if '/device/510k' in cfg.get('url',''):
+                    # prefer k_number field
+                    knum = parse_field_from_json(entry, 'k_number') or raw_link_val or ''
+                    # attempt several strategies to resolve to a pmn.cfm page
+                    if knum and json_detail_fetch:
+                        url_resolved, resolved_title, resolved_date = try_resolve_pmn_page(knum, session)
+                        if url_resolved:
+                            link = url_resolved
+                            # if we scraped a title/date from the PMN page, override
+                            if resolved_title:
+                                title = resolved_title
+                            if resolved_date:
+                                try:
+                                    date = dateparser.parse(resolved_date).isoformat()
+                                except Exception:
+                                    date = resolved_date
+                    # fallback: if still empty, create a conservative link using k_number digits
+                    if not link and knum:
+                        digits = ''.join(re.findall(r'\d+', knum))
+                        if digits:
+                            link = f'https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfpmn/pmn.cfm?ID={digits.zfill(6)}'
+                        else:
+                            link = f'https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfpmn/pmn.cfm?ID={knum}'
+                elif '/device/event' in cfg.get('url',''):
+                    # MAUDE events - try to build the Detail.CFM link using possible ids
+                    candidate_id = parse_field_from_json(entry, 'mdr_report_key') or parse_field_from_json(entry, 'report_number') or parse_field_from_json(entry, 'event_key') or raw_link_val or ''
+                    # product code
+                    product_code = parse_field_from_json(entry, 'device[0].device_report_product_code') or parse_field_from_json(entry, 'product_code') or ''
+                    if candidate_id and json_detail_fetch:
+                        url_resolved, resolved_title, resolved_date = try_resolve_maude_page(candidate_id, product_code, session)
+                        if url_resolved:
+                            link = url_resolved
+                            if resolved_title:
+                                title = resolved_title
+                            if resolved_date:
+                                try:
+                                    date = dateparser.parse(resolved_date).isoformat()
+                                except Exception:
+                                    date = resolved_date
+                    # fallback generic link if unresolved
+                    if not link and candidate_id:
+                        # keep product code when present
+                        pc = product_code or ''
+                        link = f"https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfMAUDE/Detail.CFM?MDRFOI__ID={candidate_id}&pc={pc}"
+            # generic fallback: if link_spec returned a URL-like value use it
+            if not link and raw_link_val:
+                if raw_link_val.lower().startswith('http'):
+                    link = raw_link_val
+                else:
+                    # try attach to base url
+                    link = urljoin(cfg.get('url',''), raw_link_val)
 
+            full_text = (title or '') + ' ' + (desc or '') + ' ' + (json.dumps(entry, ensure_ascii=False)[:2000])
             items.append({
                 'title': title or '',
                 'link': link or '',
@@ -276,7 +412,30 @@ def extract_items_from_json_obj(jobj, cfg):
         except Exception:
             continue
 
+    # Post-processing ordering: if cfg indicates sort_by_date, enforce it (desc by default)
+    sort_by = cfg.get('json_sort') or cfg.get('sort_by') or None
+    if not sort_by:
+        # set sensible default per endpoint
+        if '/device/510k' in cfg.get('url',''):
+            sort_by = 'decision_date:desc'
+        elif '/device/event' in cfg.get('url',''):
+            sort_by = 'date_received:desc'
+    if sort_by:
+        field, _, direction = sort_by.partition(':')
+        reverse = (direction.lower() != 'asc')
+        def _key_fn(it):
+            d = it.get('date') or ''
+            try:
+                return dateparser.parse(d)
+            except Exception:
+                return d or ''
+        try:
+            items = sorted(items, key=_key_fn, reverse=reverse)
+        except Exception:
+            pass
+
     return items
+
 
 # ---------------- Existing HTML extraction (mantive com pequenas melhorias) ----------------
 def fetch_html(url, timeout=20):
