@@ -943,17 +943,8 @@
       "description": "statement_or_summary OR summary",
       "json_detail_fetch": true,
       "json_sort": "decision_date:desc",
-      "filters": {
-        "keywords": [
-          "a","e","i","o","u","Morpheus8","Morpheus 8","radiofrequency microneedle","radiofrequency microneedling",
-          "RF microneedle","RF microneedling","microneedle","microneedles","microneedling",
-          "FaceTite","BodyTite","RFAL","radiofrequency-assisted lipolysis",
-          "InMode","Inmode","InMode Ltd",
-          "Syneron","Syneron Candela","Profound","Profound RF","ProfoundRF",
-          "Ultherapy","microfocused ultrasound","MFU","Thermage","monopolar radiofrequency",
-          "Lumenis","Lutronic","Merz","Cynosure","BTL",
-          "burn","necrosis","infection","device malfunction","device failure",
-          "adverse event","adverse events","serious adverse event","death","complication","safety"], "fallback_to_all": false }
+      "force_latest": true,
+      "filters": { "keywords": [], "fallback_to_all": false }
     },
     {
       "name": "MAUDEopenFDA-Regulatorios_Seguranca",
@@ -964,18 +955,10 @@
       "date": "date_received OR report_date",
       "description": "mdr_text OR event_description",
       "json_detail_fetch": true,
-      "json_sort": "mdr_id:asc",
-      "filters": {
-        "keywords": [
-          "a","e","i","o","u","Morpheus8","Morpheus 8","radiofrequency microneedle","radiofrequency microneedling",
-          "RF microneedle","RF microneedling","microneedle","microneedles","microneedling",
-          "FaceTite","BodyTite","RFAL","radiofrequency-assisted lipolysis",
-          "InMode","Inmode","InMode Ltd",
-          "Syneron","Syneron Candela","Profound","Profound RF","ProfoundRF",
-          "Ultherapy","microfocused ultrasound","MFU","Thermage","monopolar radiofrequency",
-          "Lumenis","Lutronic","Merz","Cynosure","BTL",
-          "burn","necrosis","infection","device malfunction","device failure",
-          "adverse event","adverse events","serious adverse event","death","complication","safety"], "fallback_to_all": false }
+      "json_sort": "mdr_id:desc",
+      "force_latest": true,
+      "filters": { "keywords": [], "fallback_to_all": false }
     }
+
   ]
 }
