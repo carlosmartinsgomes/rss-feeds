@@ -1,24 +1,24 @@
 {
   "sites": [
     {
-      "name": "iotworldtoday",
-      "url": "https://www.iotworldtoday.com/",
-      "item_container": "article, .listing-item, .post",
-      "title": "h1, h2 a",
-      "link": "h1 a@href, h2 a@href",
-      "date": "time, .entry-date, .published",
-      "description": "article p, .excerpt, .summary",
-      "render_file": "scripts/rendered/iotworldtoday.html",
+      "name": "aibusiness",
+      "url": "https://aibusiness.com/latest-news",
+      "item_container": ".ContentCard-Body, .ListContent-Content .ContentCard-Body, .ContentPreview.ListContent-Content.ListContent-Content_featured > div, .ListContent-Content.ListContent-Content_latest > div, .ListPreview-Container .ListPreview-ContentWrapper, .ListPreview-ContentWrapper, .ArticlePreview-Body",
+      "title": "a.ArticlePreview-Title, a.ContentCard-Title, .ListPreview-TitleWrapper > a, a.ListPreview-Title, a[data-testid='preview-default-title'], a[data-testid='preview-mobile-title'], a",
+      "link": "a.ArticlePreview-Title@href, a.ContentCard-Title@href, .ListPreview-TitleWrapper > a@href, a.ListPreview-Title@href, a@href",
+      "date": ".ArticlePreview-Footer .ArticlePreview-Date, .ContentCard-Footer .ContentCard-Date, .ListPreview-Footer .ListPreview-Date, time, .CardTime span, span",
+      "description": "p.ArticlePreview-Summary, .ArticlePreview-Summary, .card-text, .excerpt, p",
+      "render_file": "scripts/rendered/aibusiness.html",
       "filters": { "keywords": ["a","iot","samsara"] }
     },
     {
       "name": "darkreading",
       "url": "https://www.darkreading.com/latest-news",
-      "item_container": ".ContentPreview.ListContent-Content.ListContent-Content_featured > div, .ListContent-Content.ListContent-Content_latest > div, .ListPreview-Container .ListPreview-ContentWrapper, .ListPreview-ContentWrapper, .ListContent-Content .ContentCard-Body",
+      "item_container": ".ContentPreview.ListContent-Content.ListContent-Content_featured > div, .ListContent-Content.ListContent-Content_latest > div, .ListPreview-Container .ListPreview-ContentWrapper, .ListPreview-ContentWrapper, .ListContent-Content .ContentCard-Body, .TwoColumnLayout-Body .ListPreview-ContentWrapper, .ArticlePreview-Body, .ListPreview-Container div.ListPreview-ContentWrapper",
       "title": "a.ArticlePreview-Title, a.ContentCard-Title, a.ListPreview-Title, a[data-testid='preview-default-title'], a[title], a",
       "link": "a.ArticlePreview-Title@href, a.ContentCard-Title@href, a.ListPreview-Title@href, a@href",
-      "date": "span.ArticlePreview-Date, span.ContentCard-Date, .ListPreview-Date, .ArticlePreview-Footer span, .ContentCard-Footer span, time",
-      "description": "p.ArticlePreview-Summary, .ArticlePreview-Summary, .excerpt, p",
+      "date": "span.ArticlePreview-Date, span.ContentCard-Date, .ListPreview-Date, .ArticlePreview-Footer span, .ContentCard-Footer span, time, .ListPreview-Footer .ListPreview-Date",
+      "description": "p.ArticlePreview-Summary, .ArticlePreview-Summary, .ArticlePreview-Body p, .ListPreview-ContentWrapper p.ArticlePreview-Summary, .ListPreview-ContentWrapper .ArticlePreview-Summary, .excerpt, p",
       "max_items": 300,
       "render_file": "scripts/rendered/darkreading.html",
       "filters": { "keywords": ["a","rbrk","rubrik","crwd","crowdstrike","fortinet", "gitlab"] }
@@ -26,43 +26,45 @@
     {
       "name": "edsurge",
       "url": "https://www.edsurge.com/news",
-      "item_container": "article, .post, li",
-      "title": "h1, h2 a, h3 a",
-      "link": "h2 a@href, a@href",
-      "date": "time, .date",
-      "description": "p, .summary",
+      "item_container": "div.row.mt1 div.column.large-8.full-8 > div > a",
+      "title": "h4.grey-8.bold.mt0_25, h4",
+      "link": "a@href",
+      "date": "h6.mt0_25.mb0.regular.grey-5.fs-small > span:first-child, h6 span",
+      "description": "",
+      "render_file": "scripts/rendered/edsurge.html",
+      "max_items": 200,
       "filters": { "keywords": [] }
     },
     {
       "name": "datacenterknowledge",
       "url": "https://www.datacenterknowledge.com/latest-news",
-      "item_container": ".ContentPreview.ListContent-Content.ListContent-Content_featured > div, .ListContent-Content.ListContent-Content_latest > div, .ListPreview-Container .ListPreview-ContentWrapper, .ListContent-Content .ContentCard-Body",
+      "item_container": ".ListPreview-Container .ListPreview-ContentWrapper, .ListContent-Content.ListContent-Content_latest > div, .ContentPreview.ListContent-Content.ListContent-Content_featured > div, .ListContent-Content .ContentCard-Body",
       "title": "a.ArticlePreview-Title, a.ContentCard-Title, a.ListPreview-Title, a[data-testid='preview-default-title'], a[title], a",
       "link": "a.ArticlePreview-Title@href, a.ContentCard-Title@href, a.ListPreview-Title@href, a@href",
-      "date": "span.ArticlePreview-Date, span.ContentCard-Date, .ArticlePreview-Footer span, .ContentCard-Footer span, time",
+      "date": "span.ArticlePreview-Date, span.ContentCard-Date, .ListPreview-Date, .ArticlePreview-Footer span, .ContentCard-Footer span, time",
       "description": "p.ArticlePreview-Summary, .ArticlePreview-Summary, .excerpt, p",
-      "max_items": 200,
+      "max_items": 300,
       "filters": { "keywords": ["a","anet","arista"] }
     },
     {
       "name": "lightreading",
-      "url": "https://www.lightreading.com/",
-      "item_container": "article, .listing-item, .story",
-      "title": "h1, h2 a, h3 a",
-      "link": "h2 a@href, h3 a@href, a@href",
-      "date": "time, .date, .published",
-      "description": "p, .excerpt",
+      "url": "https://www.lightreading.com/latest-news",
+      "item_container": ".ContentCard-Body, .ListContent-Content .ContentCard-Body, .ContentPreview.ListContent-Content.ListContent-Content_featured > div, .ListContent-Content.ListContent-Content_latest > div, .ListPreview-Container .ListPreview-ContentWrapper, .ListPreview-ContentWrapper, .ArticlePreview-Body",
+      "title": "a.ArticlePreview-Title, a.ContentCard-Title, .ListPreview-TitleWrapper > a, a.ListPreview-Title, a[data-testid='preview-default-title'], a[data-testid='preview-mobile-title'], a",
+      "link": "a.ArticlePreview-Title@href, a.ContentCard-Title@href, .ListPreview-TitleWrapper > a@href, a.ListPreview-Title@href, a@href",
+      "date": ".ArticlePreview-Footer .ArticlePreview-Date, .ContentCard-Footer .ContentCard-Date, .ListPreview-Footer .ListPreview-Date, time, .CardTime span, span",
+      "description": "p.ArticlePreview-Summary, .ArticlePreview-Summary, .card-text, .excerpt, p",
       "filters": { "keywords": ["a","anet","arista"] }
     },
     {
       "name": "medcitynews",
-      "url": "https://medcitynews.com/",
-      "item_container": "article, .post, .teaser",
-      "title": "h1, h2 a, h3 a",
-      "link": "h2 a@href, a@href",
-      "date": "time, .published, .byline",
-      "description": "p, .summary",
-      "filters": { "keywords": ["inmode","device","acquisition","partnership","fda","clinical trial"], "exclude": ["opinion","review"] }
+      "url": "https://medcitynews.com/feed/",
+      "item_container": "item",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
+      "filters": { "keywords": ["a","inmode","device","acquisition","partnership","fda","clinical trial"], "exclude": ["opinion","review"] }
     },
     {
       "name": "mobihealthnews",
@@ -89,11 +91,12 @@
     {
       "name": "networkworld",
       "url": "https://www.networkworld.com/",
-      "item_container": "article, .news, .listing",
-      "title": "h1, h2 a, h3 a",
-      "link": "h2 a@href, a@href",
-      "date": "time, .date, .published",
-      "description": "p, .dek",
+      "item_container": "#latest a.card, #latest a, #article a.card, #article a, a.card",
+      "title": "h3.card__title, .card__title, h3",
+      "link": "a@href",
+      "date": "span[itemprop='datePublished'], .card__info.card__info--light span > span, .card__info.card__info--light time, time, span",
+      "description": ".card__description, p.card__description, p",
+      "max_items": 20,
       "filters": { "keywords": [] }
     },
     {
@@ -223,7 +226,7 @@
       "filters": { "keywords": ["supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"] }
     },
     {
-      "name": "thedrum-adtech",
+      "name": "thedrum-adtech-ttd",
       "url": "https://www.thedrum.com/profile/the-trade-desk/featured",
       "item_container": "article, li, div",
       "title": "a, h2 a, h3 a",
@@ -234,7 +237,7 @@
       "filters": { "keywords": ["supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"] }
     },
     {
-      "name": "thedrum-adtech",
+      "name": "thedrum-adtech-pubm",
       "url": "https://www.thedrum.com/profile/pubmatic/featured",
       "item_container": "article, li, div",
       "title": "a, h2 a, h3 a",
@@ -304,13 +307,13 @@
     {
       "name": "videoweek",
       "url": "https://videoweek.com/",
-      "item_container": "article, li, div",
-      "title": "a, h2 a, h3 a",
-      "link": "a@href, h2 a@href",
-      "date": "time, .date",
-      "description": "p",
+      "item_container": "article[id^='blog-'], .fusion-posts-container article, article.fusion-post-medium-alternate, article.fusion-post-large-alternate",
+      "title": "h2.blog-shortcode-post-title.entry-title a, h2.entry-title a, h2.blog-shortcode-post-title a, h2 a",
+      "link": "h2.blog-shortcode-post-title.entry-title a@href, h2.entry-title a@href, h2.blog-shortcode-post-title a@href, a@href",
+      "date": "div.fusion-date-box .fusion-date, div.fusion-date-box .fusion-month-year, span.updated, time",
+      "description": "",
       "render_file": "scripts/rendered/videoweek.html",
-      "filters": { "keywords": ["supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"] }
+      "filters": { "keywords": ["a","supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"] }
     },
     {
       "name": "marketingdive-search-trade-desk",
@@ -359,12 +362,13 @@
     {
       "name": "eetimes",
       "url": "https://www.eetimes.com/category/news-analysis/",
-      "item_container": "article, li, div",
-      "title": "a, h2 a, h3 a",
-      "link": "a@href",
-      "date": "time, .date",
-      "description": "p",
+      "item_container": "#main .categoryFeatured-block, #main .categoryFeatured > .categoryFeatured-block, #main .segment-one .headline-title, #wallpaper_image .card-body, #main .segment-one .headline-title a",
+      "title": ".categoryFeatured-title a, a.article-links, .headline-title a, .card-title a, a",
+      "link": "a.article-links@href, .categoryFeatured-title a@href, a@href",
+      "date": ".categoryFeatured-info, .headline-info, .card-info, time, span",
+      "description": ".categoryFeatured-body, .card-text, .categoryFeatured-body, p",
       "render_file": "scripts/rendered/eetimes.html",
+      "max_items": 200,
       "filters": { "keywords": ["a","astera","alab"] }
     },
     {
@@ -401,10 +405,10 @@
     {
       "name": "dzone",
       "url": "https://dzone.com/list",
-      "item_container": "#ftl-tagging div.article-block, div.article-block, .media-list .article-block",
-      "title": "a[id^='title--articles-'], a.article-title, a.article-title.link-hover-underline-blue, a",
+      "item_container": "#ftl-tagging .article-block, #ftl-tagging .media-right, .article-block, .media-right",
+      "title": "a[id^='title--articles-'], a.article-title.link-hover-underline-blue, a.article-title, a",
       "link": "a[id^='title--articles-']@href, a.article-title@href, a@href",
-      "date": "div.article-date, .article-date, time, .meta .date",
+      "date": "div.article-date, .article-date, time",
       "description": "div.article-desc, .article-desc, p",
       "max_items": 200,
       "render_file": "scripts/rendered/dzone.html",
@@ -421,25 +425,25 @@
       "filters": { "keywords": ["ddog","datadog"] }
     },
     {
-      "name": "thenewstack-feed",
-      "url": "https://thenewstack.io/blog/feed/",
-      "item_container": "item",
-      "title": "title",
-      "link": "link",
-      "date": "pubDate",
-      "description": "description",
-      "filters": { "keywords": ["ddog","datadog"] }
+      "name": "thenewstack",
+      "url": "https://thenewstack.io/",
+      "item_container": "#tns-frontpage-page-one-featured a.frontpage-link, #tns-frontpage-featured-lead-content > a, #tns-frontpage-page-one-latest-content a.latest-post-link-wrap, #tns-frontpage-page-two-more-stories-content a.more-stories-link-wrap",
+      "title": "div.post-title, #tns-frontpage-featured-more-featured-block .post-title, #tns-frontpage-page-one-latest-content .post-title, #tns-frontpage-page-two-more-stories-content .post-title",
+      "link": "a.frontpage-link@href, #tns-frontpage-featured-lead-content > a@href, a.latest-post-link-wrap@href, a.more-stories-link-wrap@href, a@href",
+      "date": "div.post-byline .post-date, .post-byline .post-date",
+      "description": "#tns-frontpage-featured-lead-content > a > div.col-50.lead-details-block > div.post-excerpt",
+      "filters": { "keywords": ["a","ddog","datadog"] }
     },
     {
       "name": "scworld",
       "url": "https://www.scworld.com/",
-      "item_container": "article, li, div",
-      "title": "a, h2 a, h3 a",
+      "item_container": " #__next > div > div > main > div > div.homepage_landingContent__VCzdO.landing-content > div > div > div.layout.layout1.hero.hero-8-4.dynamicLayout_fg__JY7ts.position-relative.container-xxl > div > div.Regions_contentColumn__zwode.content-column.col-md-8 > div article, #__next > div > div > main > div > div.homepage_landingContent__VCzdO.landing-content > div > div > div.layout.layout2.hero.hero-8-4.dynamicLayout_fg__JY7ts.position-relative.container-xxl > div > div.Regions_contentColumn__zwode.content-column.col-md-8 section ul li, #__next > div > div > main > div > div.homepage_landingContent__VCzdO.landing-content > div > div > div.layout.layout3.content.content-2-7-3.dynamicLayout_fg__JY7ts.position-relative.container-xxl > div > div.Regions_contentColumn__zwode.content-column.col-md-2 > div:nth-child(2) ul li, #__next > div > div > main > div > div.homepage_landingContent__VCzdO.landing-content > div > div > div.layout.layout3.content.content-2-7-3.dynamicLayout_fg__JY7ts.position-relative.container-xxl > div > div.Regions_contentColumn__zwode.content-column.col-md-2 > div:nth-child(1) ul li, #__next > div > div > main > div > div.homepage_landingContent__VCzdO.landing-content > div > div > div.layout.layout3.content.content-2-7-3.dynamicLayout_fg__JY7ts.position-relative.container-xxl > div > div.Regions_contentColumn__zwode.content-column.col-md-7 > section > div.py-3.py-md-4.mt-0.mb-0 > div article",
+      "title": "h1[itemprop='headline'], h4[itemprop='headline'], h4.p-0.pb-1.m-0.text-large.fw-semibold, h5[itemprop='headline'], h5.font-heading, h5[itemprop='name']",
       "link": "a@href",
-      "date": "time, .date",
-      "description": "p",
+      "date": "time[datetime], time.non-interactive, p time",
+      "description": "div[itemprop='abstract'] p, div.font-body-large p, p.text-break.text-muted.font-body-regular > div > p, p.text-small, p",
       "render_file": "scripts/rendered/scworld.html",
-      "filters": { "keywords": ["ftnt","fortinet","rubrik","crowdstrike"] }
+      "filters": { "keywords": ["a","ftnt","fortinet","rubrik","crowdstrike"] }
     },
     {
       "name": "fiercehealthcare",
@@ -449,7 +453,7 @@
       "link": "link",
       "date": "pubDate",
       "description": "description",
-      "filters": { "keywords": ["hims","hers","hims&hers"] }
+      "filters": { "keywords": ["a","hims","hers","hims&hers"] }
     },
     {
       "name": "venturebeat",
@@ -463,26 +467,48 @@
       "filters": { "keywords": ["iot","samsara","mndy","monday.com"] }
     },
     {
-      "name": "wwd-footwear",
-      "url": "https://wwd.com/footwear-news/",
-      "item_container": "article, li, div",
-      "title": "a, h2 a, h3 a",
-      "link": "a@href",
-      "date": "time, .date",
-      "description": "p",
-      "render_file": "scripts/rendered/wwd-footwear.html",
-      "filters": { "keywords": ["onon","on holding","on holdings","running"] }
+      "name": "wwd-on-holding",
+      "url": "https://wwd.com/tag/on-holding/",
+      "item_container": "div.river-items-wrapper > div",
+      "title": ".c-title__link, h3.c-title a, #title-of-a-story > a",
+      "link": ".c-title__link@href, h3.c-title a@href, #title-of-a-story > a@href",
+      "date": "time.c-timestamp@datetime, time.c-timestamp",
+      "description": ".c-dek",
+      "render_file": "scripts/rendered/wwd-on-holding.html",
+      "filters": { "keywords": ["a","onon","on holding","on holdings","running"] }
+    },
+    {
+      "name": "wwd-on-running",
+      "url": "https://wwd.com/tag/on-running/",
+      "item_container": "div.river-items-wrapper > div",
+      "title": ".c-title__link, h3.c-title a, #title-of-a-story > a",
+      "link": ".c-title__link@href, h3.c-title a@href, #title-of-a-story > a@href",
+      "date": "time.c-timestamp@datetime, time.c-timestamp",
+      "description": ".c-dek",
+      "render_file": "scripts/rendered/wwd-on-running.html",
+      "filters": { "keywords": ["a","onon","on holding","on holdings","running"] }
+    },
+    {
+      "name": "wwd-on-holding-ag",
+      "url": "https://wwd.com/tag/on-holding-ag/",
+      "item_container": "div.river-items-wrapper > div",
+      "title": ".c-title__link, h3.c-title a, #title-of-a-story > a",
+      "link": ".c-title__link@href, h3.c-title a@href, #title-of-a-story > a@href",
+      "date": "time.c-timestamp@datetime, time.c-timestamp",
+      "description": ".c-dek",
+      "render_file": "scripts/rendered/wwd-on-holding-ag.html",
+      "filters": { "keywords": ["a","onon","on holding","on holdings","running"] }
     },
     {
       "name": "retaildive",
       "url": "https://www.retaildive.com/",
-      "item_container": "article, li, div",
-      "title": "a, h2 a, h3 a",
-      "link": "a@href, h2 a@href",
-      "date": "time, .date",
-      "description": "p",
+      "item_container": "#skip-link-target > section > div > div > div > div:nth-child(1) > section, #skip-link-target > section > div > div > div > div:nth-child(2) > section ol li, #main-content > section > ul > li > div.medium-8.columns, #skip-link-target > div > div > aside > div.sidebar-box.js-pressrelease-sidebar-box ul.sidebar-box-list > li.sidebar-box-list__item",
+      "title": "#skip-link-target > section > div > div > div > div:nth-child(1) > section h1#hero-item-title > a, #skip-link-target > section > div > div > div > div:nth-child(2) > section ol li h3 a, div.medium-8.columns h3.feed__title a, div.medium-8.columns h3 a, div.sidebar-box-title-container > a, li.sidebar-box-list__item div.sidebar-box-title-container > a",
+      "link": "#skip-link-target > section > div > div > div > div:nth-child(1) > section h1#hero-item-title > a@href, #skip-link-target > section > div > div > div > div:nth-child(2) > section ol li h3 a@href, div.medium-8.columns h3.feed__title a@href, div.medium-8.columns h3 a@href, div.sidebar-box-title-container > a@href, li.sidebar-box-list__item div.sidebar-box-title-container > a@href",
+      "date": "div.post-byline .post-date, .feed__description ~ .post-byline .post-date",
+      "description": "#skip-link-target > section > div > div > div > div:nth-child(1) > section > p.hero-article__teaser, #main-content > section > ul > li > div.medium-8.columns > p, div.medium-8.columns p.feed__description",
       "render_file": "scripts/rendered/retaildive.html",
-      "filters": { "keywords": ["onon","on holding","on holdings","running"] }
+      "filters": { "keywords": ["a","onon","on holding","on holdings","running","etsy","pinterest"] }
     },
     {
       "name": "mdpi-jaestheticmed",
@@ -528,15 +554,26 @@
       "filters": { "keywords": ["inmode","inmd"] }
     },
     {
-      "name": "medscape-derm",
+      "name": "medscape-derm0",
       "url": "https://www.medscape.com/index/list_13470_0",
-      "item_container": "article, li, div",
-      "title": "a, h2 a, h3 a",
-      "link": "a@href",
-      "date": "time, .date",
-      "description": "p",
+      "item_container": "#archives > ul > li, #archives li",
+      "title": "a.title, a",
+      "link": "a.title@href, a@href",
+      "date": "div.byline, .byline, time",
+      "description": "span.teaser, .teaser, p",
       "render_file": "scripts/rendered/medscape.html",
-      "filters": { "keywords": ["inmode","inmd"] }
+      "filters": { "keywords": ["a","inmode","morpheus8","facetite","bodytite","complication","adverse","review","case","experience"], "exclude":["spam","promotion","promo","course"] }
+    },
+    {
+      "name": "medscape-derm1",
+      "url": "https://www.medscape.com/index/list_13470_1",
+      "item_container": "#archives > ul > li, #archives li",
+      "title": "a.title, a",
+      "link": "a.title@href, a@href",
+      "date": "div.byline, .byline, time",
+      "description": "span.teaser, .teaser, p",
+      "render_file": "scripts/rendered/medscape1.html",
+      "filters": { "keywords": ["a","inmode","morpheus8","facetite","bodytite","complication","adverse","review","case","experience"], "exclude":["spam","promotion","promo","course"] }
     },
     {
       "name": "modernhealthcare",
@@ -551,7 +588,7 @@
     },
     {
       "name": "healio-derm",
-      "url": "https://www.healio.com/dermatology",
+      "url": "https://www.healio.com/news/dermatology",
       "item_container": "article, .card, .listing-item, .article",
       "title": "a, h2 a",
       "link": "a@href",
@@ -657,14 +694,13 @@
     
     {
       "name": "theverge",
-      "url": "https://www.theverge.com/",
-      "item_container": "article, .c-compact-river__entry, .news-item",
-      "title": ".c-entry-box--compact__title a, h1, h2 a",
-      "link": ".c-entry-box--compact__title a@href, a@href",
-      "date": ".c-byline__item time, time",
-      "description": ".c-entry-summary p, p",
-      "render_file": "scripts/rendered/theverge.html",
-      "filters": { "keywords": ["duol","duolingo","inmode","device","acquisition","partnership","fda","clinical trial"], "exclude": ["opinion","review"] }
+      "url": "https://www.theverge.com/rss/index.xml",
+      "item_container": "item",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
+      "filters": { "keywords": ["a","duol","duolingo","inmode","device","acquisition","partnership","fda","clinical trial"], "exclude": ["opinion","review"] }
     },
     
     {
@@ -686,7 +722,251 @@
       "date": "time, .date",
       "description": "p",
       "filters": { "keywords": [] }
+    },
+    {
+      "name": "PubmedINMDtech_trials",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/rss/search/1hasycEfiSSk6lzJibu2gZlHPzriEC8wbuDYJIWrdyKYBRiQVk/?limit=15&utm_campaign=pubmed-2&fc=20251004161424",
+      "item_container": "item",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
+      "filters": { "keywords": [] }
+    },
+    {
+      "name": "PubmedINMDtech_random&reviews",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/rss/search/1-khLOXmKonAtzl6Nm32nY3bXaECuKSjBwdscK0kZGbl7img2z/?limit=15&utm_campaign=pubmed-2&fc=20251004161616",
+      "item_container": "item",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
+      "filters": { "keywords": [] }
+    },
+    {
+      "name": "PubmedINMDtech_complications&follow-up&safety&adverse_event",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/rss/search/1d9iTY4hH_PsaJk0Zq_6P5f8XY0d8oRC0tsZY3N6Fa9fjkxEmZ/?limit=15&utm_campaign=pubmed-2&fc=20251004161915",
+      "item_container": "item",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
+      "filters": { "keywords": [] }
+    },
+    {
+      "name": "PubmedRIVALStech_trials",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/rss/search/1LkKTHPdB0KczcGZqm2oxIuaJfj0o1O4rbZb3cxSydRU18u5lF/?limit=15&utm_campaign=pubmed-2&fc=20251003170744",
+      "item_container": "item",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
+      "filters": { "keywords": [] }
+    },
+    {
+      "name": "PubmedRIVALStech_random&reviews",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/rss/search/1JcY43SP_RPTSNKNxypJY-Bj79r9h973dPIu3h4yqWJ1C_Awjr/?limit=15&utm_campaign=pubmed-2&fc=20251004162651",
+      "item_container": "item",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
+      "filters": { "keywords": [] }
+    },
+    {
+      "name": "PubmedRIVALStech_complications&follow-up&safety&adverse_event",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/rss/search/1lS0N-smva-DZUmXWq71jxWZqgRXRuQ8X_nPktgwd_plyfr91P/?limit=15&utm_campaign=pubmed-2&fc=20251004163432",
+      "item_container": "item",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
+      "filters": { "keywords": [] }
+    },
+    {
+      "name": "PubmedINMDvsAnyRival",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/rss/search/1pCNTBTnGJ4bzn_XattW_Kyji7EBH8UdZeehGkHwAIVi-93sZt/?limit=15&utm_campaign=pubmed-2&fc=20251004163959",
+      "item_container": "item",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
+      "filters": { "keywords": [] }
+    },
+    {
+      "name": "EuropePMC-INMDtech_trials",
+      "url": "https://europepmc.org/searchrss?query=(%22Morpheus8%22%20OR%20%22radiofrequency%20microneedl*%22%20OR%20%22RF%20microneedl*%22%20OR%20%22FaceTite%22%20OR%20%22BodyTite%22%20OR%20%22radiofrequency-assisted%20lipolysis%22%20OR%20%22RFAL%22)%20AND%20(trial%20OR%20clinical%20OR%20%22clinical%20trial%22)&sortBy=FIRST_PDATE_D+desc&page=1&mode=rss",
+      "item_container": "item",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
+      "filters": { "keywords": [] }
+    },
+    {
+      "name": "EuropePMC-INMD_random&reviews",
+      "url": "https://europepmc.org/searchrss?query=(%22Morpheus8%22%20OR%20%22radiofrequency%20microneedl*%22%20OR%20%22RF%20microneedl*%22%20OR%20%22FaceTite%22%20OR%20%22BodyTite%22%20OR%20%22radiofrequency-assisted%20lipolysis%22%20OR%20%22RFAL%22)%20AND%20(randomized%20OR%20%22randomized%20controlled%20trial%22%20OR%20%22review%22%20OR%20%22systematic%20review%22)&sortBy=FIRST_PDATE_D+desc&page=1&mode=rss",
+      "item_container": "item",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
+      "filters": { "keywords": [] }
+    },
+    {
+      "name": "EuropePMC-INMDtech_complications&follow-up&safety&adverse_event",
+      "url": "https://europepmc.org/searchrss?query=(%22Morpheus8%22%20OR%20%22radiofrequency%20microneedl*%22%20OR%20%22RF%20microneedl*%22%20OR%20%22FaceTite%22%20OR%20%22BodyTite%22%20OR%20%22radiofrequency-assisted%20lipolysis%22%20OR%20%22RFAL%22)%20AND%20(%22follow-up%22%20OR%20%22follow%20up%22%20OR%20complication%20OR%20complications%20OR%20%22adverse%20event%22%20OR%20%22adverse%20events%22%20OR%20safety)&sortBy=FIRST_PDATE_D+desc&page=1&mode=rss",
+      "item_container": "item",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
+      "filters": { "keywords": [] }
+    },
+    {
+      "name": "EuropePMC-RIVALStech_trials",
+      "url": "https://europepmc.org/searchrss?query=(%22microfocused%20ultrasound%22%20OR%20%22Ultherapy%22%20OR%20%22MFU%22%20OR%20%22Thermage%22%20OR%20%22monopolar%20radiofrequency%22)%20AND%20(trial%20OR%20%22clinical%20trial%22)&sortBy=FIRST_PDATE_D+desc&page=1&mode=rss",
+      "item_container": "item",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
+      "filters": { "keywords": [] }
+    },
+    {
+      "name": "EuropePMC-RIVALStech_random&reviews",
+      "url": "https://europepmc.org/searchrss?query=(%22microfocused%20ultrasound%22%20OR%20%22Ultherapy%22%20OR%20%22MFU%22%20OR%20%22Thermage%22%20OR%20%22monopolar%20radiofrequency%22%20OR%20%22Profound%20radiofrequency%22%20OR%20%22ProfoundRF%22%20OR%20Syneron%20OR%20%22Syneron%20Candela%22)%20AND%20(randomized%20OR%20%22randomized%20controlled%20trial%22%20OR%20%22review%22%20OR%20%22systematic%20review%22)&sortBy=FIRST_PDATE_D+desc&page=1&mode=rss",
+      "item_container": "item",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
+      "filters": { "keywords": [] }
+    },
+    {
+      "name": "EuropePMC-RIVALStech_complications&follow-up&safety&adverse_event",
+      "url": "https://europepmc.org/searchrss?query=(%22microfocused%20ultrasound%22%20OR%20%22Ultherapy%22%20OR%20%22MFU%22%20OR%20%22Thermage%22%20OR%20%22monopolar%20radiofrequency%22%20OR%20%22Profound%20radiofrequency%22%20OR%20%22ProfoundRF%22%20OR%20Syneron%20OR%20%22Syneron%20Candela%22)%20AND%20(%22follow-up%22%20OR%20%22follow%20up%22%20OR%20complication%20OR%20complications%20OR%20%22adverse%20event%22%20OR%20safety)&sortBy=FIRST_PDATE_D+desc&page=1&mode=rss",
+      "item_container": "item",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
+      "filters": { "keywords": [] }
+    },
+    {
+      "name": "EuropePMC-INMDvsAnyRival",
+      "url": "https://europepmc.org/searchrss?query=(%22Morpheus8%22%20OR%20%22radiofrequency%20microneedl*%22%20OR%20%22RF%20microneedl*%22%20OR%20%22FaceTite%22%20OR%20%22BodyTite%22%20OR%20%22radiofrequency-assisted%20lipolysis%22%20OR%20%22RFAL%22)%20AND%20(%22Ultherapy%22%20OR%20%22microfocused%20ultrasound%22%20OR%20%22MFU%22%20OR%20%22Thermage%22%20OR%20%22monopolar%20radiofrequency%22%20OR%20%22Profound%20radiofrequency%22%20OR%20%22ProfoundRF%22%20OR%20Syneron%20OR%20%22Syneron%20Candela%22)&sortBy=FIRST_PDATE_D+desc&page=1&mode=rss",
+      "item_container": "item",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
+      "filters": { "keywords": [] }
+    },
+    {
+      "name": "ClinicalTrialsINMDtech_trials",
+      "url": "https://clinicaltrials.gov/api/rss?term=%28Morpheus8+OR+radiofrequency+%28microneedle+OR+microneedles+OR+microneedling%29+OR+RF+%28microneedle+OR+microneedles+OR+microneedling%29+OR+FaceTite+OR+BodyTite+OR+radiofrequency-assisted+lipolysis+OR+RFAL%29+AND+%28trial+OR+clinical+OR+clinical+trial%29&dateField=LastUpdatePostDate",
+      "item_container": "item",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
+      "filters": { "keywords": [] }
+    },
+    {
+      "name": "ClinicalTrialsINMD_random&reviews",
+      "url": "https://clinicaltrials.gov/api/rss?term=%28Morpheus8+OR+radiofrequency+%28microneedle+OR+microneedles+OR+microneedling%29+OR+RF+%28microneedle+OR+microneedles+OR+microneedling%29+OR+FaceTite+OR+BodyTite+OR+radiofrequency-assisted+lipolysis+OR+RFAL%29+AND+%28randomized+OR+randomized+controlled+trial+OR+review+OR+systematic+review%29&dateField=LastUpdatePostDate",
+      "item_container": "item",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
+      "filters": { "keywords": [] }
+    },
+    {
+      "name": "ClinicalTrialsINMDtech_complications&follow-up&safety&adverse_event",
+      "url": "https://clinicaltrials.gov/api/rss?term=%28Morpheus8+OR+radiofrequency+%28microneedle+OR+microneedles+OR+microneedling%29+OR+RF+%28microneedle+OR+microneedles+OR+microneedling%29+OR+FaceTite+OR+BodyTite+OR+radiofrequency-assisted+lipolysis+OR+RFAL%29+AND+%28follow-up+OR+follow+up+OR+complication+OR+complications+OR+adverse+event+OR+adverse+events+OR+safety%29&dateField=LastUpdatePostDate",
+      "item_container": "item",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
+      "filters": { "keywords": [] }
+    },
+    {
+      "name": "ClinicalTrialsRIVALStech_trials",
+      "url": "https://clinicaltrials.gov/api/rss?term=%28microfocused+ultrasound+OR+Ultherapy+OR+MFU+OR+Thermage+OR+monopolar+radiofrequency%29+AND+%28trial+OR+clinical+trial%29&dateField=LastUpdatePostDate",
+      "item_container": "item",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
+      "filters": { "keywords": [] }
+    },
+    {
+      "name": "ClinicalTrialsRIVALStech_random&reviews",
+      "url": "https://clinicaltrials.gov/api/rss?term=%28microfocused+ultrasound+OR+Ultherapy+OR+MFU+OR+Thermage+OR+monopolar+radiofrequency+OR+Profound+radiofrequency+OR+ProfoundRF+OR+Syneron+OR+Syneron+Candela%29+AND+%28randomized+OR+randomized+controlled+trial+OR+review+OR+systematic+review%29&dateField=StudyFirstPostDate",
+      "item_container": "item",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
+      "filters": { "keywords": [] }
+    },
+    {
+      "name": "ClinicalTrialsRIVALStech_complications&follow-up&safety&adverse_event",
+      "url": "https://clinicaltrials.gov/api/rss?term=%28microfocused+ultrasound+OR+Ultherapy+OR+MFU+OR+Thermage+OR+monopolar+radiofrequency+OR+Profound+radiofrequency+OR+ProfoundRF+OR+Syneron+OR+Syneron+Candela%29+AND+%28follow-up+OR+follow+up+OR+complication+OR+complications+OR+adverse+event+OR+safety%29&dateField=LastUpdatePostDate",
+      "item_container": "item",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
+      "filters": { "keywords": [] }
+    },
+    {
+      "name": "ClinicalTrialsINMDvsAnyRival",
+      "url": "https://clinicaltrials.gov/api/rss?term=%28Morpheus8+OR+radiofrequency+%28microneedle+OR+microneedles+OR+microneedling%29+OR+RF+%28microneedle+OR+microneedles+OR+microneedling%29+OR+FaceTite+OR+BodyTite+OR+radiofrequency-assisted+lipolysis+OR+RFAL%29+AND+%28Ultherapy+OR+microfocused+ultrasound+OR+MFU+OR+Thermage+OR+monopolar+radiofrequency+OR+Profound+radiofrequency+OR+ProfoundRF+OR+Syneron+OR+Syneron+Candela%29&dateField=LastUpdatePostDate",
+      "item_container": "item",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
+      "filters": { "keywords": [] }
+    },
+    {
+      "name": "FDA510k-decisoes&regulatory_summaries&mudancas_indicacoes",
+      "url": "https://api.fda.gov/device/510k.json?limit=100&sort=decision_date:desc",
+      "item_container": "results",
+      "title": "openfda.device_name OR device_name OR applicant",
+      "link": "k_number",
+      "date": "decision_date OR date_received",
+      "description": "statement_or_summary OR summary",
+      "json_detail_fetch": true,
+      "json_sort": "decision_date:desc",
+      "max_items": 100,
+      "force_latest": true,
+      "prefer_scrape": true,
+      "scrape_url": "https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfpmn/pmn.cfm?start_search=1&Center=&Panel=&ProductCode=&KNumber=&Applicant=&DeviceName=&Type=&ThirdPartyReviewed=&ClinicalTrials=&Decision=&DecisionDateFrom=&DecisionDateTo=10%2F09%2F2025&IVDProducts=&Redact510K=&CombinationProducts=&PCCP=&ZNumber=&PAGENUM=1",
+      "filters": { "keywords": [], "fallback_to_all": false }
+    },
+    {
+      "name": "MAUDEopenFDA-Regulatorios_Seguranca",
+      "url": "https://api.fda.gov/device/event.json?limit=100",
+      "item_container": "results",
+      "title": "openfda.device_name OR device[0].generic_name OR event_type",
+      "link": "mdr_report_key OR report_number OR event_key",
+      "date": "date_received OR report_date",
+      "description": "mdr_text OR event_description",
+      "json_detail_fetch": true,
+      "json_sort": "mdr_id:desc",
+      "max_items": 100,
+      "force_latest": true,
+      "prefer_scrape": true,
+      "scrape_url": "https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfMAUDE/results.cfm",
+      "filters": { "keywords": [], "fallback_to_all": false }
     }
     
+
+
   ]
 }
