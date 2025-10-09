@@ -240,13 +240,7 @@ def try_resolve_maude_page(mdr_id, product_code, session, timeout=12):
 
 # ---------------- Robust scraping of listing pages ----------------
 def scrape_pmn_with_playwright(scrape_url, max_items=100, pages_to_try=10, wait_selector=None, timeout=12000):
-    """
-    Renderiza com Playwright a página PMN e extrai links com 'pmn.cfm?ID='.
-    - scrape_url : URL base (pode conter PAGENUM)
-    - max_items: máximo de resultados a recolher
-    - pages_to_try: quantas páginas de resultados tentar
-    - wait_selector: selector a aguardar (opcional)
-    """
+    
     items = []
     ids_seen = []
     with sync_playwright() as p:
