@@ -15,6 +15,7 @@ from urllib.parse import urljoin, urlparse, urlencode
 import warnings
 from dateutil import parser as dateparser
 from dateutil import tz as date_tz
+from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 import time
 
 # timezone parsing shim
@@ -238,141 +239,87 @@ def try_resolve_maude_page(mdr_id, product_code, session, timeout=12):
         return None, None, None, None
 
 # ---------------- Robust scraping of listing pages ----------------
-def scrape_pmn_listing(scrape_url, max_items=100, pages_to_try=12, session=None, delay_between=0.4):
+def scrape_pmn_with_playwright(scrape_url, max_items=100, pages_to_try=10, wait_selector=None, timeout=12000):
     """
-    Robust PMN listing scraper:
-    - corrige PAGENUM se já existir na URL
-    - procura IDs em href, onclick, value, data-*, <script> e dentro de tabelas
-    - tenta submeter formulário (POST) se não encontrar IDs no GET
+    Renderiza com Playwright a página PMN e extrai links com 'pmn.cfm?ID='.
+    - scrape_url : URL base (pode conter PAGENUM)
+    - max_items: máximo de resultados a recolher
+    - pages_to_try: quantas páginas de resultados tentar
+    - wait_selector: selector a aguardar (opcional)
     """
-    s = session or requests.Session()
-    s.headers.update(COMMON_HEADERS)
-
-    found_ids = []
     items = []
+    ids_seen = []
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context()
+        page = context.new_page()
+        for pnum in range(1, pages_to_try + 1):
+            # build page URL substituindo PAGENUM
+            if re.search(r'PAGENUM=\d+', scrape_url, flags=re.IGNORECASE):
+                url = re.sub(r'PAGENUM=\d+', f'PAGENUM={pnum}', scrape_url, flags=re.IGNORECASE)
+            else:
+                sep = '&' if '?' in scrape_url else '?'
+                url = f"{scrape_url}{sep}PAGENUM={pnum}"
 
-    for p in range(1, pages_to_try + 1):
-        # build URL for page p: if PAGENUM present replace, else append
-        if re.search(r'PAGENUM=\d+', scrape_url, flags=re.IGNORECASE):
-            url = re.sub(r'PAGENUM=\d+', f'PAGENUM={p}', scrape_url, flags=re.IGNORECASE)
-        else:
-            sep = '&' if '?' in scrape_url else '?'
-            url = f"{scrape_url}{sep}PAGENUM={p}"
+            try:
+                page.goto(url, wait_until="networkidle", timeout=timeout)
+            except PlaywrightTimeoutError:
+                # tenta sem networkidle
+                try:
+                    page.goto(url, timeout=timeout)
+                except Exception as e:
+                    print("PLAYWRIGHT PMN: goto failed", e)
+                    continue
 
-        try:
-            r = s.get(url, timeout=18)
-            status = r.status_code
-            html = r.text if status == 200 else ''
-            print(f"SCRAPE PMN: fetched page {p} status={status} url={url} html_len={len(html)}")
-            if not html:
-                continue
+            # se foi passado um selector específico, espera por ele (ex: a[href*="pmn.cfm"])
+            if not wait_selector:
+                wait_selector = 'a[href*="pmn.cfm?ID="], a[href*="pmn.cfm?ID=K"]'
+            try:
+                page.wait_for_selector(wait_selector, timeout=4000)
+            except PlaywrightTimeoutError:
+                # não falhar: pode ainda existir conteúdo em scripts, por isso continuamos
+                pass
 
-            soup = BeautifulSoup(html, 'html.parser')
+            # extrai links diretamente do DOM
+            anchors = page.query_selector_all('a')
+            for a in anchors:
+                try:
+                    href = a.get_attribute('href') or ''
+                    if 'pmn.cfm' in href:
+                        # extrai ID
+                        m = re.search(r'pmn\.cfm\?ID=([A-Za-z0-9\-]+)', href, flags=re.I)
+                        if m:
+                            rid = m.group(1)
+                            if rid not in ids_seen:
+                                ids_seen.append(rid)
+                except Exception:
+                    continue
 
-            # 1) scan all tag attributes (href, onclick, data-*, value, etc)
-            for tag in soup.find_all(True):
-                for attr_k, attr_v in tag.attrs.items():
-                    if isinstance(attr_v, (list, tuple)):
-                        av = ' '.join(attr_v)
-                    else:
-                        av = str(attr_v)
-                    # catch pmn.cfm?ID=...
-                    for m in re.findall(r'pmn\.cfm\?ID=([A-Za-z0-9\-]+)', av, flags=re.IGNORECASE):
-                        if m not in found_ids:
-                            found_ids.append(m)
-                    # catch ID=123456 or ID=K123456 patterns anywhere
-                    for m in re.findall(r'ID=(K?\d{1,8})', av, flags=re.IGNORECASE):
-                        if m not in found_ids:
-                            found_ids.append(m)
+            # também varre todo o DOM para encontrar IDs em atributos/JS (fallback)
+            content = page.content()
+            for m in re.findall(r'pmn\.cfm\?ID=([A-Za-z0-9\-]+)', content, flags=re.I):
+                if m not in ids_seen:
+                    ids_seen.append(m)
 
-            # 2) regex over raw HTML (for JS-generated snippets, onclick inline, etc)
-            for m in re.findall(r'pmn\.cfm\?ID=([A-Za-z0-9\-]+)', html, flags=re.IGNORECASE):
-                if m not in found_ids:
-                    found_ids.append(m)
-            for m in re.findall(r'ID=(K?\d{1,8})', html, flags=re.IGNORECASE):
-                if m not in found_ids:
-                    found_ids.append(m)
-
-            # 3) try parse table rows: sometimes ID is shown in a column (td) without link
-            for tr in soup.find_all('tr'):
-                row_text = ' '.join([td.get_text(" ", strip=True) for td in tr.find_all(['td','th'])])
-                # common K-number patterns or 6-digit id
-                rmatch = re.search(r'\b(K\d{3,7}|\d{6,8})\b', row_text, flags=re.IGNORECASE)
-                if rmatch:
-                    m = rmatch.group(1)
-                    if m not in found_ids:
-                        found_ids.append(m)
-
-            # 4) if still nothing, try script tags content
-            if not found_ids:
-                for script in soup.find_all('script'):
-                    txt = script.string or ''
-                    for m in re.findall(r'pmn\.cfm\?ID=([A-Za-z0-9\-]+)', txt, flags=re.IGNORECASE):
-                        if m not in found_ids:
-                            found_ids.append(m)
-                    for m in re.findall(r'ID=(K?\d{1,8})', txt, flags=re.IGNORECASE):
-                        if m not in found_ids:
-                            found_ids.append(m)
-
-            # 5) fallback: try to submit search form if present (common site pattern)
-            if not found_ids:
-                form = soup.find('form')
-                if form and form.get('action'):
-                    action = form.get('action')
-                    action_url = urljoin(url, action)
-                    # collect inputs
-                    data = {}
-                    for inp in form.find_all('input'):
-                        name = inp.get('name')
-                        if not name:
-                            continue
-                        val = inp.get('value') or ''
-                        # override PAGENUM
-                        if re.search(r'PAGENUM', name, flags=re.IGNORECASE):
-                            val = str(p)
-                        data[name] = val
-                    # ensure start_search=1 commonly needed
-                    if 'start_search' in form.get_text() or 'start_search' in str(form):
-                        data.setdefault('start_search', '1')
-                    try:
-                        rp = s.post(action_url, data=data, timeout=18)
-                        if rp.status_code == 200:
-                            html2 = rp.text
-                            # repeat attribute + regex scan on returned HTML
-                            for m in re.findall(r'pmn\.cfm\?ID=([A-Za-z0-9\-]+)', html2, flags=re.IGNORECASE):
-                                if m not in found_ids:
-                                    found_ids.append(m)
-                            for m in re.findall(r'ID=(K?\d{1,8})', html2, flags=re.IGNORECASE):
-                                if m not in found_ids:
-                                    found_ids.append(m)
-                            print(f"SCRAPE PMN: form POST to {action_url} returned {len(found_ids)} ids")
-                    except Exception as e:
-                        print("SCRAPE PMN: form POST failed", e)
-
-            if not found_ids:
-                snippet = html[:1200].replace('\n', ' ')
-                print("SCRAPE PMN: no ids found on this page, SNIPPET:\n", snippet)
-
-            if len(found_ids) >= max_items:
+            if len(ids_seen) >= max_items:
                 break
 
-            time.sleep(delay_between)
-        except Exception as e:
-            print("SCRAPE PMN: exception fetching page", p, e)
-            continue
+            time.sleep(0.2)
 
-    print(f"SCRAPE PMN: total found ids = {len(found_ids)} (want max {max_items})")
+        # Fechar browser
+        browser.close()
 
-    # Validate/rescue each id by resolving detail page
-    for rid in found_ids[:max_items]:
+    # resolve detalhes das IDs recolhidas (usa a função try_resolve_pmn_page já existente)
+    session = requests.Session()
+    for rid in ids_seen[:max_items]:
         try:
-            url_detail, title, date_iso, desc = try_resolve_pmn_page(rid, s)
-            link = url_detail or (f'https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfpmn/pmn.cfm?ID={str(rid)}')
+            url_detail, title, date_iso, desc = try_resolve_pmn_page(rid, session)
+            link = url_detail or f'https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfpmn/pmn.cfm?ID={rid}'
             items.append({'title': title or '', 'link': link, 'description': desc or '', 'date': date_iso or ''})
         except Exception:
             continue
 
-    # sort by date desc if available, fallback to order found
+    # ordena por date desc se houver datas
     def _key(it):
         try:
             return dateparser.parse(it.get('date') or '')
@@ -382,146 +329,86 @@ def scrape_pmn_listing(scrape_url, max_items=100, pages_to_try=12, session=None,
     return items[:max_items]
 
 
-def scrape_maude_listing(scrape_url, max_items=100, pages_to_try=12, session=None, delay_between=0.4):
+def scrape_maude_with_playwright(scrape_url, max_items=100, pages_to_try=10, wait_selector=None, timeout=12000):
     """
-    Robust MAUDE listing scraper:
-    - corrige PAGENUM se já existir na URL
-    - procura MDRFOI__ID em href, onclick, inputs, data-*, scripts e tabelas
-    - tenta submeter formulário (POST) se não encontrar ids no GET
+    Renderiza com Playwright a página MAUDE e extrai links com 'Detail.CFM?MDRFOI__ID='.
     """
-    s = session or requests.Session()
-    s.headers.update(COMMON_HEADERS)
-
-    found_pairs = []  # tuples (id, pc)
     items = []
+    found = []
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context()
+        page = context.new_page()
+        for pnum in range(1, pages_to_try + 1):
+            if re.search(r'PAGENUM=\d+', scrape_url, flags=re.IGNORECASE):
+                url = re.sub(r'PAGENUM=\d+', f'PAGENUM={pnum}', scrape_url, flags=re.IGNORECASE)
+            else:
+                sep = '&' if '?' in scrape_url else '?'
+                url = f"{scrape_url}{sep}PAGENUM={pnum}"
 
-    for p in range(1, pages_to_try + 1):
-        # build page url (replace PAGENUM if present)
-        if re.search(r'PAGENUM=\d+', scrape_url, flags=re.IGNORECASE):
-            url = re.sub(r'PAGENUM=\d+', f'PAGENUM={p}', scrape_url, flags=re.IGNORECASE)
-        else:
-            sep = '&' if '?' in scrape_url else '?'
-            url = f"{scrape_url}{sep}PAGENUM={p}"
+            try:
+                page.goto(url, wait_until="networkidle", timeout=timeout)
+            except PlaywrightTimeoutError:
+                try:
+                    page.goto(url, timeout=timeout)
+                except Exception as e:
+                    print("PLAYWRIGHT MAUDE: goto failed", e)
+                    continue
 
-        try:
-            r = s.get(url, timeout=18)
-            status = r.status_code
-            html = r.text if status == 200 else ''
-            print(f"SCRAPE MAUDE: fetched page {p} status={status} url={url} html_len={len(html)}")
-            if not html:
-                continue
+            if not wait_selector:
+                wait_selector = 'a[href*="Detail.CFM?MDRFOI__ID="]'
+            try:
+                page.wait_for_selector(wait_selector, timeout=4000)
+            except PlaywrightTimeoutError:
+                pass
 
-            soup = BeautifulSoup(html, 'html.parser')
+            # extrai anchors
+            anchors = page.query_selector_all('a')
+            for a in anchors:
+                try:
+                    href = a.get_attribute('href') or ''
+                    if 'Detail.CFM' in href or 'MDRFOI__ID' in href:
+                        m = re.search(r'MDRFOI__ID=([0-9]+)', href, flags=re.I)
+                        pc = ''
+                        if m:
+                            idnum = m.group(1)
+                            pc_m = re.search(r'pc=([A-Za-z0-9]+)', href, flags=re.I)
+                            if pc_m:
+                                pc = pc_m.group(1)
+                            if not any(x[0] == idnum for x in found):
+                                found.append((idnum, pc))
+                except Exception:
+                    continue
 
-            # scan all attributes
-            for tag in soup.find_all(True):
-                for attr_k, attr_v in tag.attrs.items():
-                    if isinstance(attr_v, (list, tuple)):
-                        av = ' '.join(attr_v)
-                    else:
-                        av = str(attr_v)
-                    # Detail.CFM?MDRFOI__ID=12345
-                    for m in re.findall(r'Detail\.CFM\?MDRFOI__ID=([0-9]+)(?:&pc=([A-Za-z0-9]+))?', av, flags=re.IGNORECASE):
-                        idnum = m[0]
-                        pc = m[1] or ''
-                        if (idnum, pc) not in found_pairs:
-                            found_pairs.append((idnum, pc))
-                    # generic MDRFOI__ID=12345
-                    for m in re.findall(r'MDRFOI__ID=([0-9]+)', av, flags=re.IGNORECASE):
-                        if not any(x[0] == m for x in found_pairs):
-                            # try to find pc in same attr
-                            pc_m = re.search(r'pc=([A-Za-z0-9]+)', av, flags=re.IGNORECASE)
-                            pc = pc_m.group(1) if pc_m else ''
-                            found_pairs.append((m, pc))
+            content = page.content()
+            for m in re.findall(r'Detail\.CFM\?MDRFOI__ID=([0-9]+)(?:&pc=([A-Za-z0-9]+))?', content, flags=re.I):
+                idnum = m[0]
+                pc = m[1] or ''
+                if not any(x[0] == idnum for x in found):
+                    found.append((idnum, pc))
 
-            # regex over raw HTML
-            for m in re.findall(r'Detail\.CFM\?MDRFOI__ID=([0-9]+)(?:&pc=([A-Za-z0-9]+))?', html, flags=re.IGNORECASE):
-                if (m[0], m[1] or '') not in found_pairs:
-                    found_pairs.append((m[0], m[1] or ''))
-            for m in re.findall(r'MDRFOI__ID=([0-9]+)', html, flags=re.IGNORECASE):
-                if not any(x[0] == m for x in found_pairs):
-                    found_pairs.append((m, ''))
-
-            # table row scan: sometimes id and product code in same row
-            for tr in soup.find_all('tr'):
-                tds = [td.get_text(" ", strip=True) for td in tr.find_all('td')]
-                row_text = ' '.join(tds)
-                # try to find 5-8 digit ids typical in MAUDE
-                m = re.search(r'\b([0-9]{5,9})\b', row_text)
-                if m:
-                    idnum = m.group(1)
-                    # try to find product code in row (3-letter code)
-                    pc_m = re.search(r'\b([A-Z]{3,4})\b', row_text)
-                    pc = pc_m.group(1) if pc_m else ''
-                    if not any(x[0] == idnum for x in found_pairs):
-                        found_pairs.append((idnum, pc))
-
-            # try <script> contents
-            if not found_pairs:
-                for script in soup.find_all('script'):
-                    txt = script.string or ''
-                    for m in re.findall(r'MDRFOI__ID=([0-9]+)', txt, flags=re.IGNORECASE):
-                        if not any(x[0] == m for x in found_pairs):
-                            pc_m = re.search(r'pc=([A-Za-z0-9]+)', txt, flags=re.IGNORECASE)
-                            pc = pc_m.group(1) if pc_m else ''
-                            found_pairs.append((m, pc))
-
-            # fallback: try form POST if present
-            if not found_pairs:
-                form = soup.find('form')
-                if form and form.get('action'):
-                    action = form.get('action')
-                    action_url = urljoin(url, action)
-                    data = {}
-                    for inp in form.find_all('input'):
-                        name = inp.get('name')
-                        if not name:
-                            continue
-                        val = inp.get('value') or ''
-                        if re.search(r'PAGENUM', name, flags=re.IGNORECASE):
-                            val = str(p)
-                        data[name] = val
-                    try:
-                        rp = s.post(action_url, data=data, timeout=18)
-                        if rp.status_code == 200:
-                            html2 = rp.text
-                            for m in re.findall(r'Detail\.CFM\?MDRFOI__ID=([0-9]+)(?:&pc=([A-Za-z0-9]+))?', html2, flags=re.IGNORECASE):
-                                if (m[0], m[1] or '') not in found_pairs:
-                                    found_pairs.append((m[0], m[1] or ''))
-                            for m in re.findall(r'MDRFOI__ID=([0-9]+)', html2, flags=re.IGNORECASE):
-                                if not any(x[0] == m for x in found_pairs):
-                                    found_pairs.append((m, ''))
-                            print(f"SCRAPE MAUDE: form POST returned {len(found_pairs)} ids")
-                    except Exception as e:
-                        print("SCRAPE MAUDE: form POST failed", e)
-
-            if not found_pairs:
-                snippet = html[:1200].replace('\n', ' ')
-                print("SCRAPE MAUDE: no ids found on this page, SNIPPET:\n", snippet)
-
-            if len(found_pairs) >= max_items:
+            if len(found) >= max_items:
                 break
 
-            time.sleep(delay_between)
-        except Exception as e:
-            print("SCRAPE MAUDE: exception fetching page", p, e)
-            continue
+            time.sleep(0.2)
 
-    print(f"SCRAPE MAUDE: total found ids = {len(found_pairs)} (want max {max_items})")
+        browser.close()
 
-    # resolve details
-    for rid, pc in found_pairs[:max_items]:
+    # resolve cada par id/pc com try_resolve_maude_page
+    session = requests.Session()
+    for idnum, pc in found[:max_items]:
         try:
-            url_detail, title, date_iso, desc = try_resolve_maude_page(rid, pc, s)
-            link = url_detail or (f"https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfMAUDE/Detail.CFM?MDRFOI__ID={rid}&pc={pc}")
-            mdr_id_num = int(re.sub(r'\D', '', str(rid))) if re.search(r'\d', str(rid)) else None
+            url_detail, title, date_iso, desc = try_resolve_maude_page(idnum, pc, session)
+            link = url_detail or f"https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfMAUDE/Detail.CFM?MDRFOI__ID={idnum}&pc={pc}"
+            mdr_id_num = int(re.sub(r'\D', '', str(idnum))) if re.search(r'\d', str(idnum)) else None
             items.append({'title': title or '', 'link': link, 'description': desc or '', 'date': date_iso or '', 'mdr_id_num': mdr_id_num})
         except Exception:
             continue
 
-    # sort by id desc (most recent larger ids first)
+    # ordenar por mdr_id desc (números maiores = mais recentes)
     items = sorted(items, key=lambda it: it.get('mdr_id_num') or 0, reverse=True)
     return items[:max_items]
+
 
 
 # ---------------- JSON extractor (mantive tua lógica) ----------------
@@ -791,29 +678,63 @@ def main():
         scrape_url = cfg.get('scrape_url') or ''
         items = []
 
+        # determine numeric settings from cfg (fallbacks)
+        try:
+            cfg_max_items = int(cfg.get('max_items') or cfg.get('max') or 100)
+        except Exception:
+            cfg_max_items = 100
+        try:
+            cfg_pages_to_try = int(cfg.get('pages_to_try') or 8)
+        except Exception:
+            cfg_pages_to_try = 8
+
         if prefer_scrape and scrape_url:
             print(f'Prefer scrape enabled for {name}, scraping {scrape_url} ...')
-            if 'cfpmn' in scrape_url.lower() or 'pmn.cfm' in scrape_url.lower():
-                items = scrape_pmn_listing(scrape_url, max_items=int(cfg.get('max_items', 100)), pages_to_try=int(cfg.get('pages_to_try', 8)))
-            elif 'cfmaude' in scrape_url.lower() or 'results.cfm' in scrape_url.lower() or 'Detail.CFM' in scrape_url:
-                items = scrape_maude_listing(scrape_url, max_items=int(cfg.get('max_items', 100)), pages_to_try=int(cfg.get('pages_to_try', 8)))
-            else:
+            # tenta usar as versões Playwright (assumo que estão definidas: scrape_pmn_with_playwright / scrape_maude_with_playwright)
+            try:
+                if 'cfpmn' in scrape_url.lower() or 'pmn.cfm' in scrape_url.lower():
+                    items = scrape_pmn_with_playwright(scrape_url, max_items=cfg_max_items, pages_to_try=cfg_pages_to_try)
+                elif 'cfmaude' in scrape_url.lower() or 'results.cfm' in scrape_url.lower() or 'detail.cfm' in scrape_url.lower():
+                    items = scrape_maude_with_playwright(scrape_url, max_items=cfg_max_items, pages_to_try=cfg_pages_to_try)
+                else:
+                    # fallback: try a single requests fetch then inspect to decide
+                    try:
+                        sess = requests.Session()
+                        r = sess.get(scrape_url, headers={'User-Agent':'Mozilla/5.0'}, timeout=18)
+                        r.raise_for_status()
+                        html = r.text
+                        if 'pmn' in html.lower():
+                            items = scrape_pmn_with_playwright(scrape_url, max_items=cfg_max_items, pages_to_try=cfg_pages_to_try)
+                        elif 'maude' in html.lower() or 'detail.cfm' in html.lower():
+                            items = scrape_maude_with_playwright(scrape_url, max_items=cfg_max_items, pages_to_try=cfg_pages_to_try)
+                        else:
+                            print(f'Prefer scrape: page does not appear to contain PMN/MAUDE markers (html_len={len(html)})')
+                            items = []
+                    except Exception as e:
+                        print('Prefer scrape: error fetching scrape_url with requests', e)
+                        items = []
+            except ImportError as ie:
+                print('Prefer scrape: Playwright not available (ImportError). Falling back to non-rendered fetch.', ie)
+                # fallback para o caso de não existir Playwright: tenta fetch normal + json/html parsing
                 try:
-                    sess = requests.Session()
-                    r = sess.get(scrape_url, headers=COMMON_HEADERS, timeout=18)
-                    r.raise_for_status()
-                    html = r.text
-                    if 'pmn' in html.lower():
-                        items = scrape_pmn_listing(scrape_url, max_items=int(cfg.get('max_items', 100)), pages_to_try=int(cfg.get('pages_to_try', 8)), session=sess)
-                    elif 'maude' in html.lower() or 'detail.cfm' in html.lower():
-                        items = scrape_maude_listing(scrape_url, max_items=int(cfg.get('max_items', 100)), pages_to_try=int(cfg.get('pages_to_try', 8)), session=sess)
+                    resp = fetch_url_response(scrape_url)
+                    txt = resp.text if hasattr(resp,'text') else str(resp)
+                    if txt and (txt.strip().startswith('{') or 'pmn' in txt.lower() or 'maude' in txt.lower()):
+                        # tenta extrair com o handler já existente
+                        if 'pmn' in txt.lower():
+                            items = extract_items_from_html(txt, cfg)
+                        else:
+                            items = extract_items_from_html(txt, cfg)
                     else:
-                        print(f'Prefer scrape: page does not appear to contain PMN/MAUDE markers (html_len={len(html)})')
+                        items = []
                 except Exception as e:
-                    print('Prefer scrape: error fetching scrape_url', e)
+                    print('Fallback fetch error:', e)
                     items = []
+            except Exception as e:
+                print('Prefer scrape: unexpected error while scraping with Playwright:', e)
+                items = []
         else:
-            # API/json path
+            # API/json path (original logic)
             try:
                 print(f'Fetching {u} via requests...')
                 resp = fetch_url_response(u)
@@ -857,11 +778,7 @@ def main():
         force_latest = bool(cfg.get('force_latest', False))
         matched = []
         if force_latest and items:
-            max_items = cfg.get('max_items') or cfg.get('max') or 100
-            try:
-                max_items = int(max_items)
-            except Exception:
-                max_items = 100
+            max_items = cfg_max_items
             matched = items[:max_items]
             print(f'force_latest=True for {name}: taking top {len(matched)} items (no filters applied)')
         else:
