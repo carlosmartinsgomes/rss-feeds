@@ -238,20 +238,27 @@ def try_resolve_maude_page(mdr_id, product_code, session, timeout=12):
         return None, None, None, None
 
 # ---------------- Robust scraping of listing pages ----------------
-def scrape_pmn_listing(scrape_url, max_items=100, pages_to_try=8, session=None, delay_between=0.4):
+def scrape_pmn_listing(scrape_url, max_items=100, pages_to_try=12, session=None, delay_between=0.4):
+    """
+    Robust PMN listing scraper:
+    - corrige PAGENUM se já existir na URL
+    - procura IDs em href, onclick, value, data-*, <script> e dentro de tabelas
+    - tenta submeter formulário (POST) se não encontrar IDs no GET
+    """
     s = session or requests.Session()
     s.headers.update(COMMON_HEADERS)
+
     found_ids = []
     items = []
-    parsed = urlparse(scrape_url)
-    base_q = parsed.query or ''
-    has_pagenum = 'PAGENUM=' in base_q.upper()
+
     for p in range(1, pages_to_try + 1):
-        if has_pagenum:
-            url = scrape_url
+        # build URL for page p: if PAGENUM present replace, else append
+        if re.search(r'PAGENUM=\d+', scrape_url, flags=re.IGNORECASE):
+            url = re.sub(r'PAGENUM=\d+', f'PAGENUM={p}', scrape_url, flags=re.IGNORECASE)
         else:
             sep = '&' if '?' in scrape_url else '?'
-            url = scrape_url + f"{sep}PAGENUM={p}"
+            url = f"{scrape_url}{sep}PAGENUM={p}"
+
         try:
             r = s.get(url, timeout=18)
             status = r.status_code
@@ -259,36 +266,104 @@ def scrape_pmn_listing(scrape_url, max_items=100, pages_to_try=8, session=None, 
             print(f"SCRAPE PMN: fetched page {p} status={status} url={url} html_len={len(html)}")
             if not html:
                 continue
-            # first try: extract anchors
+
             soup = BeautifulSoup(html, 'html.parser')
-            anchors = [a.get('href') for a in soup.find_all('a', href=True)]
-            # look for pmn.cfm patterns anywhere in hrefs
-            for ah in anchors:
-                if ah and 'pmn.cfm' in ah.lower():
-                    m = re.search(r'ID=([^&\s]+)', ah, re.IGNORECASE)
-                    if m:
-                        raw_id = m.group(1)
-                        if raw_id not in found_ids:
-                            found_ids.append(raw_id)
-            # fallback: regex over whole HTML to catch JS or non-anchor occurrences
+
+            # 1) scan all tag attributes (href, onclick, data-*, value, etc)
+            for tag in soup.find_all(True):
+                for attr_k, attr_v in tag.attrs.items():
+                    if isinstance(attr_v, (list, tuple)):
+                        av = ' '.join(attr_v)
+                    else:
+                        av = str(attr_v)
+                    # catch pmn.cfm?ID=...
+                    for m in re.findall(r'pmn\.cfm\?ID=([A-Za-z0-9\-]+)', av, flags=re.IGNORECASE):
+                        if m not in found_ids:
+                            found_ids.append(m)
+                    # catch ID=123456 or ID=K123456 patterns anywhere
+                    for m in re.findall(r'ID=(K?\d{1,8})', av, flags=re.IGNORECASE):
+                        if m not in found_ids:
+                            found_ids.append(m)
+
+            # 2) regex over raw HTML (for JS-generated snippets, onclick inline, etc)
+            for m in re.findall(r'pmn\.cfm\?ID=([A-Za-z0-9\-]+)', html, flags=re.IGNORECASE):
+                if m not in found_ids:
+                    found_ids.append(m)
+            for m in re.findall(r'ID=(K?\d{1,8})', html, flags=re.IGNORECASE):
+                if m not in found_ids:
+                    found_ids.append(m)
+
+            # 3) try parse table rows: sometimes ID is shown in a column (td) without link
+            for tr in soup.find_all('tr'):
+                row_text = ' '.join([td.get_text(" ", strip=True) for td in tr.find_all(['td','th'])])
+                # common K-number patterns or 6-digit id
+                rmatch = re.search(r'\b(K\d{3,7}|\d{6,8})\b', row_text, flags=re.IGNORECASE)
+                if rmatch:
+                    m = rmatch.group(1)
+                    if m not in found_ids:
+                        found_ids.append(m)
+
+            # 4) if still nothing, try script tags content
             if not found_ids:
-                matches = re.findall(r'pmn\.cfm\?ID=([A-Za-z0-9\-]+)', html, re.IGNORECASE)
-                for mid in matches:
-                    if mid not in found_ids:
-                        found_ids.append(mid)
-            # debug: if still nothing, print snippet for diagnosis
+                for script in soup.find_all('script'):
+                    txt = script.string or ''
+                    for m in re.findall(r'pmn\.cfm\?ID=([A-Za-z0-9\-]+)', txt, flags=re.IGNORECASE):
+                        if m not in found_ids:
+                            found_ids.append(m)
+                    for m in re.findall(r'ID=(K?\d{1,8})', txt, flags=re.IGNORECASE):
+                        if m not in found_ids:
+                            found_ids.append(m)
+
+            # 5) fallback: try to submit search form if present (common site pattern)
+            if not found_ids:
+                form = soup.find('form')
+                if form and form.get('action'):
+                    action = form.get('action')
+                    action_url = urljoin(url, action)
+                    # collect inputs
+                    data = {}
+                    for inp in form.find_all('input'):
+                        name = inp.get('name')
+                        if not name:
+                            continue
+                        val = inp.get('value') or ''
+                        # override PAGENUM
+                        if re.search(r'PAGENUM', name, flags=re.IGNORECASE):
+                            val = str(p)
+                        data[name] = val
+                    # ensure start_search=1 commonly needed
+                    if 'start_search' in form.get_text() or 'start_search' in str(form):
+                        data.setdefault('start_search', '1')
+                    try:
+                        rp = s.post(action_url, data=data, timeout=18)
+                        if rp.status_code == 200:
+                            html2 = rp.text
+                            # repeat attribute + regex scan on returned HTML
+                            for m in re.findall(r'pmn\.cfm\?ID=([A-Za-z0-9\-]+)', html2, flags=re.IGNORECASE):
+                                if m not in found_ids:
+                                    found_ids.append(m)
+                            for m in re.findall(r'ID=(K?\d{1,8})', html2, flags=re.IGNORECASE):
+                                if m not in found_ids:
+                                    found_ids.append(m)
+                            print(f"SCRAPE PMN: form POST to {action_url} returned {len(found_ids)} ids")
+                    except Exception as e:
+                        print("SCRAPE PMN: form POST failed", e)
+
             if not found_ids:
                 snippet = html[:1200].replace('\n', ' ')
                 print("SCRAPE PMN: no ids found on this page, SNIPPET:\n", snippet)
+
             if len(found_ids) >= max_items:
                 break
+
             time.sleep(delay_between)
         except Exception as e:
             print("SCRAPE PMN: exception fetching page", p, e)
             continue
 
     print(f"SCRAPE PMN: total found ids = {len(found_ids)} (want max {max_items})")
-    # Validate/rescue each id
+
+    # Validate/rescue each id by resolving detail page
     for rid in found_ids[:max_items]:
         try:
             url_detail, title, date_iso, desc = try_resolve_pmn_page(rid, s)
@@ -297,7 +372,7 @@ def scrape_pmn_listing(scrape_url, max_items=100, pages_to_try=8, session=None, 
         except Exception:
             continue
 
-    # sort by date desc if available
+    # sort by date desc if available, fallback to order found
     def _key(it):
         try:
             return dateparser.parse(it.get('date') or '')
@@ -306,21 +381,28 @@ def scrape_pmn_listing(scrape_url, max_items=100, pages_to_try=8, session=None, 
     items = sorted(items, key=_key, reverse=True)
     return items[:max_items]
 
-def scrape_maude_listing(scrape_url, max_items=100, pages_to_try=8, session=None, delay_between=0.4):
+
+def scrape_maude_listing(scrape_url, max_items=100, pages_to_try=12, session=None, delay_between=0.4):
+    """
+    Robust MAUDE listing scraper:
+    - corrige PAGENUM se já existir na URL
+    - procura MDRFOI__ID em href, onclick, inputs, data-*, scripts e tabelas
+    - tenta submeter formulário (POST) se não encontrar ids no GET
+    """
     s = session or requests.Session()
     s.headers.update(COMMON_HEADERS)
-    found_ids = []
-    found_pairs = []  # (id, pc)
+
+    found_pairs = []  # tuples (id, pc)
     items = []
-    parsed = urlparse(scrape_url)
-    base_q = parsed.query or ''
-    has_pagenum = 'PAGENUM=' in base_q.upper()
+
     for p in range(1, pages_to_try + 1):
-        if has_pagenum:
-            url = scrape_url
+        # build page url (replace PAGENUM if present)
+        if re.search(r'PAGENUM=\d+', scrape_url, flags=re.IGNORECASE):
+            url = re.sub(r'PAGENUM=\d+', f'PAGENUM={p}', scrape_url, flags=re.IGNORECASE)
         else:
             sep = '&' if '?' in scrape_url else '?'
-            url = scrape_url + f"{sep}PAGENUM={p}"
+            url = f"{scrape_url}{sep}PAGENUM={p}"
+
         try:
             r = s.get(url, timeout=18)
             status = r.status_code
@@ -328,36 +410,106 @@ def scrape_maude_listing(scrape_url, max_items=100, pages_to_try=8, session=None
             print(f"SCRAPE MAUDE: fetched page {p} status={status} url={url} html_len={len(html)}")
             if not html:
                 continue
+
             soup = BeautifulSoup(html, 'html.parser')
-            anchors = [a.get('href') for a in soup.find_all('a', href=True)]
-            for ah in anchors:
-                if ah and 'Detail.CFM' in ah:
-                    m = re.search(r'MDRFOI__ID=([^&\s]+)', ah, re.IGNORECASE)
-                    pc = None
-                    mpc = re.search(r'pc=([A-Za-z0-9]+)', ah, re.IGNORECASE)
-                    if mpc:
-                        pc = mpc.group(1)
-                    if m:
-                        raw_id = m.group(1)
-                        if raw_id not in [x[0] for x in found_pairs]:
-                            found_pairs.append((raw_id, pc or ''))
-            # fallback regex search
+
+            # scan all attributes
+            for tag in soup.find_all(True):
+                for attr_k, attr_v in tag.attrs.items():
+                    if isinstance(attr_v, (list, tuple)):
+                        av = ' '.join(attr_v)
+                    else:
+                        av = str(attr_v)
+                    # Detail.CFM?MDRFOI__ID=12345
+                    for m in re.findall(r'Detail\.CFM\?MDRFOI__ID=([0-9]+)(?:&pc=([A-Za-z0-9]+))?', av, flags=re.IGNORECASE):
+                        idnum = m[0]
+                        pc = m[1] or ''
+                        if (idnum, pc) not in found_pairs:
+                            found_pairs.append((idnum, pc))
+                    # generic MDRFOI__ID=12345
+                    for m in re.findall(r'MDRFOI__ID=([0-9]+)', av, flags=re.IGNORECASE):
+                        if not any(x[0] == m for x in found_pairs):
+                            # try to find pc in same attr
+                            pc_m = re.search(r'pc=([A-Za-z0-9]+)', av, flags=re.IGNORECASE)
+                            pc = pc_m.group(1) if pc_m else ''
+                            found_pairs.append((m, pc))
+
+            # regex over raw HTML
+            for m in re.findall(r'Detail\.CFM\?MDRFOI__ID=([0-9]+)(?:&pc=([A-Za-z0-9]+))?', html, flags=re.IGNORECASE):
+                if (m[0], m[1] or '') not in found_pairs:
+                    found_pairs.append((m[0], m[1] or ''))
+            for m in re.findall(r'MDRFOI__ID=([0-9]+)', html, flags=re.IGNORECASE):
+                if not any(x[0] == m for x in found_pairs):
+                    found_pairs.append((m, ''))
+
+            # table row scan: sometimes id and product code in same row
+            for tr in soup.find_all('tr'):
+                tds = [td.get_text(" ", strip=True) for td in tr.find_all('td')]
+                row_text = ' '.join(tds)
+                # try to find 5-8 digit ids typical in MAUDE
+                m = re.search(r'\b([0-9]{5,9})\b', row_text)
+                if m:
+                    idnum = m.group(1)
+                    # try to find product code in row (3-letter code)
+                    pc_m = re.search(r'\b([A-Z]{3,4})\b', row_text)
+                    pc = pc_m.group(1) if pc_m else ''
+                    if not any(x[0] == idnum for x in found_pairs):
+                        found_pairs.append((idnum, pc))
+
+            # try <script> contents
             if not found_pairs:
-                matches = re.findall(r'Detail\.CFM\?MDRFOI__ID=([0-9]+)(?:&pc=([A-Za-z0-9]+))?', html, re.IGNORECASE)
-                for mid, mpc in matches:
-                    if mid not in [x[0] for x in found_pairs]:
-                        found_pairs.append((mid, mpc or ''))
+                for script in soup.find_all('script'):
+                    txt = script.string or ''
+                    for m in re.findall(r'MDRFOI__ID=([0-9]+)', txt, flags=re.IGNORECASE):
+                        if not any(x[0] == m for x in found_pairs):
+                            pc_m = re.search(r'pc=([A-Za-z0-9]+)', txt, flags=re.IGNORECASE)
+                            pc = pc_m.group(1) if pc_m else ''
+                            found_pairs.append((m, pc))
+
+            # fallback: try form POST if present
+            if not found_pairs:
+                form = soup.find('form')
+                if form and form.get('action'):
+                    action = form.get('action')
+                    action_url = urljoin(url, action)
+                    data = {}
+                    for inp in form.find_all('input'):
+                        name = inp.get('name')
+                        if not name:
+                            continue
+                        val = inp.get('value') or ''
+                        if re.search(r'PAGENUM', name, flags=re.IGNORECASE):
+                            val = str(p)
+                        data[name] = val
+                    try:
+                        rp = s.post(action_url, data=data, timeout=18)
+                        if rp.status_code == 200:
+                            html2 = rp.text
+                            for m in re.findall(r'Detail\.CFM\?MDRFOI__ID=([0-9]+)(?:&pc=([A-Za-z0-9]+))?', html2, flags=re.IGNORECASE):
+                                if (m[0], m[1] or '') not in found_pairs:
+                                    found_pairs.append((m[0], m[1] or ''))
+                            for m in re.findall(r'MDRFOI__ID=([0-9]+)', html2, flags=re.IGNORECASE):
+                                if not any(x[0] == m for x in found_pairs):
+                                    found_pairs.append((m, ''))
+                            print(f"SCRAPE MAUDE: form POST returned {len(found_pairs)} ids")
+                    except Exception as e:
+                        print("SCRAPE MAUDE: form POST failed", e)
+
             if not found_pairs:
                 snippet = html[:1200].replace('\n', ' ')
                 print("SCRAPE MAUDE: no ids found on this page, SNIPPET:\n", snippet)
+
             if len(found_pairs) >= max_items:
                 break
+
             time.sleep(delay_between)
         except Exception as e:
             print("SCRAPE MAUDE: exception fetching page", p, e)
             continue
 
     print(f"SCRAPE MAUDE: total found ids = {len(found_pairs)} (want max {max_items})")
+
+    # resolve details
     for rid, pc in found_pairs[:max_items]:
         try:
             url_detail, title, date_iso, desc = try_resolve_maude_page(rid, pc, s)
@@ -367,8 +519,10 @@ def scrape_maude_listing(scrape_url, max_items=100, pages_to_try=8, session=None
         except Exception:
             continue
 
+    # sort by id desc (most recent larger ids first)
     items = sorted(items, key=lambda it: it.get('mdr_id_num') or 0, reverse=True)
     return items[:max_items]
+
 
 # ---------------- JSON extractor (mantive tua lógica) ----------------
 def extract_items_from_json_obj(jobj, cfg):
