@@ -941,10 +941,12 @@
       "link": "k_number",
       "date": "decision_date OR date_received",
       "description": "statement_or_summary OR summary",
-      "force_latest": true,
       "json_detail_fetch": true,
       "json_sort": "decision_date:desc",
       "max_items": 100,
+      "force_latest": true,
+      "prefer_scrape": true,
+      "scrape_url": "https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfpmn/pmn.cfm?start_search=1&Center=&Panel=&ProductCode=&KNumber=&Applicant=&DeviceName=&Type=&ThirdPartyReviewed=&ClinicalTrials=&Decision=&DecisionDateFrom=&DecisionDateTo=10%2F09%2F2025&IVDProducts=&Redact510K=&CombinationProducts=&PCCP=&ZNumber=&PAGENUM=1",
       "filters": { "keywords": [], "fallback_to_all": false }
     },
     {
@@ -955,12 +957,15 @@
       "link": "mdr_report_key OR report_number OR event_key",
       "date": "date_received OR report_date",
       "description": "mdr_text OR event_description",
-      "force_latest": true,
       "json_detail_fetch": true,
       "json_sort": "mdr_id:desc",
       "max_items": 100,
+      "force_latest": true,
+      "prefer_scrape": true,
+      "scrape_url": "https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfMAUDE/results.cfm",
       "filters": { "keywords": [], "fallback_to_all": false }
     }
+
 
   ]
 }
