@@ -257,7 +257,7 @@
     "description": ".news-content p, .block-text p, .excerpt, .dek, p",
     "render_file": "scripts/rendered/digiday.html",
     "max_items": 2000,
-    "filters": { "keywords": ["a","supply path optimization","connected tv","ctv","programmatic","the trade desk","ttd"], "exclude": ["sponsored","promo","ad","advertise","advertisement"] }
+    "filters": { "keywords": ["supply path optimization","connected tv","ctv","programmatic","the trade desk","ttd"], "exclude": ["sponsored","promo","ad","advertise","advertisement"] }
     },
     {
       "name": "martech-feed",
