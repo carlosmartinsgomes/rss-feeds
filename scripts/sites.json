@@ -941,9 +941,10 @@
       "link": "k_number",
       "date": "decision_date OR date_received",
       "description": "statement_or_summary OR summary",
+      "force_latest": true,
       "json_detail_fetch": true,
       "json_sort": "decision_date:desc",
-      "force_latest": true,
+      "max_items": 100,
       "filters": { "keywords": [], "fallback_to_all": false }
     },
     {
@@ -954,9 +955,10 @@
       "link": "mdr_report_key OR report_number OR event_key",
       "date": "date_received OR report_date",
       "description": "mdr_text OR event_description",
+      "force_latest": true,
       "json_detail_fetch": true,
       "json_sort": "mdr_id:desc",
-      "force_latest": true,
+      "max_items": 100,
       "filters": { "keywords": [], "fallback_to_all": false }
     }
 
