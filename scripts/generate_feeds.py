@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # scripts/generate_feeds.py
-# Versão adaptada para garantir últimos 100 items do OpenFDA 510k e MAUDE
+# Versão com fallback de scraping direto do accessdata.fda.gov para PMN/MAUDE
 # Requisitos: requests, beautifulsoup4, feedgen, python-dateutil
 
 import os
@@ -11,10 +11,11 @@ from bs4 import BeautifulSoup
 import requests
 from feedgen.feed import FeedGenerator
 from datetime import datetime
-from urllib.parse import urljoin, urlparse, urlunparse, parse_qsl, urlencode
+from urllib.parse import urljoin, urlparse, urlencode
 import warnings
 from dateutil import parser as dateparser
 from dateutil import tz as date_tz
+import time
 
 # timezone parsing shim
 try:
@@ -37,14 +38,13 @@ def _parse_with_default_tzinfos(timestr, *args, **kwargs):
 dateparser.parse = _parse_with_default_tzinfos
 
 ROOT = os.path.dirname(__file__)
-# tenta usar sites.json local (scripts/) ou fallback para parent
 SITES_JSON = os.path.join(ROOT, '..', 'sites.json') if not os.path.exists(os.path.join(ROOT, 'sites.json')) else os.path.join(ROOT, 'sites.json')
 FEEDS_DIR = os.path.join(ROOT, '..', 'feeds')
 OUT_XLSX = os.path.join(ROOT, '..', 'feeds_summary.xlsx')
 
 _bad_href_re = re.compile(r'(^#|/help|/legal|cookie|privacy|terms|signin|login|settings|/consent|/preferences|/policies|mailto:)', re.I)
 
-# ---------------- helpers ----------------
+# ---------------- helper: load sites ----------------
 def load_sites():
     try:
         with open(SITES_JSON, 'r', encoding='utf-8') as fh:
@@ -59,19 +59,17 @@ def get_json_path_value(obj, path):
     if obj is None or not path:
         return None
     cur = obj
-    # support 'OR' in path (case-insensitive)
+    # support 'OR'
     if isinstance(path, str) and re.search(r'\s+OR\s+', path, flags=re.I):
         for p in re.split(r'\s+OR\s+', path, flags=re.I):
             v = get_json_path_value(obj, p.strip())
             if v not in (None, ''):
                 return v
         return None
-    # split on dots not inside brackets
     parts = re.split(r'\.(?![^\[]*\])', path)
     for part in parts:
         if not part:
             continue
-        # key[index] pattern
         m = re.match(r'([^\[]+)\[(\d+)\]$', part)
         if m:
             key = m.group(1)
@@ -88,7 +86,6 @@ def get_json_path_value(obj, path):
             else:
                 return None
         else:
-            # plain key
             if isinstance(cur, dict):
                 cur = cur.get(part)
             else:
@@ -101,7 +98,6 @@ def parse_field_from_json(entry, spec):
     if not spec or entry is None:
         return None
     v = get_json_path_value(entry, spec)
-    # if list -> flatten primitives and pick useful fields from dicts
     if isinstance(v, list):
         flat = []
         for el in v:
@@ -125,7 +121,17 @@ def parse_field_from_json(entry, spec):
         return None
     return str(v)
 
-# ---------------- helpers para resolver páginas FDA (detail pages) ----------------
+# ---------------- HTTP helpers ----------------
+def fetch_url_text(url, timeout=20, session=None):
+    s = session or requests
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9'
+    }
+    r = s.get(url, headers=headers, timeout=timeout)
+    r.raise_for_status()
+    return r
+
 def _page_looks_empty(html_text):
     if not html_text:
         return True
@@ -135,11 +141,8 @@ def _page_looks_empty(html_text):
             return True
     return False
 
-def try_resolve_pmn_page(k_number, session, timeout=10):
-    """
-    Tenta construir/validar um pmn.cfm válido a partir do k_number.
-    Retorna (url, title, decision_date_iso, description) ou (None,...).
-    """
+# ---------------- Detail page resolvers (já existentes) ----------------
+def try_resolve_pmn_page(k_number, session, timeout=12):
     if not k_number:
         return None, None, None, None
     kn = str(k_number).strip()
@@ -182,9 +185,9 @@ def try_resolve_pmn_page(k_number, session, timeout=10):
                         dec_iso = dateparser.parse(decision_date).isoformat()
                     except Exception:
                         dec_iso = decision_date
-                # description heuristic
+                # description
                 desc = ''
-                for lbl in ('Statement or Summary', 'Statement', 'Summary', 'Summary:'):
+                for lbl in ('Statement or Summary', 'Statement', 'Summary'):
                     node = soup.find(text=re.compile(re.escape(lbl), re.IGNORECASE))
                     if node:
                         parent = getattr(node, 'parent', None)
@@ -201,11 +204,7 @@ def try_resolve_pmn_page(k_number, session, timeout=10):
                 continue
     return None, None, None, None
 
-def try_resolve_maude_page(mdr_id, product_code, session, timeout=10):
-    """
-    Tenta Detail.CFM?MDRFOI__ID={mdr_id}&pc={product_code}
-    Retorna (url, title, date_received_iso, description) ou (None,...).
-    """
+def try_resolve_maude_page(mdr_id, product_code, session, timeout=12):
     if not mdr_id:
         return None, None, None, None
     pc = (product_code or '').strip()
@@ -237,7 +236,147 @@ def try_resolve_maude_page(mdr_id, product_code, session, timeout=10):
     except Exception:
         return None, None, None, None
 
-# ---------------- parse JSON -> items (focused on openFDA) ----------------
+# ---------------- Scraping listing pages (NEW) ----------------
+def scrape_pmn_listing(scrape_url, max_items=100, pages_to_try=6, session=None, delay_between=0.4):
+    """
+    scrape_url: base search URL for PMN (can contain DecisionDateTo etc).
+    pages_to_try: how many PAGENUM values to attempt (1..N).
+    Retorna lista de items com keys: title, link, description, date (ISO)
+    """
+    s = session or requests.Session()
+    found_ids = []
+    items = []
+    # If the provided URL already contains PAGENUM param, try it directly, otherwise iterate PAGENUM=1..pages_to_try
+    parsed = urlparse(scrape_url)
+    base_q = parsed.query
+    has_pagenum = 'PAGENUM=' in base_q.upper()
+    for p in range(1, pages_to_try + 1):
+        if has_pagenum:
+            url = scrape_url
+        else:
+            sep = '&' if '?' in scrape_url else '?'
+            url = scrape_url + f"{sep}PAGENUM={p}"
+        try:
+            r = s.get(url, timeout=18)
+            r.raise_for_status()
+            html = r.text
+            if _page_looks_empty(html):
+                continue
+            soup = BeautifulSoup(html, 'html.parser')
+            # procurar todos os links que contenham 'cfpmn/pmn.cfm?ID='
+            for a in soup.find_all('a', href=True):
+                href = a['href']
+                if 'cfpmn/pmn.cfm' in href and 'ID=' in href:
+                    # extrair ID param
+                    m = re.search(r'ID=([^&\s]+)', href)
+                    if not m:
+                        continue
+                    raw_id = m.group(1)
+                    # normalize digits or Knnnn
+                    if raw_id not in found_ids:
+                        found_ids.append(raw_id)
+            # se já recolhemos suficientes, break
+            if len(found_ids) >= max_items:
+                break
+            time.sleep(delay_between)
+        except Exception:
+            continue
+
+    # Now validate/resolve each ID with try_resolve_pmn_page (faster if session reused)
+    for rid in found_ids[:max_items]:
+        try:
+            url_detail, title, date_iso, desc = try_resolve_pmn_page(rid, s)
+            # fallback link formation if resolver didn't give url
+            link = url_detail or (f'https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfpmn/pmn.cfm?ID={str(rid)}')
+            item = {
+                'title': title or '',
+                'link': link,
+                'description': desc or '',
+                'date': date_iso or ''
+            }
+            items.append(item)
+        except Exception:
+            continue
+
+    # sort by date desc when possible
+    def _key(it):
+        try:
+            return dateparser.parse(it.get('date') or '')
+        except Exception:
+            return datetime.min
+    items = sorted(items, key=_key, reverse=True)
+    return items[:max_items]
+
+def scrape_maude_listing(scrape_url, max_items=100, pages_to_try=6, session=None, delay_between=0.4):
+    """
+    scrape_url: base search URL for MAUDE results.cfm (user provided).
+    Extrai links Detail.CFM?MDRFOI__ID=... e valida cada página.
+    Ordena por numeric ID desc (mais recente = maior ID).
+    """
+    s = session or requests.Session()
+    found_ids = []
+    items = []
+    parsed = urlparse(scrape_url)
+    base_q = parsed.query
+    # same paging approach: try appending &PAGENUM or &PageNum if necessary (try common params)
+    page_params = ['PAGENUM', 'page', 'PageNum', 'start']
+    # fetch pages
+    for p in range(1, pages_to_try + 1):
+        # try with PAGENUM first if not present
+        if any(param.upper() + '=' in base_q.upper() for param in page_params):
+            url = scrape_url
+        else:
+            sep = '&' if '?' in scrape_url else '?'
+            url = scrape_url + f"{sep}PAGENUM={p}"
+        try:
+            r = s.get(url, timeout=18)
+            r.raise_for_status()
+            html = r.text
+            if _page_looks_empty(html):
+                continue
+            soup = BeautifulSoup(html, 'html.parser')
+            for a in soup.find_all('a', href=True):
+                href = a['href']
+                if 'cfMAUDE/Detail.CFM' in href and 'MDRFOI__ID=' in href:
+                    m = re.search(r'MDRFOI__ID=([^&\s]+)', href)
+                    if not m:
+                        continue
+                    raw_id = m.group(1)
+                    if raw_id not in found_ids:
+                        found_ids.append(raw_id)
+            if len(found_ids) >= max_items:
+                break
+            time.sleep(delay_between)
+        except Exception:
+            continue
+
+    # validate/resolve each found id
+    for rid in found_ids[:max_items]:
+        try:
+            # product code might be present after &pc=
+            mpc = None
+            # build candidate product_code quick attempt:
+            # try to find a sample link in page that contains this id to extract pc param
+            # (we can't reliably map each id to pc without extra parsing of search results; try without pc)
+            url_detail, title, date_iso, desc = try_resolve_maude_page(rid, '', s)
+            link = url_detail or (f"https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfMAUDE/Detail.CFM?MDRFOI__ID={rid}&pc=")
+            item = {
+                'title': title or '',
+                'link': link,
+                'description': desc or '',
+                'date': date_iso or '',
+                # include numeric id to allow sorting by id
+                'mdr_id_num': int(re.sub(r'\D', '', str(rid))) if re.search(r'\d', str(rid)) else None
+            }
+            items.append(item)
+        except Exception:
+            continue
+
+    # sort by numeric id desc (most recent => biggest id)
+    items = sorted(items, key=lambda it: it.get('mdr_id_num') or 0, reverse=True)
+    return items[:max_items]
+
+# ---------------- JSON extractor (mantive a tua lógica adaptada) ----------------
 def extract_items_from_json_obj(jobj, cfg):
     items = []
     container = cfg.get('item_container') or 'results'
@@ -260,17 +399,15 @@ def extract_items_from_json_obj(jobj, cfg):
             title = parse_field_from_json(entry, cfg.get('title') or '') or ''
             raw_link_val = parse_field_from_json(entry, cfg.get('link') or '') or ''
             desc = parse_field_from_json(entry, cfg.get('description') or '') or ''
-            # fallback description tries
             if not desc:
-                for cand in ('statement_or_summary', 'summary', 'event_description', 'mdr_text'):
+                for cand in ('statement_or_summary','summary','event_description','mdr_text'):
                     v = parse_field_from_json(entry, cand)
                     if v:
                         desc = v
                         break
-            # date heuristics
             date_raw = parse_field_from_json(entry, cfg.get('date') or '') or ''
             if not date_raw:
-                for cand in ('decision_date', 'date_received', 'report_date', 'date_report', 'date_of_event'):
+                for cand in ('decision_date','date_received','report_date','date_report','date_of_event'):
                     v = parse_field_from_json(entry, cand)
                     if v:
                         date_raw = v
@@ -293,7 +430,6 @@ def extract_items_from_json_obj(jobj, cfg):
                         date = s
             link = ''
             mdr_id_num = None
-            # special handling for openFDA device endpoints
             url_lower = (cfg.get('url') or '').lower()
             if 'api.fda.gov' in url_lower:
                 if '/device/510k' in url_lower:
@@ -302,12 +438,10 @@ def extract_items_from_json_obj(jobj, cfg):
                         resolved_url, rtitle, rdate, rdesc = try_resolve_pmn_page(knum, session)
                         if resolved_url:
                             link = resolved_url
-                            if rtitle and not title:
-                                title = rtitle
+                            if rtitle and not title: title = rtitle
                             if rdate and not date:
                                 date = rdate
-                            if rdesc and not desc:
-                                desc = rdesc
+                            if rdesc and not desc: desc = rdesc
                     if not link and knum:
                         digits = ''.join(re.findall(r'\d+', str(knum)))
                         if digits:
@@ -317,7 +451,6 @@ def extract_items_from_json_obj(jobj, cfg):
                 elif '/device/event' in url_lower:
                     cand_id = parse_field_from_json(entry, 'mdr_report_key') or parse_field_from_json(entry, 'report_number') or parse_field_from_json(entry, 'event_key') or raw_link_val or ''
                     product_code = parse_field_from_json(entry, 'device[0].device_report_product_code') or parse_field_from_json(entry, 'product_code') or ''
-                    # derive numeric id (choose longest digit group)
                     m = re.findall(r'\d+', str(cand_id))
                     if m:
                         longest = max(m, key=len)
@@ -329,12 +462,9 @@ def extract_items_from_json_obj(jobj, cfg):
                         resolved_url, rtitle, rdate, rdesc = try_resolve_maude_page(cand_id, product_code, session)
                         if resolved_url:
                             link = resolved_url
-                            if rtitle and not title:
-                                title = rtitle
-                            if rdate and not date:
-                                date = rdate
-                            if rdesc and not desc:
-                                desc = rdesc
+                            if rtitle and not title: title = rtitle
+                            if rdate and not date: date = rdate
+                            if rdesc and not desc: desc = rdesc
                     if not link and cand_id:
                         pc = product_code or ''
                         link = f"https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfMAUDE/Detail.CFM?MDRFOI__ID={cand_id}&pc={pc}"
@@ -343,12 +473,11 @@ def extract_items_from_json_obj(jobj, cfg):
                                 mdr_id_num = int(max(m, key=len))
                             except Exception:
                                 mdr_id_num = None
-            # final fallback for link
             if not link and raw_link_val:
                 if str(raw_link_val).lower().startswith('http'):
                     link = raw_link_val
                 else:
-                    link = urljoin(cfg.get('url', ''), str(raw_link_val))
+                    link = urljoin(cfg.get('url',''), str(raw_link_val))
             full_text = (title or '') + ' ' + (desc or '') + ' ' + json.dumps(entry, ensure_ascii=False)[:1500]
             item = {
                 'title': title or '',
@@ -365,7 +494,7 @@ def extract_items_from_json_obj(jobj, cfg):
         except Exception:
             continue
 
-    # ORDERING: respect json_sort or defaults for FDA endpoints
+    # ordering
     sort_cfg = cfg.get('json_sort') or None
     if not sort_cfg:
         if '/device/510k' in (cfg.get('url') or '').lower():
@@ -391,10 +520,8 @@ def extract_items_from_json_obj(jobj, cfg):
         else:
             items = sorted(items, key=lambda it: (it.get(field) or '').lower(), reverse=reverse)
 
-    # Truncar ao limite configurado (prioridade para cfg.max_items, fallback 100)
-    max_items = cfg.get('max_items') or cfg.get('max') or None
-    if not max_items:
-        max_items = 100
+    # truncate
+    max_items = cfg.get('max_items') or cfg.get('max') or 100
     try:
         max_items = int(max_items)
     except Exception:
@@ -405,16 +532,7 @@ def extract_items_from_json_obj(jobj, cfg):
     print(f"After sorting/truncation returning {len(items)} items (max_items={max_items})")
     return items
 
-# ---------------- HTML extraction (kept minimal) ----------------
-def fetch_html(url, timeout=20):
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36',
-        'Accept-Language': 'en-US,en;q=0.9'
-    }
-    r = requests.get(url, headers=headers, timeout=timeout)
-    r.raise_for_status()
-    return r
-
+# ---------------- HTML extraction (minimal) ----------------
 def extract_items_from_html(html_text, cfg):
     soup = BeautifulSoup(html_text, 'html.parser')
     container_sel = cfg.get('item_container') or 'article'
@@ -433,7 +551,7 @@ def extract_items_from_html(html_text, cfg):
             link = ''
             a = node.find('a', href=True)
             if a:
-                link = urljoin(cfg.get('url', ''), a.get('href'))
+                link = urljoin(cfg.get('url',''), a.get('href'))
             desc = ''
             p = node.find('p')
             if p:
@@ -444,7 +562,7 @@ def extract_items_from_html(html_text, cfg):
             continue
     return items
 
-# ---------------- filtering / dedupe / feed building ----------------
+# ---------------- dedupe / feed builder ----------------
 def dedupe_items(items):
     unique = {}
     out = []
@@ -480,7 +598,6 @@ def build_feed(name, cfg, items):
                     fe.link(href=it.get('link'))
                 except Exception:
                     pass
-            # include matched reason if present (for audit), else description
             fe.description(it.get('description') or '')
             if it.get('date'):
                 try:
@@ -511,7 +628,7 @@ def main():
             continue
         print(f'--- Processing {name} ({url}) ---')
 
-        # If calling openFDA and no query string present, append sensible defaults
+        # Build API URL default if openFDA and no query
         u = url
         parsed = urlparse(u)
         if parsed.netloc == 'api.fda.gov' and not parsed.query:
@@ -523,64 +640,80 @@ def main():
             u = u + ('?' + urlencode(params))
             print(f'Adjusted API URL to: {u}')
 
-        try:
-            print(f'Fetching {u} via requests...')
-            resp = fetch_html(u)
-            content_type = resp.headers.get('Content-Type', '') if hasattr(resp, 'headers') else ''
-            txt = resp.text if hasattr(resp, 'text') else str(resp)
-        except Exception as e:
-            print(f'Request error for {u}: {e}')
-            txt = ''
-            content_type = ''
-
+        # If prefer_scrape is set, try scraping the scrape_url instead of calling the API
+        prefer_scrape = bool(cfg.get('prefer_scrape', False))
+        scrape_url = cfg.get('scrape_url') or ''
         items = []
-        if txt:
-            is_json = False
-            try:
-                if 'application/json' in content_type.lower():
-                    is_json = True
-                else:
-                    s = txt.lstrip()
-                    if s.startswith('{') or s.startswith('['):
-                        _ = json.loads(s)
-                        is_json = True
-            except Exception:
-                is_json = False
 
-            if is_json:
-                print(f"Detected JSON response for {name}; parsing with JSON handler")
-                try:
-                    jobj = json.loads(txt)
-                    items = extract_items_from_json_obj(jobj, cfg)
-                except Exception as e:
-                    print('Error parsing JSON response:', e)
-                    items = []
+        if prefer_scrape and scrape_url:
+            print(f'Prefer scrape enabled for {name}, scraping {scrape_url} ...')
+            # decide scraper type by URL content
+            if 'cfpmn/pmn.cfm' in scrape_url or 'cfpmn' in scrape_url:
+                items = scrape_pmn_listing(scrape_url, max_items=int(cfg.get('max_items', 100)))
+            elif 'cfMAUDE' in scrape_url or 'results.cfm' in scrape_url or 'cfMAUDE' in scrape_url:
+                items = scrape_maude_listing(scrape_url, max_items=int(cfg.get('max_items', 100)))
             else:
+                # generic scraping attempt: find pmn or maude links on the page
                 try:
-                    items = extract_items_from_html(txt, cfg)
-                except Exception as e:
-                    print('Error parsing HTML:', e)
+                    sess = requests.Session()
+                    r = sess.get(scrape_url, timeout=18)
+                    r.raise_for_status()
+                    html = r.text
+                    if 'cfpmn' in html:
+                        items = scrape_pmn_listing(scrape_url, max_items=int(cfg.get('max_items', 100)), session=sess)
+                    elif 'cfMAUDE' in html:
+                        items = scrape_maude_listing(scrape_url, max_items=int(cfg.get('max_items', 100)), session=sess)
+                except Exception:
                     items = []
-            # debug sample
-            try:
-                print(f"DEBUG: sample extracted items for {name} (first 20):")
-                for i, it in enumerate(items[:20]):
-                    t = (it.get('title') or '')[:200]
-                    l = (it.get('link') or '')[:200]
-                    dp = bool(it.get('description'))
-                    mid = it.get('mdr_id_num', '')
-                    print(f"  [{i}] title='{t}' link='{l}' desc_present={dp} mdr_id_num={mid}")
-            except Exception:
-                pass
+
         else:
-            items = []
+            # Normal API path (openFDA or any URL returning JSON)
+            try:
+                print(f'Fetching {u} via requests...')
+                resp = fetch_url_text(u)
+                content_type = resp.headers.get('Content-Type','') if hasattr(resp,'headers') else ''
+                txt = resp.text if hasattr(resp,'text') else str(resp)
+            except Exception as e:
+                print(f'Request error for {u}: {e}')
+                txt = ''
+                content_type = ''
+
+            if txt:
+                is_json = False
+                try:
+                    if 'application/json' in content_type.lower():
+                        is_json = True
+                    else:
+                        s = txt.lstrip()
+                        if s.startswith('{') or s.startswith('['):
+                            _ = json.loads(s)
+                            is_json = True
+                except Exception:
+                    is_json = False
+
+                if is_json:
+                    print(f"Detected JSON response for {name}; parsing with JSON handler")
+                    try:
+                        jobj = json.loads(txt)
+                        items = extract_items_from_json_obj(jobj, cfg)
+                    except Exception as e:
+                        print('Error parsing JSON response:', e)
+                        items = []
+                else:
+                    try:
+                        items = extract_items_from_html(txt, cfg)
+                    except Exception as e:
+                        print('Error parsing HTML:', e)
+                        items = []
+            else:
+                items = []
+
         print(f'Found {len(items)} items for {name} (raw)')
 
-        # Decide matching: for these FDA endpoints user asked to ALWAYS take the latest 100
+        # If user asked force_latest, just take top N items (items should already be sorted by scraper or by json extractor)
         force_latest = bool(cfg.get('force_latest', False))
         matched = []
         if force_latest and items:
-            # items already ordered by extract_items_from_json_obj; just take first max_items (or 100)
             max_items = cfg.get('max_items') or cfg.get('max') or 100
             try:
                 max_items = int(max_items)
@@ -589,11 +722,12 @@ def main():
             matched = items[:max_items]
             print(f'force_latest=True for {name}: taking top {len(matched)} items (no filters applied)')
         else:
-            # normal filters (unchanged behavior)
+            # normal filtering path (keep your existing semantics)
             kw = cfg.get('filters', {}).get('keywords', []) or []
             print(f'Applying {len(kw)} keyword filters for {name}')
             for it in items:
-                keep, reason = True, None
+                keep = True
+                reason = None
                 if kw:
                     keep = False
                     for k in kw:
@@ -608,6 +742,7 @@ def main():
                     matched.append(it)
         print(f'{len(matched)} items matched for {name}')
 
+        # dedupe & write
         deduped = dedupe_items(matched)
         build_feed(name, cfg, deduped)
 
