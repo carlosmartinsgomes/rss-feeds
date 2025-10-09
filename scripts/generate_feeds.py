@@ -23,21 +23,28 @@ try:
     warnings.filterwarnings("ignore", category=UnknownTimezoneWarning)
 except Exception:
     warnings.filterwarnings("ignore", message="tzname .* identified but not understood")
+
 _default_tzinfos = {"ET": date_tz.gettz("America/New_York")}
 _original_parse = dateparser.parse
+
+
 def _parse_with_default_tzinfos(timestr, *args, **kwargs):
     if "tzinfos" not in kwargs or kwargs["tzinfos"] is None:
         kwargs["tzinfos"] = _default_tzinfos
     return _original_parse(timestr, *args, **kwargs)
+
+
 dateparser.parse = _parse_with_default_tzinfos
 
 ROOT = os.path.dirname(__file__)
-SITES_JSON = os.path.join(ROOT, '..', 'sites.json') if not os.path.exists(os.path.join(ROOT,'sites.json')) else os.path.join(ROOT,'sites.json')
+# tenta usar sites.json local (scripts/) ou fallback para parent
+SITES_JSON = os.path.join(ROOT, '..', 'sites.json') if not os.path.exists(os.path.join(ROOT, 'sites.json')) else os.path.join(ROOT, 'sites.json')
 FEEDS_DIR = os.path.join(ROOT, '..', 'feeds')
 OUT_XLSX = os.path.join(ROOT, '..', 'feeds_summary.xlsx')
 
 _bad_href_re = re.compile(r'(^#|/help|/legal|cookie|privacy|terms|signin|login|settings|/consent|/preferences|/policies|mailto:)', re.I)
 
+# ---------------- helpers ----------------
 def load_sites():
     try:
         with open(SITES_JSON, 'r', encoding='utf-8') as fh:
@@ -52,7 +59,7 @@ def get_json_path_value(obj, path):
     if obj is None or not path:
         return None
     cur = obj
-    # support 'OR' in path
+    # support 'OR' in path (case-insensitive)
     if isinstance(path, str) and re.search(r'\s+OR\s+', path, flags=re.I):
         for p in re.split(r'\s+OR\s+', path, flags=re.I):
             v = get_json_path_value(obj, p.strip())
@@ -91,21 +98,23 @@ def get_json_path_value(obj, path):
     return cur
 
 def parse_field_from_json(entry, spec):
+    if not spec or entry is None:
+        return None
     v = get_json_path_value(entry, spec)
-    # if list -> flatten primitives
+    # if list -> flatten primitives and pick useful fields from dicts
     if isinstance(v, list):
         flat = []
         for el in v:
             if isinstance(el, (str, int, float)):
                 flat.append(str(el))
             elif isinstance(el, dict):
-                for cand in ('device_name','name','brand_name','title'):
-                    if cand in el:
+                for cand in ('device_name', 'name', 'brand_name', 'title', 'applicant'):
+                    if cand in el and el[cand]:
                         flat.append(str(el[cand]))
                         break
         return ', '.join(flat) if flat else None
     if isinstance(v, dict):
-        for cand in ('device_name','name','title','summary','applicant'):
+        for cand in ('device_name', 'name', 'title', 'summary', 'applicant'):
             if cand in v and v[cand]:
                 return str(v[cand])
         try:
@@ -121,12 +130,16 @@ def _page_looks_empty(html_text):
     if not html_text:
         return True
     low = html_text.lower()
-    for token in ('0 records found','no records found','no matching records','no record found'):
+    for token in ('0 records found', 'no records found', 'no matching records', 'no record found'):
         if token in low:
             return True
     return False
 
 def try_resolve_pmn_page(k_number, session, timeout=10):
+    """
+    Tenta construir/validar um pmn.cfm válido a partir do k_number.
+    Retorna (url, title, decision_date_iso, description) ou (None,...).
+    """
     if not k_number:
         return None, None, None, None
     kn = str(k_number).strip()
@@ -163,10 +176,16 @@ def try_resolve_pmn_page(k_number, session, timeout=10):
                 txt = soup.get_text(" ", strip=True)
                 dec_match = re.search(r'Decision Date[:\s]*([A-Za-z0-9, \-/]+)', txt, re.IGNORECASE)
                 decision_date = dec_match.group(1).strip() if dec_match else ''
+                dec_iso = ''
+                if decision_date:
+                    try:
+                        dec_iso = dateparser.parse(decision_date).isoformat()
+                    except Exception:
+                        dec_iso = decision_date
                 # description heuristic
                 desc = ''
-                for lbl in ('Statement of Summary','Statement or Summary','Summary','Statement'):
-                    node = soup.find(text=re.compile(r'\b' + re.escape(lbl) + r'\b', re.IGNORECASE))
+                for lbl in ('Statement or Summary', 'Statement', 'Summary', 'Summary:'):
+                    node = soup.find(text=re.compile(re.escape(lbl), re.IGNORECASE))
                     if node:
                         parent = getattr(node, 'parent', None)
                         if parent:
@@ -177,12 +196,16 @@ def try_resolve_pmn_page(k_number, session, timeout=10):
                 if not desc:
                     body = soup.get_text(" ", strip=True)
                     desc = (body[:500] + '...') if len(body) > 500 else body
-                return url, title or '', (dateparser.parse(decision_date).isoformat() if decision_date else ''), desc or ''
+                return url, title or '', dec_iso or '', desc or ''
             except Exception:
                 continue
     return None, None, None, None
 
 def try_resolve_maude_page(mdr_id, product_code, session, timeout=10):
+    """
+    Tenta Detail.CFM?MDRFOI__ID={mdr_id}&pc={product_code}
+    Retorna (url, title, date_received_iso, description) ou (None,...).
+    """
     if not mdr_id:
         return None, None, None, None
     pc = (product_code or '').strip()
@@ -198,13 +221,19 @@ def try_resolve_maude_page(mdr_id, product_code, session, timeout=10):
         txt = soup.get_text(" ", strip=True)
         date_match = re.search(r'Date Received[:\s]*([A-Za-z0-9, \-/]+)', txt, re.IGNORECASE)
         date_val = date_match.group(1).strip() if date_match else ''
+        date_iso = ''
+        if date_val:
+            try:
+                date_iso = dateparser.parse(date_val).isoformat()
+            except Exception:
+                date_iso = date_val
         desc = ''
         m = re.search(r'Description of Event or Problem[:\s]*(.{20,400})', txt, re.IGNORECASE)
         if m:
             desc = m.group(1).strip()
         if not desc:
             desc = (txt[:500] + '...') if len(txt) > 500 else txt
-        return url, title, (dateparser.parse(date_val).isoformat() if date_val else ''), desc
+        return url, title, date_iso, desc
     except Exception:
         return None, None, None, None
 
@@ -232,25 +261,34 @@ def extract_items_from_json_obj(jobj, cfg):
             raw_link_val = parse_field_from_json(entry, cfg.get('link') or '') or ''
             desc = parse_field_from_json(entry, cfg.get('description') or '') or ''
             # fallback description tries
-            for cand in ('statement_or_summary','summary','event_description','mdr_text'):
-                if not desc:
+            if not desc:
+                for cand in ('statement_or_summary', 'summary', 'event_description', 'mdr_text'):
                     v = parse_field_from_json(entry, cand)
                     if v:
                         desc = v
+                        break
+            # date heuristics
             date_raw = parse_field_from_json(entry, cfg.get('date') or '') or ''
-            for cand in ('decision_date','date_received','report_date','date_report','date_of_event'):
-                if not date_raw:
+            if not date_raw:
+                for cand in ('decision_date', 'date_received', 'report_date', 'date_report', 'date_of_event'):
                     v = parse_field_from_json(entry, cand)
                     if v:
                         date_raw = v
+                        break
             date = ''
+            date_obj = None
             if date_raw:
                 s = str(date_raw).strip()
                 if re.match(r'^\d{8}$', s):
                     date = f"{s[0:4]}-{s[4:6]}-{s[6:8]}"
+                    try:
+                        date_obj = dateparser.parse(date)
+                    except Exception:
+                        date_obj = None
                 else:
                     try:
-                        date = dateparser.parse(s).isoformat()
+                        date_obj = dateparser.parse(s)
+                        date = date_obj.isoformat()
                     except Exception:
                         date = s
             link = ''
@@ -264,9 +302,12 @@ def extract_items_from_json_obj(jobj, cfg):
                         resolved_url, rtitle, rdate, rdesc = try_resolve_pmn_page(knum, session)
                         if resolved_url:
                             link = resolved_url
-                            if rtitle and not title: title = rtitle
-                            if rdate and not date: date = rdate
-                            if rdesc and not desc: desc = rdesc
+                            if rtitle and not title:
+                                title = rtitle
+                            if rdate and not date:
+                                date = rdate
+                            if rdesc and not desc:
+                                desc = rdesc
                     if not link and knum:
                         digits = ''.join(re.findall(r'\d+', str(knum)))
                         if digits:
@@ -288,13 +329,15 @@ def extract_items_from_json_obj(jobj, cfg):
                         resolved_url, rtitle, rdate, rdesc = try_resolve_maude_page(cand_id, product_code, session)
                         if resolved_url:
                             link = resolved_url
-                            if rtitle and not title: title = rtitle
-                            if rdate and not date: date = rdate
-                            if rdesc and not desc: desc = rdesc
+                            if rtitle and not title:
+                                title = rtitle
+                            if rdate and not date:
+                                date = rdate
+                            if rdesc and not desc:
+                                desc = rdesc
                     if not link and cand_id:
                         pc = product_code or ''
                         link = f"https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfMAUDE/Detail.CFM?MDRFOI__ID={cand_id}&pc={pc}"
-                        # if we didn't have numeric id earlier, try again from cand_id
                         if mdr_id_num is None and m:
                             try:
                                 mdr_id_num = int(max(m, key=len))
@@ -305,13 +348,14 @@ def extract_items_from_json_obj(jobj, cfg):
                 if str(raw_link_val).lower().startswith('http'):
                     link = raw_link_val
                 else:
-                    link = urljoin(cfg.get('url',''), str(raw_link_val))
+                    link = urljoin(cfg.get('url', ''), str(raw_link_val))
             full_text = (title or '') + ' ' + (desc or '') + ' ' + json.dumps(entry, ensure_ascii=False)[:1500]
             item = {
                 'title': title or '',
                 'link': link or '',
                 'description': desc or '',
                 'date': date or '',
+                'date_obj': date_obj,
                 'full_text': full_text or '',
                 '_raw_entry': entry
             }
@@ -331,15 +375,34 @@ def extract_items_from_json_obj(jobj, cfg):
     if sort_cfg:
         field, _, direction = sort_cfg.partition(':')
         reverse = (direction.lower() == 'desc')
-        if field == 'mdr_id':
+        if field in ('mdr_id', 'mdr_id_num'):
             items = sorted(items, key=lambda it: it.get('mdr_id_num') or 0, reverse=reverse)
-        elif field in ('decision_date','date_received','date','report_date'):
+        elif field in ('decision_date', 'date_received', 'date', 'report_date'):
             def _k(it):
                 try:
-                    return dateparser.parse(it.get('date') or '')
+                    if it.get('date_obj') is not None:
+                        return it.get('date_obj')
+                    if it.get('date'):
+                        return dateparser.parse(it.get('date'))
                 except Exception:
-                    return it.get('date') or ''
+                    pass
+                return datetime.min
             items = sorted(items, key=_k, reverse=reverse)
+        else:
+            items = sorted(items, key=lambda it: (it.get(field) or '').lower(), reverse=reverse)
+
+    # Truncar ao limite configurado (prioridade para cfg.max_items, fallback 100)
+    max_items = cfg.get('max_items') or cfg.get('max') or None
+    if not max_items:
+        max_items = 100
+    try:
+        max_items = int(max_items)
+    except Exception:
+        max_items = 100
+    if len(items) > max_items:
+        items = items[:max_items]
+
+    print(f"After sorting/truncation returning {len(items)} items (max_items={max_items})")
     return items
 
 # ---------------- HTML extraction (kept minimal) ----------------
@@ -370,7 +433,7 @@ def extract_items_from_html(html_text, cfg):
             link = ''
             a = node.find('a', href=True)
             if a:
-                link = urljoin(cfg.get('url',''), a.get('href'))
+                link = urljoin(cfg.get('url', ''), a.get('href'))
             desc = ''
             p = node.find('p')
             if p:
@@ -386,8 +449,8 @@ def dedupe_items(items):
     unique = {}
     out = []
     for it in (items or []):
-        key = it.get('link') or (it.get('title','')[:200].strip().lower())
-        key = key.strip()
+        key = it.get('link') or (it.get('title', '')[:200].strip().lower())
+        key = (key or '').strip()
         if key not in unique:
             unique[key] = True
             out.append(it)
@@ -396,7 +459,7 @@ def dedupe_items(items):
 def build_feed(name, cfg, items):
     fg = FeedGenerator()
     fg.title(name)
-    fg.link(href=cfg.get('url',''), rel='alternate')
+    fg.link(href=cfg.get('url', ''), rel='alternate')
     fg.description(f'Feed gerado para {name}')
     fg.generator('generate_feeds.py')
     max_items = cfg.get('max_items') or cfg.get('max') or None
@@ -413,16 +476,21 @@ def build_feed(name, cfg, items):
             fe = fg.add_entry()
             fe.title(it.get('title') or 'No title')
             if it.get('link'):
-                try: fe.link(href=it.get('link'))
-                except Exception: pass
+                try:
+                    fe.link(href=it.get('link'))
+                except Exception:
+                    pass
+            # include matched reason if present (for audit), else description
             fe.description(it.get('description') or '')
             if it.get('date'):
                 try:
                     dt = dateparser.parse(it.get('date'))
                     fe.pubDate(dt)
                 except Exception:
-                    try: fe.pubDate(it.get('date'))
-                    except Exception: pass
+                    try:
+                        fe.pubDate(it.get('date'))
+                    except Exception:
+                        pass
             count += 1
         except Exception:
             continue
@@ -449,10 +517,8 @@ def main():
         if parsed.netloc == 'api.fda.gov' and not parsed.query:
             params = {'limit': 100}
             if '/device/510k' in parsed.path:
-                # request server-side sorted by decision_date desc (best effort)
                 params['sort'] = 'decision_date:desc'
             elif '/device/event' in parsed.path:
-                # server-side sort by date_received desc (API support best-effort)
                 params['sort'] = 'date_received:desc'
             u = u + ('?' + urlencode(params))
             print(f'Adjusted API URL to: {u}')
@@ -460,8 +526,8 @@ def main():
         try:
             print(f'Fetching {u} via requests...')
             resp = fetch_html(u)
-            content_type = resp.headers.get('Content-Type','') if hasattr(resp,'headers') else ''
-            txt = resp.text if hasattr(resp,'text') else str(resp)
+            content_type = resp.headers.get('Content-Type', '') if hasattr(resp, 'headers') else ''
+            txt = resp.text if hasattr(resp, 'text') else str(resp)
         except Exception as e:
             print(f'Request error for {u}: {e}')
             txt = ''
@@ -514,11 +580,16 @@ def main():
         force_latest = bool(cfg.get('force_latest', False))
         matched = []
         if force_latest and items:
-            # items already ordered by json_sort in extract; just take first 100
-            matched = items[:100]
+            # items already ordered by extract_items_from_json_obj; just take first max_items (or 100)
+            max_items = cfg.get('max_items') or cfg.get('max') or 100
+            try:
+                max_items = int(max_items)
+            except Exception:
+                max_items = 100
+            matched = items[:max_items]
             print(f'force_latest=True for {name}: taking top {len(matched)} items (no filters applied)')
         else:
-            # normal filters (unchanged behavior) - but user said focus on 510k/maude; keep logic
+            # normal filters (unchanged behavior)
             kw = cfg.get('filters', {}).get('keywords', []) or []
             print(f'Applying {len(kw)} keyword filters for {name}')
             for it in items:
@@ -529,8 +600,11 @@ def main():
                         kl = k.lower()
                         if kl in (it.get('title') or '').lower() or kl in (it.get('description') or '').lower() or kl in (it.get('full_text') or '').lower() or kl in (it.get('link') or '').lower():
                             keep = True
+                            reason = f"keyword '{k}' matched"
                             break
                 if keep:
+                    if reason:
+                        it['matched_reason'] = reason
                     matched.append(it)
         print(f'{len(matched)} items matched for {name}')
 
