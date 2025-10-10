@@ -317,6 +317,19 @@ jobs:
             pip install requests beautifulsoup4 feedgen lxml feedparser python-dateutil
           fi
 
+          # --- ADDED: install Playwright (Python) and browsers so python imports work ---
+          # install the Python playwright package (needed for from playwright.sync_api ...)
+          pip install playwright
+
+          # install the chromium browser for Playwright (this downloads browser binaries)
+          # skip if cache already exists to speed up runs (simple check)
+          if [ -d "${HOME}/.cache/ms-playwright" ] && [ "$(ls -A ${HOME}/.cache/ms-playwright 2>/dev/null | wc -l)" -gt 0 ]; then
+            echo "Playwright browsers already present in ${HOME}/.cache/ms-playwright -> skipping python browser install"
+          else
+            python -m playwright install chromium || { echo "python playwright browser install failed"; exit 1; }
+          fi
+          # --- end ADDED ---
+
       - name: Run feed generator (Python)
         run: |
           SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
@@ -350,7 +363,6 @@ jobs:
           path: feeds/*.xml
           if-no-files-found: warn
           retention-days: 7
-    
 
       - name: Install tiny extras for Excel export
         run: |
