@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 # scripts/generate_feeds.py
-# Versão com scraping PMN/MAUDE mais robusto + debug para diagnosticar "0 items found".
-# Requisitos: requests, beautifulsoup4, feedgen, python-dateutil
+# Versão com scraping PMN/MAUDE mais robusto + click Search + set results per page + fallback
 
 import os
 import json
@@ -136,7 +135,7 @@ def _page_looks_empty(html_text):
     if not html_text:
         return True
     low = html_text.lower()
-    for token in ('0 records found', 'no records found', 'no matching records', 'no record found'):
+    for token in ('0 records found', 'no records found', 'no matching records', 'no record found', 'please use the search form'):
         if token in low:
             return True
     return False
@@ -238,72 +237,124 @@ def try_resolve_maude_page(mdr_id, product_code, session, timeout=12):
     except Exception:
         return None, None, None, None
 
-# ---------------- Robust scraping of listing pages ----------------
-def scrape_pmn_with_playwright(scrape_url, max_items=100, pages_to_try=10, wait_selector=None, timeout=12000):
-    
+# ---------------- Robust scraping of listing pages (click Search + set results per page) ----------------
+
+def _try_click_select_set(page, select_candidates, value):
+    for sel in select_candidates:
+        try:
+            if page.locator(sel).count() > 0:
+                page.select_option(sel, str(value))
+                time.sleep(0.3)
+                return True
+        except Exception:
+            continue
+    return False
+
+def _try_click_first(page, click_candidates, timeout=8000):
+    for sel in click_candidates:
+        try:
+            # try text locator first
+            try:
+                loc = page.get_by_text(sel)
+                if loc.count() > 0:
+                    loc.first.click(timeout=timeout)
+                    return True
+            except Exception:
+                pass
+            # try css
+            if page.locator(sel).count() > 0:
+                page.click(sel, timeout=timeout)
+                return True
+        except Exception:
+            continue
+    return False
+
+def _try_click_next(page, timeout=8000):
+    next_cands = ['a:has-text("Next")', 'a.next', 'a[rel="next"]', 'button:has-text("Next")', 'a:has-text(">")']
+    return _try_click_first(page, next_cands, timeout=timeout)
+
+def scrape_pmn_with_playwright(scrape_url, max_items=100, pages_to_try=8, wait_selector=None, timeout=20000):
+    """
+    Open base pmn.cfm, click Search, set Results per Page to per_page (=50 default),
+    then collect IDs from results and paginate by clicking Next.
+    """
     items = []
     ids_seen = []
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        context = browser.new_context()
-        page = context.new_page()
-        for pnum in range(1, pages_to_try + 1):
-            # build page URL substituindo PAGENUM
-            if re.search(r'PAGENUM=\d+', scrape_url, flags=re.IGNORECASE):
-                url = re.sub(r'PAGENUM=\d+', f'PAGENUM={pnum}', scrape_url, flags=re.IGNORECASE)
-            else:
-                sep = '&' if '?' in scrape_url else '?'
-                url = f"{scrape_url}{sep}PAGENUM={pnum}"
-
+    per_page = 50
+    # if scrape_url includes PAGENUM/per_page guess, ignore and use base page
+    base_url = re.sub(r'\?.*$', '', scrape_url)
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            context = browser.new_context()
+            page = context.new_page()
+            page.set_default_timeout(timeout)
+            # goto base search page
             try:
-                page.goto(url, wait_until="networkidle", timeout=timeout)
+                page.goto(base_url, wait_until="networkidle", timeout=timeout)
             except PlaywrightTimeoutError:
-                # tenta sem networkidle
                 try:
-                    page.goto(url, timeout=timeout)
+                    page.goto(base_url, timeout=timeout)
                 except Exception as e:
-                    print("PLAYWRIGHT PMN: goto failed", e)
-                    continue
+                    print("PLAYWRIGHT PMN: initial goto failed", e)
+                    browser.close()
+                    return items
 
-            # se foi passado um selector específico, espera por ele (ex: a[href*="pmn.cfm"])
-            if not wait_selector:
-                wait_selector = 'a[href*="pmn.cfm?ID="], a[href*="pmn.cfm?ID=K"]'
+            # Click "Search" to get results (if page is search form)
+            search_clicks = ["Search", 'button:has-text("Search")', 'input[type="submit"][value*="Search"]', 'input[type="button"][value*="Search"]']
+            clicked = _try_click_first(page, search_clicks, timeout=8000)
+
+            # Try to set Results per Page to per_page (several possible selectors)
+            select_cands = ['select[name="PAGENUM"]', 'select[name="ResultsPerPage"]', 'select#PAGENUM', 'select[name="resultsPerPage"]']
+            _try_click_select_set(page, select_cands, per_page)
+
+            # Wait for results table or result links
+            wait_sel = wait_selector or 'a[href*="pmn.cfm?ID="], table'
             try:
-                page.wait_for_selector(wait_selector, timeout=4000)
-            except PlaywrightTimeoutError:
-                # não falhar: pode ainda existir conteúdo em scripts, por isso continuamos
+                page.wait_for_selector(wait_sel, timeout=6000)
+            except Exception:
                 pass
 
-            # extrai links diretamente do DOM
-            anchors = page.query_selector_all('a')
-            for a in anchors:
+            # Collect initial page and then navigate Next up to pages_to_try
+            for pidx in range(0, pages_to_try):
                 try:
-                    href = a.get_attribute('href') or ''
-                    if 'pmn.cfm' in href:
-                        # extrai ID
-                        m = re.search(r'pmn\.cfm\?ID=([A-Za-z0-9\-]+)', href, flags=re.I)
-                        if m:
-                            rid = m.group(1)
-                            if rid not in ids_seen:
-                                ids_seen.append(rid)
+                    content = page.content()
                 except Exception:
-                    continue
+                    content = ''
+                # extract IDs from anchors and content
+                anchors = page.query_selector_all('a')
+                for a in anchors:
+                    try:
+                        href = a.get_attribute('href') or ''
+                        if 'pmn.cfm' in href:
+                            m = re.search(r'pmn\.cfm\?ID=([A-Za-z0-9\-]+)', href, flags=re.I)
+                            if m:
+                                rid = m.group(1)
+                                if rid not in ids_seen:
+                                    ids_seen.append(rid)
+                    except Exception:
+                        continue
+                # fallback pattern scan on raw content
+                for m in re.findall(r'pmn\.cfm\?ID=([A-Za-z0-9\-]+)', content, flags=re.I):
+                    if m not in ids_seen:
+                        ids_seen.append(m)
+                if len(ids_seen) >= max_items:
+                    break
+                # try click Next to go to next results page
+                if not _try_click_next(page, timeout=6000):
+                    # no next found -> break
+                    break
+                # small wait for next page to load
+                try:
+                    page.wait_for_load_state("networkidle", timeout=8000)
+                except Exception:
+                    time.sleep(0.6)
+            browser.close()
+    except Exception as e:
+        print("scrape_pmn_with_playwright fatal:", e)
+        return []
 
-            # também varre todo o DOM para encontrar IDs em atributos/JS (fallback)
-            content = page.content()
-            for m in re.findall(r'pmn\.cfm\?ID=([A-Za-z0-9\-]+)', content, flags=re.I):
-                if m not in ids_seen:
-                    ids_seen.append(m)
-
-            if len(ids_seen) >= max_items:
-                break
-
-            time.sleep(0.2)
-
-        # Fechar browser
-        browser.close()
-
-    # resolve detalhes das IDs recolhidas (usa a função try_resolve_pmn_page já existente)
+    # resolve details
     session = requests.Session()
     for rid in ids_seen[:max_items]:
         try:
@@ -313,7 +364,7 @@ def scrape_pmn_with_playwright(scrape_url, max_items=100, pages_to_try=10, wait_
         except Exception:
             continue
 
-    # ordena por date desc se houver datas
+    # order by date desc
     def _key(it):
         try:
             return dateparser.parse(it.get('date') or '')
@@ -323,72 +374,89 @@ def scrape_pmn_with_playwright(scrape_url, max_items=100, pages_to_try=10, wait_
     return items[:max_items]
 
 
-def scrape_maude_with_playwright(scrape_url, max_items=100, pages_to_try=10, wait_selector=None, timeout=12000):
+def scrape_maude_with_playwright(scrape_url, max_items=100, pages_to_try=8, wait_selector=None, timeout=20000):
     """
-    Renderiza com Playwright a página MAUDE e extrai links com 'Detail.CFM?MDRFOI__ID='.
+    Open MAUDE search.cfm, set Records per Report Page to per_page (100 default),
+    click Search, then iterate results by clicking Next collecting MDR IDs.
     """
     items = []
     found = []
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        context = browser.new_context()
-        page = context.new_page()
-        for pnum in range(1, pages_to_try + 1):
-            if re.search(r'PAGENUM=\d+', scrape_url, flags=re.IGNORECASE):
-                url = re.sub(r'PAGENUM=\d+', f'PAGENUM={pnum}', scrape_url, flags=re.IGNORECASE)
-            else:
-                sep = '&' if '?' in scrape_url else '?'
-                url = f"{scrape_url}{sep}PAGENUM={pnum}"
-
+    per_page = 100
+    base_url = re.sub(r'\?.*$', '', scrape_url)
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            context = browser.new_context()
+            page = context.new_page()
+            page.set_default_timeout(timeout)
             try:
-                page.goto(url, wait_until="networkidle", timeout=timeout)
+                page.goto(base_url, wait_until="networkidle", timeout=timeout)
             except PlaywrightTimeoutError:
                 try:
-                    page.goto(url, timeout=timeout)
+                    page.goto(base_url, timeout=timeout)
                 except Exception as e:
-                    print("PLAYWRIGHT MAUDE: goto failed", e)
-                    continue
+                    print("PLAYWRIGHT MAUDE: initial goto failed", e)
+                    browser.close()
+                    return items
 
-            if not wait_selector:
-                wait_selector = 'a[href*="Detail.CFM?MDRFOI__ID="]'
+            # Attempt to set Records per Report Page to per_page
+            select_cands = ['select[name="RecordsPerReportPage"]', 'select[name="RecordsPerPage"]', 'select#RecordsPerPage', 'select[name="perpage"]']
+            _try_click_select_set(page, select_cands, per_page)
+
+            # Click Search button
+            search_clicks = ["Search", 'button:has-text("Search")', 'input[type="submit"][value*="Search"]', 'input[type="button"][value*="Search"]']
+            _try_click_first(page, search_clicks, timeout=8000)
+
+            # wait for results
+            wait_sel = wait_selector or 'a[href*="Detail.CFM?MDRFOI__ID="], table'
             try:
-                page.wait_for_selector(wait_selector, timeout=4000)
-            except PlaywrightTimeoutError:
+                page.wait_for_selector(wait_sel, timeout=6000)
+            except Exception:
                 pass
 
-            # extrai anchors
-            anchors = page.query_selector_all('a')
-            for a in anchors:
+            for pidx in range(0, pages_to_try):
                 try:
-                    href = a.get_attribute('href') or ''
-                    if 'Detail.CFM' in href or 'MDRFOI__ID' in href:
-                        m = re.search(r'MDRFOI__ID=([0-9]+)', href, flags=re.I)
-                        pc = ''
-                        if m:
-                            idnum = m.group(1)
-                            pc_m = re.search(r'pc=([A-Za-z0-9]+)', href, flags=re.I)
-                            if pc_m:
-                                pc = pc_m.group(1)
-                            if not any(x[0] == idnum for x in found):
-                                found.append((idnum, pc))
+                    content = page.content()
                 except Exception:
-                    continue
+                    content = ''
+                # anchors
+                anchors = page.query_selector_all('a')
+                for a in anchors:
+                    try:
+                        href = a.get_attribute('href') or ''
+                        if 'Detail.CFM' in href or 'MDRFOI__ID' in href:
+                            m = re.search(r'MDRFOI__ID=([0-9]+)', href, flags=re.I)
+                            pc = ''
+                            if m:
+                                idnum = m.group(1)
+                                pc_m = re.search(r'pc=([A-Za-z0-9]+)', href, flags=re.I)
+                                if pc_m:
+                                    pc = pc_m.group(1)
+                                if not any(x[0] == idnum for x in found):
+                                    found.append((idnum, pc))
+                    except Exception:
+                        continue
+                # fallback pattern scan
+                for m in re.findall(r'Detail\.CFM\?MDRFOI__ID=([0-9]+)(?:&pc=([A-Za-z0-9]+))?', content, flags=re.I):
+                    idnum = m[0]
+                    pc = m[1] or ''
+                    if not any(x[0] == idnum for x in found):
+                        found.append((idnum, pc))
+                if len(found) >= max_items:
+                    break
+                # try next
+                if not _try_click_next(page, timeout=6000):
+                    break
+                try:
+                    page.wait_for_load_state("networkidle", timeout=8000)
+                except Exception:
+                    time.sleep(0.6)
+            browser.close()
+    except Exception as e:
+        print("scrape_maude_with_playwright fatal:", e)
+        return []
 
-            content = page.content()
-            for m in re.findall(r'Detail\.CFM\?MDRFOI__ID=([0-9]+)(?:&pc=([A-Za-z0-9]+))?', content, flags=re.I):
-                idnum = m[0]
-                pc = m[1] or ''
-                if not any(x[0] == idnum for x in found):
-                    found.append((idnum, pc))
-
-            if len(found) >= max_items:
-                break
-
-            time.sleep(0.2)
-
-        browser.close()
-
-    # resolve cada par id/pc com try_resolve_maude_page
+    # resolve details
     session = requests.Session()
     for idnum, pc in found[:max_items]:
         try:
@@ -399,11 +467,8 @@ def scrape_maude_with_playwright(scrape_url, max_items=100, pages_to_try=10, wai
         except Exception:
             continue
 
-    # ordenar por mdr_id desc (números maiores = mais recentes)
     items = sorted(items, key=lambda it: it.get('mdr_id_num') or 0, reverse=True)
     return items[:max_items]
-
-
 
 # ---------------- JSON extractor (mantive tua lógica) ----------------
 def extract_items_from_json_obj(jobj, cfg):
@@ -678,18 +743,20 @@ def main():
         except Exception:
             cfg_max_items = 100
         try:
-            cfg_pages_to_try = int(cfg.get('pages_to_try') or 8)
+            cfg_pages_to_try = int(cfg.get('pages_to_try') or cfg.get('pages_to_try') or cfg.get('pages_to_try') or cfg.get('pages_to_try', 8))
         except Exception:
-            cfg_pages_to_try = 8
+            cfg_pages_to_try = int(cfg.get('pages_to_try') or 8)
 
         if prefer_scrape and scrape_url:
             print(f'Prefer scrape enabled for {name}, scraping {scrape_url} ...')
-            # tenta usar as versões Playwright (assumo que estão definidas: scrape_pmn_with_playwright / scrape_maude_with_playwright)
             try:
                 if 'cfpmn' in scrape_url.lower() or 'pmn.cfm' in scrape_url.lower():
-                    items = scrape_pmn_with_playwright(scrape_url, max_items=cfg_max_items, pages_to_try=cfg_pages_to_try)
-                elif 'cfmaude' in scrape_url.lower() or 'results.cfm' in scrape_url.lower() or 'detail.cfm' in scrape_url.lower():
-                    items = scrape_maude_with_playwright(scrape_url, max_items=cfg_max_items, pages_to_try=cfg_pages_to_try)
+                    # call playwright PMN click/search flow
+                    pages_to_try = cfg.get('pages_to_try') or cfg_pages_to_try
+                    items = scrape_pmn_with_playwright(cfg.get('scrape_url'), max_items=cfg_max_items, pages_to_try=int(pages_to_try))
+                elif 'cfmaude' in scrape_url.lower() or 'search.cfm' in scrape_url.lower() or 'results.cfm' in scrape_url.lower():
+                    pages_to_try = cfg.get('pages_to_try') or cfg_pages_to_try
+                    items = scrape_maude_with_playwright(cfg.get('scrape_url'), max_items=cfg_max_items, pages_to_try=int(pages_to_try))
                 else:
                     # fallback: try a single requests fetch then inspect to decide
                     try:
@@ -709,16 +776,11 @@ def main():
                         items = []
             except ImportError as ie:
                 print('Prefer scrape: Playwright not available (ImportError). Falling back to non-rendered fetch.', ie)
-                # fallback para o caso de não existir Playwright: tenta fetch normal + json/html parsing
                 try:
                     resp = fetch_url_response(scrape_url)
                     txt = resp.text if hasattr(resp,'text') else str(resp)
                     if txt and (txt.strip().startswith('{') or 'pmn' in txt.lower() or 'maude' in txt.lower()):
-                        # tenta extrair com o handler já existente
-                        if 'pmn' in txt.lower():
-                            items = extract_items_from_html(txt, cfg)
-                        else:
-                            items = extract_items_from_html(txt, cfg)
+                        items = extract_items_from_html(txt, cfg)
                     else:
                         items = []
                 except Exception as e:
