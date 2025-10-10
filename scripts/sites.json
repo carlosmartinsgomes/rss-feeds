@@ -946,12 +946,11 @@
       "max_items": 100,
       "force_latest": true,
       "prefer_scrape": true,
-      "scrape_url": "https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfpmn/pmn.cfm",
+      "scrape_url": "https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfpmn/pmn.cfm?start_search=1&Center=&Panel=&ProductCode=&KNumber=&Applicant=&DeviceName=&Type=&ThirdPartyReviewed=&ClinicalTrials=&Decision=&DecisionDateFrom=&DecisionDateTo=10%2F09%2F2025&IVDProducts=&Redact510K=&CombinationProducts=&PCCP=&ZNumber=&PAGENUM=1",
       "per_page": 50,
-      "pages_to_try": 3,
-      "playwright_timeout": 60000,
       "filters": { "keywords": [], "fallback_to_all": false }
     },
+
     {
       "name": "MAUDEopenFDA-Regulatorios_Seguranca",
       "url": "https://api.fda.gov/device/event.json?limit=100",
@@ -967,10 +966,9 @@
       "prefer_scrape": true,
       "scrape_url": "https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfMAUDE/search.cfm",
       "per_page": 100,
-      "pages_to_try": 3,
-      "playwright_timeout": 60000,
       "filters": { "keywords": [], "fallback_to_all": false }
     }
+
 
 
     
