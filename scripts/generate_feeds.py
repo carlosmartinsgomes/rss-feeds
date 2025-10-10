@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # scripts/generate_feeds.py
-# Versão com scraping PMN/MAUDE mais robusto + click Search + set results per page + fallback
+# Versão com scraping PMN/MAUDE mais robusto + debug para diagnosticar "0 items found".
+# Requisitos: requests, beautifulsoup4, feedgen, python-dateutil, playwright
 
 import os
 import json
@@ -14,6 +15,7 @@ from urllib.parse import urljoin, urlparse, urlencode
 import warnings
 from dateutil import parser as dateparser
 from dateutil import tz as date_tz
+# playwright import (assume instalado no runner)
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 import time
 
@@ -38,7 +40,7 @@ def _parse_with_default_tzinfos(timestr, *args, **kwargs):
 dateparser.parse = _parse_with_default_tzinfos
 
 ROOT = os.path.dirname(__file__)
-SITES_JSON = os.path.join(ROOT, '..', 'sites.json') if not os.path.exists(os.path.join(ROOT, 'sites.json')) else os.path.join(ROOT, 'sites.json')
+SITES_JSON = os.path.join(ROOT, 'sites.json') if os.path.exists(os.path.join(ROOT, 'sites.json')) else os.path.join(ROOT, '..', 'sites.json')
 FEEDS_DIR = os.path.join(ROOT, '..', 'feeds')
 OUT_XLSX = os.path.join(ROOT, '..', 'feeds_summary.xlsx')
 
@@ -135,7 +137,7 @@ def _page_looks_empty(html_text):
     if not html_text:
         return True
     low = html_text.lower()
-    for token in ('0 records found', 'no records found', 'no matching records', 'no record found', 'please use the search form'):
+    for token in ('0 records found', 'no records found', 'no matching records', 'no record found', 'no results found', 'please enter'):
         if token in low:
             return True
     return False
@@ -237,89 +239,140 @@ def try_resolve_maude_page(mdr_id, product_code, session, timeout=12):
     except Exception:
         return None, None, None, None
 
-# ---------------- Robust scraping of listing pages (click Search + set results per page) ----------------
+# ---------------- Robust scraping of listing pages (Playwright) ----------------
+def _playwright_headless_from_env():
+    # if DEBUG=1 or DEBUG=true then run non-headless for debugging
+    v = os.getenv('DEBUG', '').strip().lower()
+    return not (v in ('1','true','on'))
 
-def _try_click_select_set(page, select_candidates, value):
-    for sel in select_candidates:
-        try:
-            if page.locator(sel).count() > 0:
-                page.select_option(sel, str(value))
-                time.sleep(0.3)
-                return True
-        except Exception:
-            continue
-    return False
-
-def _try_click_first(page, click_candidates, timeout=8000):
-    for sel in click_candidates:
-        try:
-            # try text locator first
+def _safe_click_search(page):
+    """ tenta clicar num botão 'Search' com vários fallbacks """
+    try:
+        # procurar input/button com value/texto Search
+        btn = page.query_selector('input[type="submit"][value*="Search"], button:has-text("Search"), a:has-text("Search")')
+        if btn:
             try:
-                loc = page.get_by_text(sel)
-                if loc.count() > 0:
-                    loc.first.click(timeout=timeout)
-                    return True
-            except Exception:
-                pass
-            # try css
-            if page.locator(sel).count() > 0:
-                page.click(sel, timeout=timeout)
+                btn.click(timeout=5000)
                 return True
+            except Exception:
+                try:
+                    page.evaluate('(el)=>el.click()', btn)
+                    return True
+                except Exception:
+                    pass
+        # fallback: clicar por texto
+        try:
+            page.click('text="Search"', timeout=5000)
+            return True
         except Exception:
-            continue
+            pass
+    except Exception:
+        pass
     return False
 
-def _try_click_next(page, timeout=8000):
-    next_cands = ['a:has-text("Next")', 'a.next', 'a[rel="next"]', 'button:has-text("Next")', 'a:has-text(">")']
-    return _try_click_first(page, next_cands, timeout=timeout)
+def _try_set_per_page(page, per_page):
+    """ tenta encontrar select relacionado com 'Records per' / 'Results per' e seleccionar per_page """
+    if not per_page:
+        return False
+    try:
+        per_page = str(per_page)
+    except Exception:
+        per_page = None
+    if not per_page:
+        return False
+    try:
+        # tentativas com seletores plausíveis
+        locs = [
+            'select[name="recordsPerReportPage"]',
+            'select[name="recordsPerPage"]',
+            'select[name="perPage"]',
+            'select#perPage',
+            'select'
+        ]
+        for sel in locs:
+            try:
+                locator = page.locator(sel)
+                if locator.count() and locator.first().is_visible():
+                    try:
+                        locator.first().select_option(per_page)
+                        return True
+                    except Exception:
+                        # alternativa: set value via evaluate
+                        page.evaluate(f"""() => {{
+                            var s = document.querySelector('{sel}');
+                            if(s) s.value = '{per_page}';
+                        }}""")
+                        return True
+            except Exception:
+                continue
+        # Try to locate by label text
+        try:
+            label_loc = page.locator('text="Records per Report Page", text="Results per Page", text="Records per Page"').first()
+            if label_loc:
+                # procurar select próximo
+                el = label_loc.evaluate_handle('el => { var p = el.parentElement || el.closest("form") || document; return p.querySelector("select") }')
+                if el:
+                    # select_handle = el.as_element()
+                    page.evaluate(f"""(sel)=>{{ sel.value = '{per_page}'; }}""", el)
+                    return True
+        except Exception:
+            pass
+    except Exception:
+        pass
+    return False
 
-def scrape_pmn_with_playwright(scrape_url, max_items=100, pages_to_try=8, wait_selector=None, timeout=60000, per_page=None, headless=True):
-    """
-    Open base pmn.cfm, click Search, set Results per Page to per_page (default 50),
-    then collect IDs from results and paginate by clicking Next.
-    """
+def scrape_pmn_with_playwright(scrape_url, max_items=100, pages_to_try=10, wait_selector=None, timeout=60000, per_page=None):
     items = []
     ids_seen = []
-    per_page = int(per_page) if per_page else 50
-    base_url = re.sub(r'\?.*$', '', scrape_url)
-    try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=headless, args=["--no-sandbox", "--disable-setuid-sandbox"])
-            context = browser.new_context()
-            page = context.new_page()
-            page.set_default_timeout(int(timeout))
-            # goto base search page (use domcontentloaded to be menos exigente)
+    headless = _playwright_headless_from_env()
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=headless)
+        context = browser.new_context()
+        page = context.new_page()
+        # aumentar default navigation timeout
+        page.set_default_navigation_timeout(timeout if timeout else 60000)
+        page.set_default_timeout(timeout if timeout else 60000)
+        for pnum in range(1, pages_to_try + 1):
+            if re.search(r'PAGENUM=\d+', scrape_url, flags=re.IGNORECASE):
+                url = re.sub(r'PAGENUM=\d+', f'PAGENUM={pnum}', scrape_url, flags=re.IGNORECASE)
+            else:
+                sep = '&' if '?' in scrape_url else '?'
+                url = f"{scrape_url}{sep}PAGENUM={pnum}"
+
             try:
-                page.goto(base_url, wait_until="domcontentloaded", timeout=int(timeout))
-            except PlaywrightTimeoutError:
+                # tentar domcontentloaded primeiro (networkidle pode falhar)
                 try:
-                    page.goto(base_url, timeout=int(timeout))
-                except Exception as e:
-                    print("PLAYWRIGHT PMN: initial goto failed", e)
-                    browser.close()
-                    return items
-
-            # Click "Search" to get results (if page is search form)
-            search_clicks = ["Search", 'button:has-text("Search")', 'input[type="submit"][value*="Search"]', 'input[type="button"][value*="Search"]']
-            clicked = _try_click_first(page, search_clicks, timeout=8000)
-
-            # Try to set Results per Page to per_page (several possible selectors)
-            select_cands = ['select[name="PAGENUM"]', 'select[name="ResultsPerPage"]', 'select#PAGENUM', 'select[name="resultsPerPage"]', 'select[name="RecordsPerPage"]']
-            _try_click_select_set(page, select_cands, per_page)
-
-            # Wait for results table or result links
-            wait_sel = wait_selector or 'a[href*="pmn.cfm?ID="], table'
-            try:
-                page.wait_for_selector(wait_sel, timeout=8000)
-            except Exception:
-                pass
-
-            # Collect pages, click Next up to pages_to_try
-            for pidx in range(0, int(pages_to_try)):
+                    page.goto(url, wait_until="domcontentloaded", timeout=timeout)
+                except PlaywrightTimeoutError:
+                    try:
+                        page.goto(url, wait_until="load", timeout=timeout)
+                    except Exception as e:
+                        print("PLAYWRIGHT PMN: initial goto failed", e)
+                        continue
+                # tentativa de ajustar per_page e clicar Search (se estiver na página inicial)
                 try:
-                    content = page.content()
+                    _try_set_per_page(page, per_page)
+                    _safe_click_search(page)
                 except Exception:
-                    content = ''
+                    pass
+
+                # esperar por algo que indique resultados (links para pmn.cfm)
+                if not wait_selector:
+                    wait_selector = 'a[href*="pmn.cfm?ID="], a[href*="pmn.cfm?ID=K"]'
+                try:
+                    page.wait_for_selector(wait_selector, timeout=10000)
+                except PlaywrightTimeoutError:
+                    # OK: não abortar; pode haver links gerados dinamicamente
+                    pass
+
+            except PlaywrightTimeoutError:
+                # tenta novamente sem esperar networkidle
+                print("PLAYWRIGHT PMN: goto timeout; continuing to next try")
+            except Exception as e:
+                print("PLAYWRIGHT PMN: goto failed", e)
+
+            # extrai links do DOM
+            try:
                 anchors = page.query_selector_all('a')
                 for a in anchors:
                     try:
@@ -332,25 +385,28 @@ def scrape_pmn_with_playwright(scrape_url, max_items=100, pages_to_try=8, wait_s
                                     ids_seen.append(rid)
                     except Exception:
                         continue
+            except Exception:
+                pass
+
+            # fallback scanning do conteúdo
+            try:
+                content = page.content()
                 for m in re.findall(r'pmn\.cfm\?ID=([A-Za-z0-9\-]+)', content, flags=re.I):
                     if m not in ids_seen:
                         ids_seen.append(m)
-                if len(ids_seen) >= int(max_items):
-                    break
-                if not _try_click_next(page, timeout=6000):
-                    break
-                try:
-                    page.wait_for_load_state("domcontentloaded", timeout=8000)
-                except Exception:
-                    time.sleep(0.6)
-            browser.close()
-    except Exception as e:
-        print("scrape_pmn_with_playwright fatal:", e)
-        return []
+            except Exception:
+                pass
 
-    # resolve details of collected ids
+            if len(ids_seen) >= max_items:
+                break
+
+            time.sleep(0.2)
+
+        browser.close()
+
+    # resolve detalhes das IDs recolhidas
     session = requests.Session()
-    for rid in ids_seen[:int(max_items)]:
+    for rid in ids_seen[:max_items]:
         try:
             url_detail, title, date_iso, desc = try_resolve_pmn_page(rid, session)
             link = url_detail or f'https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfpmn/pmn.cfm?ID={rid}'
@@ -358,59 +414,67 @@ def scrape_pmn_with_playwright(scrape_url, max_items=100, pages_to_try=8, wait_s
         except Exception:
             continue
 
+    # ordena por date desc se houver datas
     def _key(it):
         try:
             return dateparser.parse(it.get('date') or '')
         except Exception:
             return datetime.min
     items = sorted(items, key=_key, reverse=True)
-    return items[:int(max_items)]
+    return items[:max_items]
 
-
-def scrape_maude_with_playwright(scrape_url, max_items=100, pages_to_try=8, wait_selector=None, timeout=60000, per_page=None, headless=True):
+def scrape_maude_with_playwright(scrape_url, max_items=100, pages_to_try=10, wait_selector=None, timeout=60000, per_page=None):
     """
-    Open MAUDE search.cfm, set Records per Report Page to per_page (default 100),
-    click Search, then iterate results by clicking Next collecting MDR IDs.
+    Renderiza com Playwright a página MAUDE e extrai links com 'Detail.CFM?MDRFOI__ID='.
+    Tenta seleccionar per_page e clicar Search antes de extrair.
     """
     items = []
     found = []
-    per_page = int(per_page) if per_page else 100
-    base_url = re.sub(r'\?.*$', '', scrape_url)
-    try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=headless, args=["--no-sandbox", "--disable-setuid-sandbox"])
-            context = browser.new_context()
-            page = context.new_page()
-            page.set_default_timeout(int(timeout))
+    headless = _playwright_headless_from_env()
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=headless)
+        context = browser.new_context()
+        page = context.new_page()
+        page.set_default_navigation_timeout(timeout if timeout else 60000)
+        page.set_default_timeout(timeout if timeout else 60000)
+        for pnum in range(1, pages_to_try + 1):
+            if re.search(r'PAGENUM=\d+', scrape_url, flags=re.IGNORECASE):
+                url = re.sub(r'PAGENUM=\d+', f'PAGENUM={pnum}', scrape_url, flags=re.IGNORECASE)
+            else:
+                sep = '&' if '?' in scrape_url else '?'
+                url = f"{scrape_url}{sep}PAGENUM={pnum}"
+
             try:
-                page.goto(base_url, wait_until="domcontentloaded", timeout=int(timeout))
-            except PlaywrightTimeoutError:
                 try:
-                    page.goto(base_url, timeout=int(timeout))
-                except Exception as e:
-                    print("PLAYWRIGHT MAUDE: initial goto failed", e)
-                    browser.close()
-                    return items
+                    page.goto(url, wait_until="domcontentloaded", timeout=timeout)
+                except PlaywrightTimeoutError:
+                    try:
+                        page.goto(url, wait_until="load", timeout=timeout)
+                    except Exception as e:
+                        print("PLAYWRIGHT MAUDE: initial goto failed", e)
+                        continue
 
-            # set Records per Report Page
-            select_cands = ['select[name="RecordsPerReportPage"]', 'select[name="RecordsPerPage"]', 'select#RecordsPerPage', 'select[name="perpage"]']
-            _try_click_select_set(page, select_cands, per_page)
-
-            # Click Search button
-            search_clicks = ["Search", 'button:has-text("Search")', 'input[type="submit"][value*="Search"]', 'input[type="button"][value*="Search"]']
-            _try_click_first(page, search_clicks, timeout=8000)
-
-            wait_sel = wait_selector or 'a[href*="Detail.CFM?MDRFOI__ID="], table'
-            try:
-                page.wait_for_selector(wait_sel, timeout=8000)
-            except Exception:
-                pass
-
-            for pidx in range(0, int(pages_to_try)):
+                # tenta seleccionar per_page e clicar Search
                 try:
-                    content = page.content()
+                    _try_set_per_page(page, per_page)
+                    _safe_click_search(page)
                 except Exception:
-                    content = ''
+                    pass
+
+                if not wait_selector:
+                    wait_selector = 'a[href*="Detail.CFM?MDRFOI__ID="]'
+                try:
+                    page.wait_for_selector(wait_selector, timeout=10000)
+                except PlaywrightTimeoutError:
+                    pass
+
+            except PlaywrightTimeoutError:
+                print("PLAYWRIGHT MAUDE: goto timeout; continuing")
+            except Exception as e:
+                print("PLAYWRIGHT MAUDE: goto failed", e)
+
+            # extrai anchors
+            try:
                 anchors = page.query_selector_all('a')
                 for a in anchors:
                     try:
@@ -427,27 +491,30 @@ def scrape_maude_with_playwright(scrape_url, max_items=100, pages_to_try=8, wait
                                     found.append((idnum, pc))
                     except Exception:
                         continue
+            except Exception:
+                pass
+
+            # fallback scan content
+            try:
+                content = page.content()
                 for m in re.findall(r'Detail\.CFM\?MDRFOI__ID=([0-9]+)(?:&pc=([A-Za-z0-9]+))?', content, flags=re.I):
                     idnum = m[0]
                     pc = m[1] or ''
                     if not any(x[0] == idnum for x in found):
                         found.append((idnum, pc))
-                if len(found) >= int(max_items):
-                    break
-                if not _try_click_next(page, timeout=6000):
-                    break
-                try:
-                    page.wait_for_load_state("domcontentloaded", timeout=8000)
-                except Exception:
-                    time.sleep(0.6)
-            browser.close()
-    except Exception as e:
-        print("scrape_maude_with_playwright fatal:", e)
-        return []
+            except Exception:
+                pass
 
-    # resolve details
+            if len(found) >= max_items:
+                break
+
+            time.sleep(0.2)
+
+        browser.close()
+
+    # resolve cada par id/pc com try_resolve_maude_page
     session = requests.Session()
-    for idnum, pc in found[:int(max_items)]:
+    for idnum, pc in found[:max_items]:
         try:
             url_detail, title, date_iso, desc = try_resolve_maude_page(idnum, pc, session)
             link = url_detail or f"https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfMAUDE/Detail.CFM?MDRFOI__ID={idnum}&pc={pc}"
@@ -456,8 +523,9 @@ def scrape_maude_with_playwright(scrape_url, max_items=100, pages_to_try=8, wait
         except Exception:
             continue
 
+    # ordenar por mdr_id desc
     items = sorted(items, key=lambda it: it.get('mdr_id_num') or 0, reverse=True)
-    return items[:int(max_items)]
+    return items[:max_items]
 
 
 # ---------------- JSON extractor (mantive tua lógica) ----------------
@@ -733,28 +801,20 @@ def main():
         except Exception:
             cfg_max_items = 100
         try:
-            cfg_pages_to_try = int(cfg.get('pages_to_try') or cfg.get('pages_to_try') or cfg.get('pages_to_try') or cfg.get('pages_to_try', 8))
-        except Exception:
             cfg_pages_to_try = int(cfg.get('pages_to_try') or 8)
+        except Exception:
+            cfg_pages_to_try = 8
+
+        # get per_page for UI interaction
+        cfg_per_page = cfg.get('per_page') or cfg.get('perpage') or None
 
         if prefer_scrape and scrape_url:
             print(f'Prefer scrape enabled for {name}, scraping {scrape_url} ...')
             try:
                 if 'cfpmn' in scrape_url.lower() or 'pmn.cfm' in scrape_url.lower():
-                    # call playwright PMN click/search flow
-                    pages_to_try = cfg.get('pages_to_try') or cfg_pages_to_try
-                    pw_timeout = int(cfg.get('playwright_timeout') or 60000)
-                    pw_per_page = cfg.get('per_page') or 50
-                    debug_mode = (os.getenv('DEBUG', '0') == '1')
-                    items = scrape_pmn_with_playwright(cfg.get('scrape_url'), max_items=cfg_max_items, pages_to_try=cfg_pages_to_try, timeout=pw_timeout, per_page=pw_per_page, headless=(not debug_mode))
-
-                elif 'cfmaude' in scrape_url.lower() or 'search.cfm' in scrape_url.lower() or 'results.cfm' in scrape_url.lower():
-                    pages_to_try = cfg.get('pages_to_try') or cfg_pages_to_try
-                    pw_timeout = int(cfg.get('playwright_timeout') or 60000)
-                    pw_per_page = cfg.get('per_page') or 100
-                    debug_mode = (os.getenv('DEBUG', '0') == '1')
-                    items = scrape_maude_with_playwright(cfg.get('scrape_url'), max_items=cfg_max_items, pages_to_try=cfg_pages_to_try, timeout=pw_timeout, per_page=pw_per_page, headless=(not debug_mode))
-
+                    items = scrape_pmn_with_playwright(scrape_url, max_items=cfg_max_items, pages_to_try=cfg_pages_to_try, per_page=cfg_per_page, timeout=120000)
+                elif 'cfmaude' in scrape_url.lower() or 'results.cfm' in scrape_url.lower() or 'search.cfm' in scrape_url.lower() or 'detail.cfm' in scrape_url.lower():
+                    items = scrape_maude_with_playwright(scrape_url, max_items=cfg_max_items, pages_to_try=cfg_pages_to_try, per_page=cfg_per_page, timeout=120000)
                 else:
                     # fallback: try a single requests fetch then inspect to decide
                     try:
@@ -763,9 +823,9 @@ def main():
                         r.raise_for_status()
                         html = r.text
                         if 'pmn' in html.lower():
-                            items = scrape_pmn_with_playwright(scrape_url, max_items=cfg_max_items, pages_to_try=cfg_pages_to_try)
+                            items = scrape_pmn_with_playwright(scrape_url, max_items=cfg_max_items, pages_to_try=cfg_pages_to_try, per_page=cfg_per_page, timeout=120000)
                         elif 'maude' in html.lower() or 'detail.cfm' in html.lower():
-                            items = scrape_maude_with_playwright(scrape_url, max_items=cfg_max_items, pages_to_try=cfg_pages_to_try)
+                            items = scrape_maude_with_playwright(scrape_url, max_items=cfg_max_items, pages_to_try=cfg_pages_to_try, per_page=cfg_per_page, timeout=120000)
                         else:
                             print(f'Prefer scrape: page does not appear to contain PMN/MAUDE markers (html_len={len(html)})')
                             items = []
@@ -778,7 +838,10 @@ def main():
                     resp = fetch_url_response(scrape_url)
                     txt = resp.text if hasattr(resp,'text') else str(resp)
                     if txt and (txt.strip().startswith('{') or 'pmn' in txt.lower() or 'maude' in txt.lower()):
-                        items = extract_items_from_html(txt, cfg)
+                        if 'pmn' in txt.lower():
+                            items = extract_items_from_html(txt, cfg)
+                        else:
+                            items = extract_items_from_html(txt, cfg)
                     else:
                         items = []
                 except Exception as e:
