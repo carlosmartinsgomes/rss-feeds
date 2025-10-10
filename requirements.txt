@@ -4,3 +4,4 @@ feedgen
 lxml
 python-dateutil
 feedparser
+playwright
