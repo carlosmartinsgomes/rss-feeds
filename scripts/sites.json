@@ -197,7 +197,7 @@
     {
       "name": "adage",
       "url": "https://adage.com/news/", 
-      "item_container": "#main-content > div.u-mx-0.u-mb-8 > div > div.u-space-y-3.lg:u-max-w-[967px] > div",
+      "item_container": "#main-content > div.u-mx-0.u-mb-8 > div > div.u-space-y-3.lg\\:u-max-w-\\[967px\\] > div",
       "title": "a > span.u-text-text-dark, .false > a > span, div:nth-child(3) > div > div.u-order> a > span",
       "description": "p",
       "date": "div.u-whitespace-nowrap",
@@ -257,7 +257,9 @@
     "description": ".news-content p, .block-text p, .excerpt, .dek, p",
     "render_file": "scripts/rendered/digiday.html",
     "max_items": 2000,
-    "filters": { "keywords": ["supply path optimization","connected tv","ctv","programmatic","the trade desk","ttd"] }
+    "filters": {
+      "keywords": ["a","supply path optimization","connected tv","ctv","programmatic","the trade desk","ttd"],
+      "exclude": ["sponsored","promo","ad","advertise","advertisement"] }
     },
     {
       "name": "martech-feed",
@@ -576,7 +578,7 @@
     {
       "name": "modernhealthcare",
       "url": "https://www.modernhealthcare.com/latest-news/",
-      "item_container": "div.u-flex.u-flex-col.md:u-flex-row, article, div.u-border-b",
+      "item_container": "div.u-flex.u-flex-col.md\\:u-flex-row, article, div.u-border-b",
       "title": "a > span, a[aria-label^='Title'], span.u-text-text-dark",
       "link": "a@href",
       "date": ".u-whitespace-nowrap, time, .date",
