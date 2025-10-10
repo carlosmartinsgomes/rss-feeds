@@ -947,7 +947,9 @@
       "force_latest": true,
       "prefer_scrape": true,
       "scrape_url": "https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfpmn/pmn.cfm",
-      "pages_to_try": 6,
+      "per_page": 50,
+      "pages_to_try": 3,
+      "playwright_timeout": 60000,
       "filters": { "keywords": [], "fallback_to_all": false }
     },
     {
@@ -964,12 +966,13 @@
       "force_latest": true,
       "prefer_scrape": true,
       "scrape_url": "https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfMAUDE/search.cfm",
-      "pages_to_try": 6,
+      "per_page": 100,
+      "pages_to_try": 3,
+      "playwright_timeout": 60000,
       "filters": { "keywords": [], "fallback_to_all": false }
     }
 
+
     
-
-
   ]
 }
