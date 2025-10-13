@@ -633,16 +633,6 @@
     },
     
     {
-      "name": "adtech-news-sample",
-      "url": "https://www.adtech.com/",
-      "item_container": "article, li",
-      "title": "h1, h2 a, a",
-      "link": "a@href",
-      "date": "time, .date",
-      "description": "p",
-      "filters": { "keywords": [] }
-    },
-    {
       "name": "PubmedINMDtech_trials",
       "url": "https://pubmed.ncbi.nlm.nih.gov/rss/search/1hasycEfiSSk6lzJibu2gZlHPzriEC8wbuDYJIWrdyKYBRiQVk/?limit=15&utm_campaign=pubmed-2&fc=20251004161424",
       "item_container": "item",
