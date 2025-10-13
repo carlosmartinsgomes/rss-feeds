@@ -220,6 +220,57 @@ def choose_first_available(record, selector_expr):
             return val
     return None
 
+def parse_field_from_json(entry, spec):
+    """
+    Melhorada: suporta 'AND' (concatena campos), mantém suporte a 'OR' (primeiro não-nulo),
+    e o comportamento anterior para listas/dicts.
+    """
+    if not spec or entry is None:
+        return None
+
+    # 1) Suporte AND: concatena os resultados das sub-especificações
+    if isinstance(spec, str) and re.search(r'\s+AND\s+', spec, flags=re.I):
+        parts = [p.strip() for p in re.split(r'\s+AND\s+', spec, flags=re.I) if p.strip()]
+        out_parts = []
+        for p in parts:
+            v = parse_field_from_json(entry, p)  # recursion handles OR / simple paths
+            if v not in (None, ''):
+                out_parts.append(v)
+        return ' | '.join(out_parts) if out_parts else None
+
+    # 2) Manter suporte OR (já existente)
+    if isinstance(spec, str) and re.search(r'\s+OR\s+', spec, flags=re.I):
+        for p in re.split(r'\s+OR\s+', spec, flags=re.I):
+            v = parse_field_from_json(entry, p.strip())
+            if v not in (None, ''):
+                return v
+        return None
+
+    # 3) Agora spec é um caminho simples — usa get_json_path_value
+    v = get_json_path_value(entry, spec)
+    if isinstance(v, list):
+        flat = []
+        for el in v:
+            if isinstance(el, (str, int, float)):
+                flat.append(str(el))
+            elif isinstance(el, dict):
+                for cand in ('device_name', 'name', 'brand_name', 'title', 'applicant'):
+                    if cand in el and el[cand]:
+                        flat.append(str(el[cand]))
+                        break
+        return ', '.join(flat) if flat else None
+    if isinstance(v, dict):
+        for cand in ('device_name', 'name', 'title', 'summary', 'applicant'):
+            if cand in v and v[cand]:
+                return str(v[cand])
+        try:
+            return json.dumps(v, ensure_ascii=False)
+        except Exception:
+            return None
+    if v is None:
+        return None
+    return str(v)
+
 
 def extract_items_from_json(json_obj, cfg):
     """
