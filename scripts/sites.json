@@ -934,7 +934,7 @@
       "filters": { "keywords": [] }
     },
     {
-      "name": "FDA510k-decisoes&regulatory_summaries&mudancas_indicacoes",
+      "name": "FDA510k_Inmode-decisoes&regulatory_summaries&mudancas_indicacoes",
       "url": "https://api.fda.gov/device/510k.json?limit=100&sort=decision_date:desc",
       "item_container": "results",
       "title": "openfda.device_name OR device_name OR applicant",
@@ -952,21 +952,14 @@
     },
 
     {
-      "name": "MAUDEopenFDA-Regulatorios_Seguranca",
-      "url": "https://api.fda.gov/device/event.json?limit=100",
+      "name": "MAUDE_Inmode-Regulatorios_Seguranca",
+      "url": "https://api.fda.gov/device/event.json?search=device.manufacturer_d_name:inmode*&limit=100&sort=date_received:desc",
       "item_container": "results",
       "title": "openfda.device_name OR device[0].generic_name OR event_type",
       "link": "mdr_report_key OR report_number OR event_key",
-      "date": "date_received OR report_date",
+      "date": "date_received",
       "description": "mdr_text OR event_description",
-      "json_detail_fetch": true,
-      "json_sort": "mdr_id:desc",
-      "max_items": 100,
-      "force_latest": true,
-      "prefer_scrape": true,
-      "scrape_url": "https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfMAUDE/search.cfm",
-      "per_page": 100,
-      "filters": { "keywords": [], "fallback_to_all": false }
+      "filters": { "keywords": [] }
     }
 
 
