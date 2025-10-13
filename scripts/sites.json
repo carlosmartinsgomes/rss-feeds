@@ -704,16 +704,6 @@
     },
     
     {
-      "name": "financefeed-common",
-      "url": "https://www.financefeeds.com/",
-      "item_container": "article, li",
-      "title": "h1, h2 a, a",
-      "link": "a@href",
-      "date": "time, .date",
-      "description": "p",
-      "filters": { "keywords": [] }
-    },
-    {
       "name": "adtech-news-sample",
       "url": "https://www.adtech.com/",
       "item_container": "article, li",
