@@ -935,7 +935,7 @@
     },
     {
       "name": "FDA510k_Inmode-decisoes&regulatory_summaries&mudancas_indicacoes",
-      "url": "https://api.fda.gov/device/510k.json?search=applicant:%22InMode*%22&limit=50&sort=decision_date:desc",
+      "url": "https://api.fda.gov/device/510k.json?search=applicant:InMod*&limit=50&sort=decision_date:desc",
       "item_container": "results",
       "title": "device_name",
       "link": "k_number",
@@ -956,7 +956,7 @@
 
     {
       "name": "MAUDE_Inmode-Regulatorios_Seguranca-EpisodiosMaisGraves-full-thickness-burns&permanent-disfigurement&fat-loss",
-      "url": "https://api.fda.gov/device/event.json?search=device.manufacturer_d_name:inmode*&limit=50&sort=date_received:desc",
+      "url": "https://api.fda.gov/device/event.json?search=device.manufacturer_d_name:inmod*&limit=50&sort=date_received:desc",
       "item_container": "results",
       "title": "product_problems AND patient.patient_problems",
       "link": "pma_pmn_number",
