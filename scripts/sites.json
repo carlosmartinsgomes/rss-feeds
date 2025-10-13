@@ -962,7 +962,6 @@
       "link": "pma_pmn_number",
       "date": "date_received",
       "description": "report_to_fda AND initial_report_to_fda AND device.brand_name AND device.generic_name AND device.openfda.device_name AND device.openfda.medical_specialty_description AND mdr_text.text",
-      "topic": "",
       "filters": { "keywords": [] }
     },
     {
@@ -973,11 +972,8 @@
       "link": "pma_pmn_number",
       "date": "date_received",
       "description": "report_to_fda AND initial_report_to_fda AND device.brand_name AND device.generic_name AND device.openfda.device_name AND device.openfda.medical_specialty_description AND mdr_text.text",
-      "topic": "device.brand_name AND device.generic_name AND device.openfda.device_name AND device.openfda.medical_specialty_description",
       "filters": { "keywords": [] }
     }
-
-
 
     
   ]
