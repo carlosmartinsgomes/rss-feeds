@@ -955,7 +955,7 @@
     },
 
     {
-      "name": "MAUDE_Inmode-Regulatorios_Seguranca",
+      "name": "MAUDE_Inmode-Regulatorios_Seguranca-EpisodiosMaisGraves-full-thickness-burns&permanent-disfigurement&fat-loss",
       "url": "https://api.fda.gov/device/event.json?search=device.manufacturer_d_name:inmode*&limit=50&sort=date_received:desc",
       "item_container": "results",
       "title": "product_problems AND patient.patient_problems",
