@@ -945,7 +945,7 @@
     },
     {
       "name": "FDA510k_Rivais-decisoes&regulatory_summaries&mudancas_indicacoes",
-      "url": "https://api.fda.gov/device/510k.json?search=(device_name:%22Ultherapy%22+OR+device_name:%22microfocus*%22+OR+device_name:MFU+OR+device_name:%22Thermage%22+OR+device_name:%22monopolar+radiofrequency%22+OR+device_name:%22radiofrequency%22+OR+device_name:%22Profound*%22+OR+device_name:%22ultrasound%22+OR+device_name:%22matrix%22+OR+device_name:%22lightsheer%22+OR+device_name:%22xerf%22+OR+device_name:%22body+contouring%22+OR+device_name:%22emsculpt%22)&limit=50&sort=decision_date:desc",
+      "url": "https://api.fda.gov/device/510k.json?search=(device_name:%22Ultherapy%22+OR+device_name:%22microfocus*%22+OR+device_name:MFU+OR+device_name:%22Thermage%22+OR+device_name:%22monopolar+radiofrequency%22+OR+device_name:%22Profound*%22+OR+device_name:%22matrix%22+OR+device_name:%22lightsheer%22+OR+device_name:%22xerf%22+OR+device_name:%22body+contouring%22+OR+device_name:%22emsculpt%22)&limit=50&sort=decision_date:desc",
       "item_container": "results",
       "title": "applicant AND device_name",
       "link": "k_number",
@@ -967,7 +967,7 @@
     },
     {
       "name": "MAUDE_Rivais-Regulatorios_Seguranca",
-      "url": "https://api.fda.gov/device/event.json?search=(device.brand_name:%22Ultherapy%22+OR+device.brand_name:microfocus*+OR+device.brand_name:MFU+OR+device.brand_name:%22Thermage%22+OR+device.brand_name:%22monopolar+radiofrequency%22+OR+device.brand_name:%22radiofrequency%22+OR+device.brand_name:%22Profound*%22+OR+device.brand_name:%22ultrasound%22+OR+device.brand_name:%22matrix%22+OR+device.brand_name:%22lightsheer%22+OR+device.brand_name:%22xerf%22+OR+device.brand_name:%22body+contouring%22+OR+device.brand_name:%22emsculpt%22)&limit=50&sort=date_received:desc",
+      "url": "https://api.fda.gov/device/510k.json?search=(device_name:%22Ultherapy%22+OR+device_name:%22microfocus*%22+OR+device_name:MFU+OR+device_name:%22Thermage%22+OR+device_name:%22monopolar+radiofrequency%22+OR+device_name:%22Profound*%22+OR+device_name:%22matrix%22+OR+device_name:%22lightsheer%22+OR+device_name:%22xerf%22+OR+device_name:%22body+contouring%22+OR+device_name:%22emsculpt%22)&limit=50&sort=decision_date:desc",
       "item_container": "results",
       "title": "device.manufacturer_d_name AND product_problems AND patient.patient_problems",
       "link": "pma_pmn_number",
