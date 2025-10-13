@@ -868,9 +868,10 @@
       "url": "https://api.fda.gov/device/event.json?search=device.manufacturer_d_name:inmod*&limit=50&sort=date_received:desc",
       "item_container": "results",
       "title": "product_problems AND patient.patient_problems",
-      "link": "pma_pmn_number",
+      "link": "mdr_report_key OR report_number OR event_key",
       "date": "date_received",
       "description": "report_to_fda AND initial_report_to_fda AND device.brand_name AND device.generic_name AND device.openfda.device_name AND device.openfda.medical_specialty_description AND mdr_text.text",
+      "json_sort": "mdr_id:desc",
       "filters": { "keywords": [] }
     },
     {
@@ -878,9 +879,10 @@
       "url": "https://api.fda.gov/device/event.json?search=((device.openfda.medical_specialty_description:plastic)+AND+(device.brand_name:%22Ultherapy%22+OR+device.brand_name:microfocus*+OR+device.brand_name:MFU+OR+device.brand_name:%22Thermage%22+OR+device.brand_name:%22monopolar+radiofrequency%22+OR+device.brand_name:%22Profound*%22+OR+device.brand_name:%22matrix%22+OR+device.brand_name:%22lightsheer%22+OR+device.brand_name:%22xerf%22+OR+device.brand_name:%22body+contouring%22+OR+device.brand_name:%22emsculpt%22))&limit=50&sort=date_received:desc",
       "item_container": "results",
       "title": "device.manufacturer_d_name AND product_problems AND patient.patient_problems",
-      "link": "pma_pmn_number",
+      "link": "mdr_report_key OR report_number OR event_key",
       "date": "date_received",
       "description": "report_to_fda AND initial_report_to_fda AND device.brand_name AND device.generic_name AND device.openfda.device_name AND device.openfda.medical_specialty_description AND mdr_text.text",
+      "json_sort": "mdr_id:desc",
       "filters": { "keywords": [] }
     }
 
