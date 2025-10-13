@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # scripts/generate_feeds.py
 # Gere feeds RSS simples a partir de sites listados em sites.json
-# Melhorias: procura de datas em ancestrais/irmãos e fallback de description
+# Melhorias: suporta AND/OR em specs do sites.json, normaliza datas, fallback robusto
 # Requisitos: requests, beautifulsoup4, feedgen, python-dateutil
 
 import os
@@ -14,9 +14,6 @@ from feedgen.feed import FeedGenerator
 from datetime import datetime
 from urllib.parse import urljoin, urlparse, urlunparse, parse_qsl, urlencode
 import glob
-
-# small compatibility shim to silence UnknownTimezoneWarning for "ET"
-# and to give dateutil a sensible tzinfo for "ET" without changing all parse(...) calls.
 import warnings
 from dateutil import parser as dateparser
 from dateutil import tz as date_tz
@@ -132,9 +129,10 @@ def get_value_from_record(record, path):
     cur = record
     try:
         for p in parts:
-            # handle OR if someone passed an expression (should be handled above)
-            if ' OR ' in p:
+            # handle OR inside the element (not expected here but be tolerant)
+            if isinstance(p, str) and re.search(r'\s+OR\s+', p, flags=re.I):
                 p = p.split(' OR ')[0].strip()
+
             # handle bracket indices
             m = re.match(r'^([^\[]+)\[(\d+)\]$', p)
             if m:
@@ -176,7 +174,6 @@ def get_value_from_record(record, path):
                 else:
                     # fallback: take first element and continue
                     cur = cur[0]
-                    # attempt to get attribute from it
                     if isinstance(cur, dict):
                         cur = cur.get(p)
             else:
@@ -191,7 +188,7 @@ def get_value_from_record(record, path):
             txts = []
             for it in cur:
                 if isinstance(it, dict):
-                    # attempt to get text-ish keys?
+                    # skip complex dicts
                     continue
                 if it is None:
                     continue
@@ -205,71 +202,83 @@ def get_value_from_record(record, path):
         return None
 
 
+def _normalize_date_if_needed(selector_expr, value):
+    """
+    Se o selector indica um campo de data (ou o valor tem formato YYYYMMDD),
+    tenta normalizar para ISO (YYYY-MM-DD[T...] se for possível).
+    Retorna string (preferivelmente um ISO-like) ou original.
+    """
+    if not value:
+        return value
+    v = str(value).strip()
+    # raw YYYYMMDD -> YYYY-MM-DD
+    m = re.match(r'^(\d{4})(\d{2})(\d{2})$', v)
+    if m:
+        try:
+            return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
+        except Exception:
+            pass
+    # if selector mentions 'date' try to parse to isoformat
+    if selector_expr and 'date' in selector_expr.lower():
+        try:
+            dt = dateparser.parse(v)
+            # return iso without microseconds
+            if hasattr(dt, 'isoformat'):
+                return dt.isoformat()
+        except Exception:
+            pass
+    # otherwise return original
+    return v
+
+
 def choose_first_available(record, selector_expr):
     """
-    selector_expr pode ser "openfda.device_name OR device_name OR k_number"
-    tenta cada alternativa e retorna o primeiro valor não-nulo.
+    selector_expr pode ser:
+      - "a OR b OR c"  -> devolve primeiro não-nulo
+      - "x AND y AND z" -> concatena os valores não-nulos (separador " | ")
+    suporta AND e OR combinados: AND tem prioridade (ou seja, se AND presente, cada subparte
+    é resolvida com OR semantics).
     """
     if not selector_expr:
         return None
+
+    # If AND is present, split and for each part resolve with OR semantics
+    if re.search(r'\s+AND\s+', selector_expr, flags=re.I):
+        parts = [p.strip() for p in re.split(r'\s+AND\s+', selector_expr, flags=re.I) if p.strip()]
+        out_parts = []
+        for part in parts:
+            # part can itself contain OR, so recurse
+            val = choose_first_available(record, part)
+            if val not in (None, '', '[]'):
+                out_parts.append(val)
+        if not out_parts:
+            return None
+        # join with a readable separator
+        joined = ' | '.join(out_parts)
+        # date normalization if appropriate
+        joined = _normalize_date_if_needed(selector_expr, joined)
+        return joined
+
+    # otherwise handle OR semantics (first non-empty)
     for alt in [s.strip() for s in re.split(r'\s+OR\s+', selector_expr, flags=re.I)]:
         if not alt:
             continue
-        val = get_value_from_record(record, alt)
-        if val not in (None, "", "[]"):
-            return val
+        v = get_value_from_record(record, alt)
+        if v not in (None, '', '[]'):
+            # if this looks like a date or selector mentions date, normalize
+            v = _normalize_date_if_needed(selector_expr, v)
+            return v
     return None
+
 
 def parse_field_from_json(entry, spec):
     """
-    Melhorada: suporta 'AND' (concatena campos), mantém suporte a 'OR' (primeiro não-nulo),
-    e o comportamento anterior para listas/dicts.
+    Backwards-compatible helper; usa choose_first_available + suporta AND/OR.
+    Mantido para compatibilidade com versões anteriores do script.
     """
     if not spec or entry is None:
         return None
-
-    # 1) Suporte AND: concatena os resultados das sub-especificações
-    if isinstance(spec, str) and re.search(r'\s+AND\s+', spec, flags=re.I):
-        parts = [p.strip() for p in re.split(r'\s+AND\s+', spec, flags=re.I) if p.strip()]
-        out_parts = []
-        for p in parts:
-            v = parse_field_from_json(entry, p)  # recursion handles OR / simple paths
-            if v not in (None, ''):
-                out_parts.append(v)
-        return ' | '.join(out_parts) if out_parts else None
-
-    # 2) Manter suporte OR (já existente)
-    if isinstance(spec, str) and re.search(r'\s+OR\s+', spec, flags=re.I):
-        for p in re.split(r'\s+OR\s+', spec, flags=re.I):
-            v = parse_field_from_json(entry, p.strip())
-            if v not in (None, ''):
-                return v
-        return None
-
-    # 3) Agora spec é um caminho simples — usa get_json_path_value
-    v = get_json_path_value(entry, spec)
-    if isinstance(v, list):
-        flat = []
-        for el in v:
-            if isinstance(el, (str, int, float)):
-                flat.append(str(el))
-            elif isinstance(el, dict):
-                for cand in ('device_name', 'name', 'brand_name', 'title', 'applicant'):
-                    if cand in el and el[cand]:
-                        flat.append(str(el[cand]))
-                        break
-        return ', '.join(flat) if flat else None
-    if isinstance(v, dict):
-        for cand in ('device_name', 'name', 'title', 'summary', 'applicant'):
-            if cand in v and v[cand]:
-                return str(v[cand])
-        try:
-            return json.dumps(v, ensure_ascii=False)
-        except Exception:
-            return None
-    if v is None:
-        return None
-    return str(v)
+    return choose_first_available(entry, spec)
 
 
 def extract_items_from_json(json_obj, cfg):
@@ -342,28 +351,87 @@ def extract_items_from_json(json_obj, cfg):
             # small heuristic to build link for known FDA k_number values
             link_cfg = cfg.get('link', '') or ''
             if link and not link.startswith('http'):
-                if 'k_number' in link_cfg or cfg.get('name', '').lower().startswith('fda510k'):
+                if 'k_number' in link_cfg or cfg.get('name', '').lower().startswith('fda510k') or re.match(r'^[Kk]?\d+$', link):
                     # normalizar K prefix se necessário (remove spaces)
                     k = link.strip()
-                    # if looks like K923368 or 923368, build pmn url
-                    if re.match(r'^[Kk]?\d+$', k) or re.match(r'^[Kk]\d+$', k):
-                        knum = k.upper().lstrip('K')
-                        # construct a simple lookup URL (pragmatic)
+                    knum = re.sub(r'\D', '', k)
+                    if knum:
                         link = f"https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfpmn/pmn.cfm?ID={knum}"
-                # else leave as-is
+                else:
+                    # relative path -> join with base url if present
+                    try:
+                        base = cfg.get('url', '')
+                        link = urljoin(base, link)
+                    except Exception:
+                        pass
+
+            # attempt to parse date into a date_obj for sorting later
+            date_obj = None
+            if date:
+                try:
+                    date_obj = dateparser.parse(date)
+                except Exception:
+                    date_obj = None
 
             full_text = ' '.join([t for t in (title, desc, json.dumps(rec, ensure_ascii=False)[:1000]) if t])
 
-            items.append({
+            item = {
                 'title': title or '',
                 'link': link or '',
                 'description': desc or '',
                 'date': date or '',
-                'full_text': full_text or ''
-            })
+                'date_obj': date_obj,
+                'full_text': full_text or '',
+                '_raw_entry': rec
+            }
+
+            # some MAUDE logic: attempt to detect numeric mdr id for ordering if present
+            try:
+                if 'mdr_report_key' in rec:
+                    m = re.findall(r'\d+', str(rec.get('mdr_report_key') or ''))
+                    if m:
+                        item['mdr_id_num'] = int(max(m, key=len))
+            except Exception:
+                pass
+
+            items.append(item)
         except Exception:
             continue
 
+    # default sort logic when cfg.json_sort provided
+    sort_cfg = cfg.get('json_sort') or None
+    if not sort_cfg:
+        if '/device/510k' in (cfg.get('url') or '').lower():
+            sort_cfg = 'decision_date:desc'
+        elif '/device/event' in (cfg.get('url') or '').lower():
+            sort_cfg = 'mdr_id:desc'
+    if sort_cfg:
+        field, _, direction = sort_cfg.partition(':')
+        reverse = (direction.lower() == 'desc')
+        if field in ('mdr_id', 'mdr_id_num'):
+            items = sorted(items, key=lambda it: it.get('mdr_id_num') or 0, reverse=reverse)
+        elif field in ('decision_date','date_received','date','report_date'):
+            def _k(it):
+                try:
+                    if it.get('date_obj') is not None:
+                        return it.get('date_obj')
+                    if it.get('date'):
+                        return dateparser.parse(it.get('date'))
+                except Exception:
+                    pass
+                return datetime.min
+            items = sorted(items, key=_k, reverse=reverse)
+        else:
+            items = sorted(items, key=lambda it: (it.get(field) or '').lower(), reverse=reverse)
+
+    max_items = cfg.get('max_items') or cfg.get('max') or 100
+    try:
+        max_items = int(max_items)
+    except Exception:
+        max_items = 100
+    if len(items) > max_items:
+        items = items[:max_items]
+    print(f"After sorting/truncation returning {len(items)} items (max_items={max_items})")
     return items
 # ---------------------- END JSON HANDLER ----------------------
 
@@ -495,13 +563,7 @@ def extract_items_from_html(html, cfg):
                     if dnode and getattr(dnode, 'string', None):
                         date = dnode.string.strip()
                     else:
-                        # sometimes date is an attribute
-                        # e.g. <updated> or <published> with text
-                        date = (node.find('updated') or node.find('published') or node.find('pubDate') or None)
-                        if date and getattr(date, 'string', None):
-                            date = date.string.strip()
-                        else:
-                            date = ''
+                        date = ''
 
                     full_text = (title or '') + ' ' + (desc or '') + ' ' + (node.get_text(" ", strip=True) or '')
 
@@ -836,6 +898,8 @@ def build_feed(name, cfg, items):
                     pass
             # descrição: APENAS description explícita (sem fallback para full_text)
             desc_to_use = it.get('description') or ''
+            if it.get('matched_reason'):
+                desc_to_use = (desc_to_use + ' ').strip() + f" [MatchedReason: {it.get('matched_reason')}]"
             fe.description(desc_to_use)
             # pubDate: tentar parse
             if it.get('date'):
