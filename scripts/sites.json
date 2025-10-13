@@ -940,7 +940,7 @@
       "title": "device_name",
       "link": "k_number",
       "date": "decision_date",
-      "description": "openfda.device_name AND openfda.medical_specialty_description",
+      "description": "decision_description AND openfda.device_name AND openfda.medical_specialty_description",
       "filters": { "keywords": [] }
     },
     {
@@ -950,7 +950,7 @@
       "title": "applicant AND device_name",
       "link": "k_number",
       "date": "decision_date",
-      "description": "openfda.device_name AND openfda.medical_specialty_description",
+      "description": "decision_description AND openfda.device_name AND openfda.medical_specialty_description",
       "filters": { "keywords": [] }
     },
 
@@ -961,8 +961,8 @@
       "title": "product_problems AND patient.patient_problems",
       "link": "pma_pmn_number",
       "date": "date_received",
-      "description": "report_to_fda AND initial_report_to_fda AND mdr_text.text",
-      "topic": "device.brand_name AND device.generic_name AND device.openfda.device_name AND device.openfda.medical_specialty_description"
+      "description": "report_to_fda AND initial_report_to_fda AND device.brand_name AND device.generic_name AND device.openfda.device_name AND device.openfda.medical_specialty_description AND mdr_text.text",
+      "topic": "",
       "filters": { "keywords": [] }
     },
     {
@@ -972,8 +972,8 @@
       "title": "device.manufacturer_d_name AND product_problems AND patient.patient_problems",
       "link": "pma_pmn_number",
       "date": "date_received",
-      "description": "report_to_fda AND initial_report_to_fda AND mdr_text.text",
-      "topic": "device.brand_name AND device.generic_name AND device.openfda.device_name AND device.openfda.medical_specialty_description"
+      "description": "report_to_fda AND initial_report_to_fda AND device.brand_name AND device.generic_name AND device.openfda.device_name AND device.openfda.medical_specialty_description AND mdr_text.text",
+      "topic": "device.brand_name AND device.generic_name AND device.openfda.device_name AND device.openfda.medical_specialty_description",
       "filters": { "keywords": [] }
     }
 
