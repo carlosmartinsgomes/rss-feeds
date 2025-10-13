@@ -872,7 +872,8 @@
       "date": "date_received",
       "description": "report_to_fda AND initial_report_to_fda AND device.brand_name AND device.generic_name AND device.openfda.device_name AND device.openfda.medical_specialty_description AND mdr_text.text",
       "json_sort": "mdr_id:desc",
-      "filters": { "keywords": [] }
+      "filters": { "keywords": [] },
+      "dedupe": false
     },
     {
       "name": "MAUDE_Rivais-Regulatorios_Seguranca",
@@ -883,7 +884,8 @@
       "date": "date_received",
       "description": "report_to_fda AND initial_report_to_fda AND device.brand_name AND device.generic_name AND device.openfda.device_name AND device.openfda.medical_specialty_description AND mdr_text.text",
       "json_sort": "mdr_id:desc",
-      "filters": { "keywords": [] }
+      "filters": { "keywords": [] },
+      "dedupe": false
     }
 
     
