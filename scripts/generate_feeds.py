@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # scripts/generate_feeds.py
-# Versão com correções para MAUDE/510k: link-building MAUDE, title fallbacks, date normalization, debug.
+# Versão atualizada: corrige datas JSON YYYYMMDD, reconstrói links 510k, controla dedupe via cfg['dedupe'],
+# e repõe heurística de extração de datas em HTML (ancestrais/irmãos).
 
 import os
 import json
@@ -85,6 +86,7 @@ def get_value_from_record(record, path):
     cur = record
     try:
         for p in parts:
+            # handle OR inside a part (shouldn't normally happen here)
             if isinstance(p, str) and re.search(r'\s+OR\s+', p, flags=re.I):
                 p = p.split(' OR ')[0].strip()
             m = re.match(r'^([^\[]+)\[(\d+)\]$', p)
@@ -134,9 +136,7 @@ def get_value_from_record(record, path):
                 if it is None:
                     continue
                 txts.append(str(it))
-            if not txts:
-                return None
-            return "; ".join(txts)
+            return "; ".join(txts) if txts else None
         else:
             return str(cur)
     except Exception:
@@ -146,19 +146,23 @@ def _normalize_date_if_needed(selector_expr, value):
     if not value:
         return value
     v = str(value).strip()
+    # YYYYMMDD -> YYYY-MM-DD
     m = re.match(r'^(\d{4})(\d{2})(\d{2})$', v)
     if m:
         try:
             return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
         except Exception:
             pass
-    if selector_expr and 'date' in selector_expr.lower():
-        try:
-            dt = dateparser.parse(v)
-            if hasattr(dt, 'isoformat'):
-                return dt.isoformat()
-        except Exception:
-            pass
+    # already YYYY-MM-DD? return as-is
+    if re.match(r'^\d{4}-\d{2}-\d{2}$', v):
+        return v
+    # else attempt to parse with dateutil (may be slower, but ok)
+    try:
+        dt = dateparser.parse(v)
+        if dt:
+            return dt.isoformat()
+    except Exception:
+        pass
     return v
 
 def choose_first_available(record, selector_expr):
@@ -174,15 +178,13 @@ def choose_first_available(record, selector_expr):
         if not out_parts:
             return None
         joined = ' | '.join(out_parts)
-        joined = _normalize_date_if_needed(selector_expr, joined)
-        return joined
+        return _normalize_date_if_needed(selector_expr, joined)
     for alt in [s.strip() for s in re.split(r'\s+OR\s+', selector_expr, flags=re.I)]:
         if not alt:
             continue
         v = get_value_from_record(record, alt)
         if v not in (None, '', '[]'):
-            v = _normalize_date_if_needed(selector_expr, v)
-            return v
+            return _normalize_date_if_needed(selector_expr, v)
     return None
 
 def parse_field_from_json(entry, spec):
@@ -231,7 +233,7 @@ def extract_items_from_json(json_obj, cfg):
     if not found_records:
         return items
 
-    # DEBUG: if site looks like MAUDE, print first record (helps debug in Actions logs)
+    # DEBUG: sample for MAUDE-like names
     if cfg.get('name') and 'maude' in cfg.get('name', '').lower():
         try:
             sample = found_records[0]
@@ -246,10 +248,11 @@ def extract_items_from_json(json_obj, cfg):
             date = choose_first_available(rec, cfg.get('date', '')) or ''
             desc = choose_first_available(rec, cfg.get('description', '')) or ''
 
-            # ----- MAUDE link building fallback -----
-            # If the config URL looks like device/event or there are mdr keys, construct Detail.CFM link
             url_lower = (cfg.get('url') or '').lower()
-            if ('/device/event' in url_lower) or any(get_value_from_record(rec, k) for k in ('mdr_report_key', 'report_number', 'event_key')):
+
+            # MAUDE link-building
+            item_mdr_num = None
+            if '/device/event' in url_lower or any(get_value_from_record(rec, k) for k in ('mdr_report_key','report_number','event_key')):
                 cand_id = choose_first_available(rec, 'mdr_report_key OR report_number OR event_key') or ''
                 if cand_id:
                     digits = re.findall(r'\d+', str(cand_id))
@@ -257,58 +260,46 @@ def extract_items_from_json(json_obj, cfg):
                         idnum = max(digits, key=len)
                         pc = choose_first_available(rec, 'product_code OR device[0].device_report_product_code') or ''
                         link = f"https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfMAUDE/Detail.CFM?MDRFOI__ID={idnum}&pc={pc}"
-                        # attach numeric id for ordering if needed
                         try:
                             item_mdr_num = int(idnum)
                         except Exception:
                             item_mdr_num = None
-                    else:
-                        item_mdr_num = None
-                else:
-                    item_mdr_num = None
-            else:
-                item_mdr_num = None
 
-            # ----- 510k link building fallback for k_number fields -----
+            # 510k link-building fallback (sempre que possível)
             if not link and ('/device/510k' in url_lower or '510k' in cfg.get('name','').lower()):
-                k_candidate = choose_first_available(rec, 'k_number OR k_number[0]') or ''
+                k_candidate = choose_first_available(rec, 'k_number OR pma_pmn_number OR k_number[0]') or ''
                 if k_candidate:
                     kdigits = re.sub(r'\D','', str(k_candidate))
                     if kdigits:
                         link = f"https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfpmn/pmn.cfm?ID={kdigits}"
 
-            # ----- title fallback heuristics for MAUDE / events -----
+            # title fallbacks (MAUDE / event)
             if not title:
                 for cand in ('device.brand_name', 'device.generic_name', 'device.openfda.device_name', 'product_problems', 'event_type', 'mdr_text[0].text', 'manufacturer_d_name', 'report_number'):
                     t = choose_first_available(rec, cand)
                     if t:
                         title = t
                         break
-            # ensure title not empty
             if not title:
                 title = 'No title'
 
-            # ensure link has something (avoid empty link which can collapse dedupe)
+            # ensure link present (avoid empty link collapsing dedupe)
             if not link:
-                # try to create a stable fallback URN so dedupe can distinguish records
-                # prefer mdr id if present, else index-based URN
                 if item_mdr_num:
                     link = f"urn:maude:{item_mdr_num}"
                 else:
                     link = f"urn:record:{cfg.get('name')}:{idx}"
 
-            # normalize date (YYYYMMDD -> ISO etc.)
+            # normaliza data (YYYYMMDD -> YYYY-MM-DD, else tenta parse)
             if date:
                 date = _normalize_date_if_needed(cfg.get('date',''), date)
             else:
-                # try common candidate fields if cfg did not capture
-                for cand in ('date_received', 'report_date', 'date_reported', 'date'):
+                for cand in ('date_received','report_date','date_added','date_of_event','date'):
                     dd = choose_first_available(rec, cand)
                     if dd:
                         date = _normalize_date_if_needed(cand, dd)
                         break
 
-            # build full_text
             full_text = ' '.join([t for t in (title, desc, json.dumps(rec, ensure_ascii=False)[:1000]) if t])
 
             item = {
@@ -324,11 +315,10 @@ def extract_items_from_json(json_obj, cfg):
 
             items.append(item)
         except Exception as e:
-            # continue robustly but log minimal info
             print(f"extract_items_from_json: skipping record idx {idx} due to error: {e}")
             continue
 
-    # Sorting logic (respect json_sort or sensible defaults)
+    # sort logic
     sort_cfg = cfg.get('json_sort') or None
     if not sort_cfg:
         if '/device/510k' in (cfg.get('url') or '').lower():
@@ -338,15 +328,13 @@ def extract_items_from_json(json_obj, cfg):
     if sort_cfg:
         field, _, direction = sort_cfg.partition(':')
         reverse = (direction.lower() == 'desc')
-        if field in ('mdr_id', 'mdr_id_num'):
+        if field in ('mdr_id','mdr_id_num'):
             items = sorted(items, key=lambda it: it.get('mdr_id_num') or 0, reverse=reverse)
         elif field in ('decision_date','date_received','date','report_date'):
             def _k(it):
                 try:
                     if it.get('date'):
                         return dateparser.parse(it.get('date'))
-                    if it.get('date_obj'):
-                        return it.get('date_obj')
                 except Exception:
                     pass
                 return datetime.min
@@ -364,9 +352,8 @@ def extract_items_from_json(json_obj, cfg):
     print(f"After sorting/truncation returning {len(items)} items (max_items={max_items})")
     return items
 
-# ---------------- HTML extraction (mantive como tens) ----------------
+# ---------------- HTML extraction (with date heuristics) ----------------
 def extract_items_from_html(html, cfg):
-    # simplified: keep your working behavior (not changed)
     is_xml = False
     preview = (html or '').lstrip()[:200].lower()
     if preview.startswith('<?xml') or '<rss' in preview or '<feed' in preview:
@@ -378,25 +365,34 @@ def extract_items_from_html(html, cfg):
             nodes = soup.find_all(['item','entry']) or []
             for node in nodes:
                 try:
-                    title = (node.find('title').string or '').strip() if node.find('title') else node.get_text(" ",strip=True)[:1000]
+                    title = ''
                     link = ''
+                    desc = ''
+                    date = ''
+                    tnode = node.find('title')
+                    if tnode and getattr(tnode,'string',None):
+                        title = tnode.string.strip()
+                    else:
+                        title = node.get_text(" ",strip=True)[:1000]
                     lnode = node.find('link')
                     if lnode:
                         href = lnode.get('href') or (lnode.string or '').strip()
                         if href:
                             link = urljoin(cfg.get('url',''), href)
-                    desc = ''
-                    if node.find('description'):
-                        desc = (node.find('description').string or '').strip()
-                    date = (node.find('pubDate').string or '').strip() if node.find('pubDate') else ''
-                    items.append({'title': title, 'link': link, 'description': desc, 'date': date, 'full_text': (title + ' ' + desc)})
+                    if node.find('description') and getattr(node.find('description'),'string',None):
+                        desc = node.find('description').string.strip()
+                    dnode = node.find('pubDate') or node.find('published') or node.find('updated')
+                    if dnode and getattr(dnode,'string',None):
+                        date = dnode.string.strip()
+                    items.append({'title': title or 'No title', 'link': link or '', 'description': desc or '', 'date': date or '', 'full_text': (title + ' ' + desc)})
                 except Exception:
                     continue
             return items
+
         soup = BeautifulSoup(html, 'html.parser')
         container_sel = cfg.get('item_container') or 'article'
         nodes = []
-        for sel in [s.strip() for s in container_sel.split(',')]:
+        for sel in [s.strip() for s in str(container_sel).split(',')]:
             try:
                 found = soup.select(sel)
                 if found:
@@ -411,15 +407,35 @@ def extract_items_from_html(html, cfg):
                         nodes.extend(found)
                 except Exception:
                     continue
+
+        # helpers for date searching (node, ancestors, siblings)
+        def find_date_in(element):
+            date_selectors = []
+            if cfg.get('date'):
+                date_selectors = [s.strip() for s in cfg.get('date').split(',') if s.strip()]
+            date_selectors += ['time', '.date', 'span.date', '.timestamp']
+            for ds in date_selectors:
+                try:
+                    el = element.select_one(ds)
+                except Exception:
+                    el = None
+                if el:
+                    txt = el.get_text(strip=True)
+                    if txt:
+                        return txt
+            return None
+
         for node in nodes:
             try:
                 title = ''
                 link = ''
-                desc = ''
                 date = ''
+                desc = ''
                 title_sel = cfg.get('title')
                 link_sel = cfg.get('link')
                 desc_sel = cfg.get('description')
+
+                # title extraction
                 if title_sel:
                     for s in [t.strip() for t in title_sel.split(',')]:
                         try:
@@ -431,7 +447,10 @@ def extract_items_from_html(html, cfg):
                             break
                 else:
                     t = node.find(['h1','h2','h3','a'])
-                    title = t.get_text(strip=True) if t else ''
+                    if t:
+                        title = t.get_text(strip=True)
+
+                # link extraction (support selector@attr)
                 if link_sel:
                     parts = [p.strip() for p in link_sel.split(',')]
                     for ps in parts:
@@ -462,6 +481,8 @@ def extract_items_from_html(html, cfg):
                         candidate = a.get('href') or ''
                         if candidate and not _bad_href_re.search(candidate):
                             link = urljoin(cfg.get('url',''), candidate)
+
+                # description
                 if desc_sel:
                     for s in [t.strip() for t in desc_sel.split(',')]:
                         try:
@@ -469,25 +490,64 @@ def extract_items_from_html(html, cfg):
                         except Exception:
                             el = None
                         if el:
-                            desc = el.get_text(" ",strip=True)
+                            desc = el.get_text(" ", strip=True)
                             break
                 else:
                     p = node.find('p')
                     if p:
-                        desc = p.get_text(" ",strip=True)
-                # date heuristics (simple)
-                date = ''
-                if node.find('time'):
-                    date = node.find('time').get_text(strip=True)
-                items.append({'title': title or 'No title', 'link': link or '', 'description': desc or '', 'date': date or '', 'full_text': (title + ' ' + desc)})
+                        desc = p.get_text(" ", strip=True)
+
+                # date search: node -> ancestors (up to 3) -> prev/next siblings
+                date = find_date_in(node) or ''
+                if not date:
+                    ancestor = node
+                    for _ in range(3):
+                        ancestor = getattr(ancestor, 'parent', None)
+                        if ancestor is None:
+                            break
+                        found = find_date_in(ancestor)
+                        if found:
+                            date = found
+                            break
+                if not date:
+                    try:
+                        prev_sib = node.find_previous_sibling()
+                        if prev_sib:
+                            found = find_date_in(prev_sib)
+                            if found:
+                                date = found
+                        if not date:
+                            next_sib = node.find_next_sibling()
+                            if next_sib:
+                                found = find_date_in(next_sib)
+                                if found:
+                                    date = found
+                    except Exception:
+                        pass
+
+                # final normalization of date
+                if date:
+                    date = _normalize_date_if_needed(cfg.get('date',''), date)
+
+                full_text = (title or '') + ' ' + (desc or '') + ' ' + text_of_node(node)
+
+                items.append({'title': title or 'No title', 'link': link or '', 'description': desc or '', 'date': date or '', 'full_text': full_text})
             except Exception:
                 continue
+
     except Exception as e:
         print('extract_items_from_html: unexpected error', e)
         return items
+
     return items
 
-def dedupe_items(items):
+def dedupe_items(items, cfg=None):
+    # default behavior: dedupe by normalized link
+    do_dedupe = True
+    if isinstance(cfg, dict) and cfg.get('dedupe') is False:
+        do_dedupe = False
+    if not do_dedupe:
+        return items[:]  # return copy preserving order
     unique = {}
     out = []
     for it in (items or []):
@@ -559,14 +619,10 @@ def matches_filters_debug(item, cfg):
     if kw:
         for k in kw:
             kl = k.lower()
-            if kl in text_title:
-                return True, f"keyword '{k}' in title"
-            if kl in text_desc:
-                return True, f"keyword '{k}' in description"
-            if kl in text_full:
-                return True, f"keyword '{k}' in full_text"
-            if kl in text_link:
-                return True, f"keyword '{k}' in link"
+            if kl in text_title: return True, f"keyword '{k}' in title"
+            if kl in text_desc: return True, f"keyword '{k}' in description"
+            if kl in text_full: return True, f"keyword '{k}' in full_text"
+            if kl in text_link: return True, f"keyword '{k}' in link"
         return False, None
     for ex in exclude:
         if ex.lower() in text_title or ex.lower() in text_desc or ex.lower() in text_full:
@@ -605,6 +661,7 @@ def main():
             except Exception as e:
                 print(f'Request error for {url}: {e}')
                 resp = None
+
         items = []
         if html:
             try:
@@ -640,7 +697,10 @@ def main():
                     items = []
         else:
             items = []
+
         print(f'Found {len(items)} items for {name} (raw)')
+
+        # filters
         matched = []
         kw = cfg.get('filters', {}).get('keywords', []) or []
         print(f'Applying {len(kw)} keyword filters for {name}: {kw}')
@@ -653,8 +713,12 @@ def main():
         if not matched and items:
             print(f'No items matched filters for {name} — falling back to all {len(items)} items')
             matched = items
-        deduped = dedupe_items(matched)
+
+        # dedupe controlled by cfg.get('dedupe', True)
+        deduped = dedupe_items(matched, cfg)
+
         build_feed(name, cfg, deduped)
+
     print('All done.')
 
 if __name__ == '__main__':
