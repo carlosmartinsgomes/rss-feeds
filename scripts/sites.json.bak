@@ -317,35 +317,45 @@
     },
     {
       "name": "marketingdive-search-trade-desk",
-      "url": "https://www.marketingdive.com/search/?q=trade+desk",
-      "item_container": "article, li, div",
-      "title": "a, h2 a, h3 a",
-      "link": "a@href, h2 a@href",
-      "date": "time, .date",
-      "description": "p",
+      "url": "https://www.marketingdive.com/search/?q=trade+desk&selected_facets=&topics=&sortby=on",
+      "item_container": "#main-content > ul > li, #main-content li.row.feed__item, #main-content ul li",
+      "title": "h3.feed__title a, #main-content h3 a, h3.feed__title a[href], h3 a",
+      "link": "h3.feed__title a@href, a@href",
+      "date": "span.secondary-label, span.secondary-label time, time, span",
+      "description": ".deck, .card__description, p",
       "render_file": "scripts/rendered/marketingdive-tradedesk.html",
       "filters": { "keywords": [] }
     },
     {
       "name": "marketingdive-search-pubmatic",
-      "url": "https://www.marketingdive.com/search/?q=pubmatic",
-      "item_container": "article, li, div",
-      "title": "a, h2 a, h3 a",
-      "link": "a@href, h2 a@href",
-      "date": "time, .date",
-      "description": "p",
+      "url": "https://www.marketingdive.com/search/?q=pubmatic&selected_facets=&topics=&sortby=on",
+      "item_container": "#main-content > ul > li, #main-content li.row.feed__item, #main-content ul li",
+      "title": "h3.feed__title a, #main-content h3 a, h3.feed__title a[href], h3 a",
+      "link": "h3.feed__title a@href, a@href",
+      "date": "span.secondary-label, span.secondary-label time, time, span",
+      "description": ".deck, .card__description, p",
       "render_file": "scripts/rendered/marketingdive-pubmatic.html",
       "filters": { "keywords": [] }
     },
     {
       "name": "stocktwits-pubm",
       "url": "https://stocktwits.com/symbol/PUBM",
-      "item_container": ".stream .message, .stream-item, article",
-      "title": ".message, .stream-item .body, a",
-      "link": "a@href",
-      "date": "time, .timestamp",
-      "description": ".message, p",
+      "item_container": "div.infinite-scroll-component__outerdiv > div > div > article, article.StreamMessage_article__kCnZx, div.Container article, article",
+      "title": "div.RichTextMessage_body__4qUeP, .RichTextMessage_body__4qUeP, .RichTextMessage_body, .StreamMessage_messageContentDefault__cHL1P .RichTextMessage_body__4qUeP, article div.RichTextMessage_body__4qUeP",
+      "link": "a[href*='/message']@href, a[href*='/T']@href",
+      "date": "a > time@text, time.StreamMessage_timestamp__VVDmF@text, time@text",
+      "description": "",
       "render_file": "scripts/rendered/stocktwits-pubm.html",
+      "filters": { "keywords": [] }
+    },
+    {
+      "name": "inmodemd-clinical-papers",
+      "url": "https://www.inmodemd.com/clinical-papers/",
+      "item_container": "#content-start .col-md-9.col-sm-12, #content-start > div > div > div > div.col-md-9.col-sm-12",
+      "title": "#content-start > div > div > div:nth-child(1) > div > div > div > div.col-md-9.col-sm-12 > p.field-value-holder:nth-child(5), .col-md-9.col-sm-12 > p.field-value-holder:nth-child(5), p.field-value-holder",
+      "link": ".button.modal-show a.btn@href, .col-md-9.col-sm-12 a.btn@href, a.btn@href",
+      "date": "span.clinical-paper-date, #content-start > div > div > div:nth-child(1) > div > div > div > div.col-md-9.col-sm-12 > p.field-value-holder:nth-child(6), p.field-value-holder",
+      "description": "#content-start > div > div > div:nth-child(1) > div > div > div > div.col-md-9.col-sm-12 > div.title, .col-md-9.col-sm-12 .title, .title",
       "filters": { "keywords": [] }
     },
     {
@@ -455,17 +465,7 @@
       "description": "description",
       "filters": { "keywords": ["a","hims","hers","hims&hers"] }
     },
-    {
-      "name": "venturebeat",
-      "url": "https://venturebeat.com/",
-      "item_container": "article, li, div",
-      "title": "a, h2 a, h3 a",
-      "link": "a@href, h2 a@href",
-      "date": "time, .date",
-      "description": "p",
-      "render_file": "scripts/rendered/venturebeat.html",
-      "filters": { "keywords": ["iot","samsara","mndy","monday.com"] }
-    },
+    
     {
       "name": "wwd-on-holding",
       "url": "https://wwd.com/tag/on-holding/",
@@ -620,77 +620,6 @@
       "filters": { "keywords": ["inmode","morpheus8","facetite","bodytite","accutite","rfal","clinical study","trial","abstract","presentation","podium"] }
     },
     
-    {
-      "name": "linkedin-group-5146549",
-      "url": "https://www.linkedin.com/groups/5146549/",
-      "item_container": "div.feed-shared-update-v2, div.occludable-update[role='article'], div[id^='ember'][role='article']",
-      "title": "div.update-components-actor__title span.update-components-actor__single-line-truncate, a.update-components-actor__meta-link",
-      "link": "div.update-components-actor__meta a.update-components-actor__meta-link@href, a.update-components-actor__image@href",
-      "date": "span.update-components-actor__sub-description, span.update-components-actor__sub-description span[aria-hidden='true'], span.update-components-actor__sub-description",
-      "description": "div.update-components-text.update-components-update-v2__commentary, div.feed-shared-inline-show-more-text div.update-components-text",
-      "expand_more_selector": "button.feed-shared-inline-show-more-text__see-more-less-toggle, button[aria-label*='ver mais'], button[aria-label*='see more']",
-      "render_file": "scripts/rendered/linkedin-5146549.html",
-      "filters": { "keywords": ["a","inmode","morpheus8","facetite","bodytite","complication","adverse","review","case","experience"], "exclude": ["spam","promotion", "promo","course"] }
-    },
-    {
-      "name": "linkedin-group-4682610",
-      "url": "https://www.linkedin.com/groups/4682610/",
-      "item_container": "div.feed-shared-update-v2, div.occludable-update[role='article'], div[id^='ember'][role='article']",
-      "title": "div.update-components-actor__title span.update-components-actor__single-line-truncate, a.update-components-actor__meta-link",
-      "link": "div.update-components-actor__meta a.update-components-actor__meta-link@href, a.update-components-actor__image@href",
-      "date": "span.update-components-actor__sub-description, span.update-components-actor__sub-description span[aria-hidden='true'], span.update-components-actor__sub-description",
-      "description": "div.update-components-text.update-components-update-v2__commentary, div.feed-shared-inline-show-more-text div.update-components-text",
-      "expand_more_selector": "button.feed-shared-inline-show-more-text__see-more-less-toggle, button[aria-label*='ver mais'], button[aria-label*='see more']",
-      "render_file": "scripts/rendered/linkedin-4682610.html",
-      "filters": { "keywords": ["inmode","morpheus8","facetite","bodytite","complication","adverse","review","case","experience"], "exclude": ["spam","promotion", "promo","course"] }
-    },
-    {
-      "name": "linkedin-group-3875737",
-      "url": "https://www.linkedin.com/groups/3875737/",
-      "item_container": "div.feed-shared-update-v2, div.occludable-update[role='article'], div[id^='ember'][role='article']",
-      "title": "div.update-components-actor__title span.update-components-actor__single-line-truncate, a.update-components-actor__meta-link",
-      "link": "div.update-components-actor__meta a.update-components-actor__meta-link@href, a.update-components-actor__image@href",
-      "date": "span.update-components-actor__sub-description, span.update-components-actor__sub-description span[aria-hidden='true'], span.update-components-actor__sub-description",
-      "description": "div.update-components-text.update-components-update-v2__commentary, div.feed-shared-inline-show-more-text div.update-components-text",
-      "expand_more_selector": "button.feed-shared-inline-show-more-text__see-more-less-toggle, button[aria-label*='ver mais'], button[aria-label*='see more']",
-      "render_file": "scripts/rendered/linkedin-3875737.html",
-      "filters": { "keywords": ["inmode","morpheus8","facetite","bodytite","complication","adverse","review","case","experience"], "exclude": ["spam","promotion", "promo","course"] }
-    },
-    {
-      "name": "ttd-linkedin-group-sample",
-      "url": "https://www.linkedin.com/search/results/content/?datePosted=%22past-week%22&keywords=the%20trade%20desk&origin=FACETED_SEARCH",
-      "item_container": "div.feed-shared-update-v2, div.occludable-update[role='article'], div[id^='ember'][role='article']",
-      "title": "div.update-components-actor__title span.update-components-actor__single-line-truncate, a.update-components-actor__meta-link",
-      "link": "div.update-components-actor__meta a.update-components-actor__meta-link@href, a.update-components-actor__image@href",
-      "date": "span.update-components-actor__sub-description, span.update-components-actor__sub-description span[aria-hidden='true'], span.update-components-actor__sub-description",
-      "description": "div.update-components-text.update-components-update-v2__commentary, div.feed-shared-inline-show-more-text div.update-components-text",
-      "expand_more_selector": "button.feed-shared-inline-show-more-text__see-more-less-toggle, button[aria-label*='ver mais'], button[aria-label*='see more']",
-      "render_file": "scripts/rendered/linkedin-ttd-search.html",
-      "filters": { "keywords": [], "exclude": ["spam","promotion", "promo","course"] } 
-    },
-    {
-      "name": "pubmatic-linkedin-group-sample",
-      "url": "https://www.linkedin.com/search/results/content/?datePosted=%22past-week%22&keywords=pubmatic&origin=FACETED_SEARCH",
-      "item_container": "div.feed-shared-update-v2, div.occludable-update[role='article'], div[id^='ember'][role='article']",
-      "title": "div.update-components-actor__title span.update-components-actor__single-line-truncate, a.update-components-actor__meta-link",
-      "link": "div.update-components-actor__meta a.update-components-actor__meta-link@href, a.update-components-actor__image@href",
-      "date": "span.update-components-actor__sub-description, span.update-components-actor__sub-description span[aria-hidden='true'], span.update-components-actor__sub-description",
-      "description": "div.update-components-text.update-components-update-v2__commentary, div.feed-shared-inline-show-more-text div.update-components-text",
-      "expand_more_selector": "button.feed-shared-inline-show-more-text__see-more-less-toggle, button[aria-label*='ver mais'], button[aria-label*='see more']",
-      "render_file": "scripts/rendered/linkedin-pubmatic-search.html",
-      "filters": { "keywords": [], "exclude": ["spam","promotion", "promo","course"] }
-    },
-    
-    {
-      "name": "pubmatic",
-      "url": "https://pubmatic.com/",
-      "item_container": "article, li, div",
-      "title": "h1, h2 a, h3 a, a",
-      "link": "a@href, h2 a@href",
-      "date": "time, .date",
-      "description": "p, .summary",
-      "filters": { "keywords": [] }
-    },
     
     {
       "name": "theverge",
@@ -703,26 +632,6 @@
       "filters": { "keywords": ["a","duol","duolingo","inmode","device","acquisition","partnership","fda","clinical trial"], "exclude": ["opinion","review"] }
     },
     
-    {
-      "name": "financefeed-common",
-      "url": "https://www.financefeeds.com/",
-      "item_container": "article, li",
-      "title": "h1, h2 a, a",
-      "link": "a@href",
-      "date": "time, .date",
-      "description": "p",
-      "filters": { "keywords": [] }
-    },
-    {
-      "name": "adtech-news-sample",
-      "url": "https://www.adtech.com/",
-      "item_container": "article, li",
-      "title": "h1, h2 a, a",
-      "link": "a@href",
-      "date": "time, .date",
-      "description": "p",
-      "filters": { "keywords": [] }
-    },
     {
       "name": "PubmedINMDtech_trials",
       "url": "https://pubmed.ncbi.nlm.nih.gov/rss/search/1hasycEfiSSk6lzJibu2gZlHPzriEC8wbuDYJIWrdyKYBRiQVk/?limit=15&utm_campaign=pubmed-2&fc=20251004161424",
@@ -934,39 +843,51 @@
       "filters": { "keywords": [] }
     },
     {
-      "name": "FDA510k-decisoes&regulatory_summaries&mudancas_indicacoes",
-      "url": "https://api.fda.gov/device/510k.json?limit=100&sort=decision_date:desc",
+      "name": "FDA510k_Inmode-decisoes&regulatory_summaries&mudancas_indicacoes",
+      "url": "https://api.fda.gov/device/510k.json?search=applicant:InMod*&limit=50&sort=decision_date:desc",
       "item_container": "results",
-      "title": "openfda.device_name OR device_name OR applicant",
+      "title": "device_name",
       "link": "k_number",
-      "date": "decision_date OR date_received",
-      "description": "statement_or_summary OR summary",
-      "json_detail_fetch": true,
-      "json_sort": "decision_date:desc",
-      "max_items": 100,
-      "force_latest": true,
-      "prefer_scrape": true,
-      "scrape_url": "https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfpmn/pmn.cfm?start_search=1&Center=&Panel=&ProductCode=&KNumber=&Applicant=&DeviceName=&Type=&ThirdPartyReviewed=&ClinicalTrials=&Decision=&DecisionDateFrom=&DecisionDateTo=10%2F09%2F2025&IVDProducts=&Redact510K=&CombinationProducts=&PCCP=&ZNumber=&PAGENUM=1",
-      "filters": { "keywords": [], "fallback_to_all": false }
+      "date": "decision_date",
+      "description": "decision_description AND openfda.device_name AND openfda.medical_specialty_description",
+      "filters": { "keywords": [] }
     },
     {
-      "name": "MAUDEopenFDA-Regulatorios_Seguranca",
-      "url": "https://api.fda.gov/device/event.json?limit=100",
+      "name": "FDA510k_Rivais-decisoes&regulatory_summaries&mudancas_indicacoes",
+      "url": "https://api.fda.gov/device/510k.json?search=((openfda.medical_specialty_description:plastic)+AND+(device_name:%22Ultherapy%22+OR+device_name:%22microfocus*%22+OR+device_name:MFU+OR+device_name:%22Thermage%22+OR+device_name:%22monopolar+radiofrequency%22+OR+device_name:%22Profound*%22+OR+device_name:%22matrix%22+OR+device_name:%22lightsheer%22+OR+device_name:%22xerf%22+OR+device_name:%22body+contouring%22+OR+device_name:%22emsculpt%22))&limit=50&sort=decision_date:desc",
       "item_container": "results",
-      "title": "openfda.device_name OR device[0].generic_name OR event_type",
+      "title": "applicant AND device_name",
+      "link": "k_number",
+      "date": "decision_date",
+      "description": "decision_description AND openfda.device_name AND openfda.medical_specialty_description",
+      "filters": { "keywords": [] }
+    },
+
+    {
+      "name": "MAUDE_Inmode-Regulatorios_Seguranca-EpisodiosMaisGraves-full-thickness-burns&permanent-disfigurement&fat-loss",
+      "url": "https://api.fda.gov/device/event.json?search=device.manufacturer_d_name:inmod*&limit=50&sort=date_received:desc",
+      "item_container": "results",
+      "title": "product_problems AND patient.patient_problems",
       "link": "mdr_report_key OR report_number OR event_key",
-      "date": "date_received OR report_date",
-      "description": "mdr_text OR event_description",
-      "json_detail_fetch": true,
+      "date": "date_received",
+      "description": "report_to_fda AND initial_report_to_fda AND device.brand_name AND device.generic_name AND device.openfda.device_name AND device.openfda.medical_specialty_description AND mdr_text.text",
       "json_sort": "mdr_id:desc",
-      "max_items": 100,
-      "force_latest": true,
-      "prefer_scrape": true,
-      "scrape_url": "https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfMAUDE/results.cfm",
-      "filters": { "keywords": [], "fallback_to_all": false }
+      "filters": { "keywords": [] },
+      "dedupe": false
+    },
+    {
+      "name": "MAUDE_Rivais-Regulatorios_Seguranca",
+      "url": "https://api.fda.gov/device/event.json?search=((device.openfda.medical_specialty_description:plastic)+AND+(device.brand_name:%22Ultherapy%22+OR+device.brand_name:microfocus*+OR+device.brand_name:MFU+OR+device.brand_name:%22Thermage%22+OR+device.brand_name:%22monopolar+radiofrequency%22+OR+device.brand_name:%22Profound*%22+OR+device.brand_name:%22matrix%22+OR+device.brand_name:%22lightsheer%22+OR+device.brand_name:%22xerf%22+OR+device.brand_name:%22body+contouring%22+OR+device.brand_name:%22emsculpt%22))&limit=50&sort=date_received:desc",
+      "item_container": "results",
+      "title": "device.manufacturer_d_name AND product_problems AND patient.patient_problems",
+      "link": "mdr_report_key OR report_number OR event_key",
+      "date": "date_received",
+      "description": "report_to_fda AND initial_report_to_fda AND device.brand_name AND device.generic_name AND device.openfda.device_name AND device.openfda.medical_specialty_description AND mdr_text.text",
+      "json_sort": "mdr_id:desc",
+      "filters": { "keywords": [] },
+      "dedupe": false
     }
+
     
-
-
   ]
 }
