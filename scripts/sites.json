@@ -317,7 +317,7 @@
     },
     {
       "name": "marketingdive-search-trade-desk",
-      "url": "https://www.marketingdive.com/search/?q=trade+desk",
+      "url": "https://www.marketingdive.com/search/?q=trade+desk&selected_facets=&topics=&sortby=on",
       "item_container": "article, li, div",
       "title": "a, h2 a, h3 a",
       "link": "a@href, h2 a@href",
@@ -328,7 +328,7 @@
     },
     {
       "name": "marketingdive-search-pubmatic",
-      "url": "https://www.marketingdive.com/search/?q=pubmatic",
+      "url": "https://www.marketingdive.com/search/?q=pubmatic&selected_facets=&topics=&sortby=on",
       "item_container": "article, li, div",
       "title": "a, h2 a, h3 a",
       "link": "a@href, h2 a@href",
@@ -464,7 +464,7 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/venturebeat.html",
-      "filters": { "keywords": ["iot","samsara","mndy","monday.com"] }
+      "filters": { "keywords": ["a","iot","samsara","mndy","monday.com"] }
     },
     {
       "name": "wwd-on-holding",
@@ -860,7 +860,6 @@
       "link": "k_number",
       "date": "decision_date",
       "description": "decision_description AND openfda.device_name AND openfda.medical_specialty_description",
-      "topic": "applicant",
       "filters": { "keywords": [] }
     },
 
