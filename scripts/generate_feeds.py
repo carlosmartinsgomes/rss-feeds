@@ -398,13 +398,11 @@ def extract_items_from_json(json_obj, cfg):
 def extract_items_from_html(html, cfg):
     """
     Extrai items (title, link, description, date, full_text) de um HTML dado e uma config de site.
-    Melhorias:
-     - suporta seletores com '@text' e '@attr' (ex: 'a.title@text' ou 'a@href')
-     - prefere anchors com '/news/' '/articles/' '/story/' quando presentes
-     - evita anchors de 'partners', 'sessionId', 'uk.yahoo.com'
-     - debug counts para selectors
+    - Se cfg['name'] == 'yahoo-multiquote-news' usa heurística específica: procura anchors '/news/' '/article/' '/story/'
+      e sobe ao ancestor relevante (li/article/div) para extrair título/descrição/data.
+    - Caso contrário, mantém heurística genérica que já tinhas.
     """
-    # detectar XML/feed (mantem teu comportamento)
+    # detectar XML/feed
     is_xml = False
     preview = (html or '').lstrip()[:200].lower()
     if preview.startswith('<?xml') or '<rss' in preview or '<feed' in preview:
@@ -412,6 +410,90 @@ def extract_items_from_html(html, cfg):
 
     items = []
     try:
+        # ---------------- special-case: Yahoo multiquote (heurística robusta) ---------------
+        name = (cfg.get('name') or '').lower()
+        if name == 'yahoo-multiquote-news':
+            soup = BeautifulSoup(html, 'html.parser')
+            # localizar anchors que pareçam notícias
+            anchors = []
+            for a in soup.find_all('a', href=True):
+                href = a.get('href') or ''
+                if not href:
+                    continue
+                href_low = href.lower()
+                # ignorar partners/session etc.
+                if any(x in href_low for x in ('sessionid', 'partners', 'guce', 'consent', 'cookie', 'privacy', 'uk.yahoo.com', 'mailto:')):
+                    continue
+                # aceitar anchors que provavelmente são notícias
+                if any(x in href_low for x in ('/news/', '/article/', '/story/', '/articles/')):
+                    anchors.append(a)
+
+            print(f"YAHOO: found {len(anchors)} candidate anchors")
+
+            seen_links = set()
+            for a in anchors:
+                try:
+                    raw_href = a.get('href') or ''
+                    link = urljoin(cfg.get('url', ''), raw_href)
+                    # evita duplicados
+                    if link in seen_links:
+                        continue
+                    # localização do container (prefere li > article > div)
+                    parent = a.find_parent(['li', 'article', 'div'])
+                    if parent is None:
+                        parent = a.parent or a
+
+                    # extrair título: preferir texto do anchor, depois h3/h2 do parent
+                    title = (a.get_text(" ", strip=True) or '').strip()
+                    if not title:
+                        tnode = parent.find(['h1', 'h2', 'h3'])
+                        if tnode:
+                            title = tnode.get_text(" ", strip=True)
+
+                    # descrição: procura <p> no parent / sibling
+                    desc = ''
+                    p = parent.find('p')
+                    if p:
+                        desc = p.get_text(" ", strip=True)
+                    else:
+                        # às vezes a descrição está num span pequeno
+                        small = parent.find('small') or parent.find('span')
+                        if small:
+                            desc = small.get_text(" ", strip=True)
+
+                    # data: procura time, span[class*="time"|"date"], atributo datetime
+                    date = ''
+                    ttag = parent.find('time')
+                    if ttag:
+                        date = (ttag.get('datetime') or ttag.get_text(" ", strip=True) or '').strip()
+                    if not date:
+                        # procurar por spans com classes que contenham 'date' ou 'time'
+                        maybe = parent.find(lambda tag: tag.name in ('span','div') and tag.get('class') and any('date' in c.lower() or 'time' in c.lower() for c in tag.get('class')))
+                        if maybe:
+                            date = maybe.get_text(" ", strip=True)
+                    # fallback: pegar texto do anchor se ainda nada
+                    if not title:
+                        title = link
+                    # evitar apanhar nós de cookie/partners que por acaso tenham '/news/' — rejeitar por classes/texto
+                    parent_text_low = (parent.get_text(" ", strip=True) or '').lower()
+                    if any(x in parent_text_low for x in ('cookie', 'privacy', 'our partners', 'manage privacy', 'reject all', 'accept all')):
+                        # ignora
+                        continue
+
+                    # montar item
+                    seen_links.add(link)
+                    full_text = ' '.join([title, desc])[:2000]
+                    items.append({'title': title or 'No title', 'link': link or '', 'description': desc or '', 'date': date or '', 'full_text': full_text})
+                except Exception as e:
+                    # não falhar tudo por um item
+                    print("YAHOO: skip anchor due to error:", e)
+                    continue
+
+            print(f"YAHOO: produced {len(items)} items after heuristics")
+            return items
+
+        # ---------------- fallback genérico (teu código original adaptado) ---------------
+        # XML feed path
         if is_xml:
             soup = BeautifulSoup(html, 'xml')
             container_sel = cfg.get('item_container') or ''
@@ -432,7 +514,6 @@ def extract_items_from_html(html, cfg):
                         pass
             if not nodes:
                 nodes = soup.find_all(['item', 'entry']) or []
-
             nodes = [n for n in nodes if n is not None]
             for node in nodes:
                 try:
@@ -480,6 +561,7 @@ def extract_items_from_html(html, cfg):
                     continue
             return items
 
+        # HTML generic path (mantém heurística prévia — selectors passados pelo sites.json)
         soup = BeautifulSoup(html, 'html.parser')
         container_sel = cfg.get('item_container') or 'article'
         nodes = []
@@ -500,7 +582,7 @@ def extract_items_from_html(html, cfg):
                 except Exception:
                     continue
 
-        # debug counts (opcional)
+        # debug counts
         try:
             sel_list = [s.strip() for s in container_sel.split(',') if s.strip()]
             counts = []
@@ -515,6 +597,7 @@ def extract_items_from_html(html, cfg):
         except Exception:
             pass
 
+        # função auxiliar simples para selectors com '@attr'
         def select_and_get(el, selector_with_attr):
             if not selector_with_attr:
                 return None
@@ -573,7 +656,7 @@ def extract_items_from_html(html, cfg):
                 link_sel = cfg.get('link')
                 desc_sel = cfg.get('description')
 
-                # Title extraction (supports @text / @attr)
+                # Title extraction
                 if title_sel:
                     for s in [t.strip() for t in str(title_sel).split(',') if t.strip()]:
                         val = select_and_get(node, s)
@@ -585,14 +668,13 @@ def extract_items_from_html(html, cfg):
                     if t:
                         title = t.get_text(strip=True)
 
-                # Link extraction: supports "sel@href" or best anchor
+                # Link extraction
                 if link_sel:
                     parts = [p.strip() for p in link_sel.split(',')]
                     for ps in parts:
                         if '@' in ps:
                             sel, attr = ps.split('@', 1)
-                            sel = sel.strip()
-                            attr = attr.strip()
+                            sel = sel.strip(); attr = attr.strip()
                             try:
                                 el = node.select_one(sel)
                             except Exception:
@@ -615,7 +697,7 @@ def extract_items_from_html(html, cfg):
                 if not link:
                     link = find_best_href(node) or ''
 
-                # Description extraction (supports @text)
+                # Description
                 if desc_sel:
                     for s in [t.strip() for t in str(desc_sel).split(',') if t.strip()]:
                         val = select_and_get(node, s)
@@ -627,7 +709,7 @@ def extract_items_from_html(html, cfg):
                     if p:
                         desc = p.get_text(" ", strip=True)
 
-                # Date extraction: try cfg selectors then heuristics
+                # Date
                 date = ''
                 if cfg.get('date'):
                     for s in [t.strip() for t in str(cfg.get('date')).split(',') if t.strip()]:
