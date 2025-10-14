@@ -684,7 +684,7 @@ def main():
                 print(f'Request error for {url}: {e}')
                 resp = None
 
-# --- DEBUG helper: grava e inspeciona HTML para um site específico (inmodemd-clinical-papers) ---
+# --- DEBUG helper: grava e inspeciona HTML para um site específico ---
 def debug_inspect_site(cfg, resp):
     try:
         name = cfg.get('name','')
@@ -718,8 +718,7 @@ def debug_inspect_site(cfg, resp):
             soup = BeautifulSoup(body, 'html.parser')
             # lista de selectors que normalmente se usam para listas de artigos — ajusta se tens outros
             selectors = [
-                'article', '.article', '.post', '.post-list', '.blog-list', '.entry', '.clinical-paper',
-                '.fusion-column-wrapper', '.container .post', '.avia-post-entry', '.elementor-widget'
+                'article', '.article', '.post', '.post-list', '.blog-list', '.entry', '.fusion-column-wrapper', '.container .post', '.avia-post-entry', '.elementor-widget'
             ]
             for sel in selectors:
                 try:
@@ -728,7 +727,7 @@ def debug_inspect_site(cfg, resp):
                     cnt = -1
                 print(f"DEBUG: selector '{sel}' -> {cnt} matches")
             # selectors que tu tens no sites.json (cole-os aqui se forem diferentes)
-            custom_selectors = []
+            custom_selectors = ['.publishing.yf-m1e6lz@text', '.publishing@text', '.footer .publishing@text', 'h3.clamp@text', 'h3.yf-1952g7k@text', 'a.subtle-link.titles h3@text']
             # se souberes os selectors exactos, adiciona por exemplo:
             # custom_selectors = ['.your-selector-1', '.your-selector-2']
             for sel in custom_selectors:
@@ -737,8 +736,8 @@ def debug_inspect_site(cfg, resp):
                 except Exception as e:
                     print(f"DEBUG: custom selector '{sel}' error: {e}")
 
-            # pesquisa textual por uma string que apareça na UI (ex.: "Clinical Papers" ou título conhecido)
-            keys = ['Clinical Papers', 'Clinical Paper', 'paper', 'inmode', 'VASCULAZE']
+            # pesquisa textual por uma string que apareça na UI
+            keys = ['My Portfolio', 'News', 'Markets', 'Research', 'Personal Finance', 'Videos', 'Watch now']
             for k in keys:
                 found = body.lower().count(k.lower())
                 print(f"DEBUG: text occurrences of '{k}': {found}")
