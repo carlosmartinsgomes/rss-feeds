@@ -86,7 +86,7 @@
       "date": "article time, time",
       "description": "article p, p",
       "render_file": "scripts/rendered/inmode-press.html",
-      "filters": { "keywords": ["inmode","inmd"] } 
+      "filters": { "keywords": [] } 
     },
     {
       "name": "networkworld",
