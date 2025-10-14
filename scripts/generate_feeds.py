@@ -684,6 +684,75 @@ def main():
                 print(f'Request error for {url}: {e}')
                 resp = None
 
+# --- DEBUG helper: grava e inspeciona HTML para um site específico (inmodemd-clinical-papers) ---
+def debug_inspect_site(cfg, resp):
+    try:
+        name = cfg.get('name','')
+        if name != 'inmodemd-clinical-papers':
+            return
+        print("DEBUG: running debug_inspect_site for", name)
+        if resp is None:
+            print("DEBUG: resp is None")
+            return
+        try:
+            status = getattr(resp, 'status_code', 'no-status')
+            ctype = resp.headers.get('Content-Type','') if hasattr(resp, 'headers') else ''
+            body = resp.text if hasattr(resp, 'text') else str(resp)
+        except Exception as e:
+            print("DEBUG: error reading resp:", e)
+            return
+
+        print(f"DEBUG: status={status} Content-Type={ctype} body_len={len(body)}")
+        # grava html para artifact / logs
+        try:
+            os.makedirs('scripts', exist_ok=True)
+            fn = 'scripts/debug_inmodemd_clinical-papers.html'
+            with open(fn, 'w', encoding='utf-8') as fh:
+                fh.write(body)
+            print(f"DEBUG: wrote response to {fn}")
+        except Exception as e:
+            print("DEBUG: failed to write HTML file:", e)
+
+        # Quick checks with BeautifulSoup
+        try:
+            soup = BeautifulSoup(body, 'html.parser')
+            # lista de selectors que normalmente se usam para listas de artigos — ajusta se tens outros
+            selectors = [
+                'article', '.article', '.post', '.post-list', '.blog-list', '.entry', '.clinical-paper',
+                '.fusion-column-wrapper', '.container .post', '.avia-post-entry', '.elementor-widget'
+            ]
+            for sel in selectors:
+                try:
+                    cnt = len(soup.select(sel))
+                except Exception:
+                    cnt = -1
+                print(f"DEBUG: selector '{sel}' -> {cnt} matches")
+            # selectors que tu tens no sites.json (cole-os aqui se forem diferentes)
+            custom_selectors = []
+            # se souberes os selectors exactos, adiciona por exemplo:
+            # custom_selectors = ['.your-selector-1', '.your-selector-2']
+            for sel in custom_selectors:
+                try:
+                    print(f"DEBUG: custom selector '{sel}' -> {len(soup.select(sel))} matches")
+                except Exception as e:
+                    print(f"DEBUG: custom selector '{sel}' error: {e}")
+
+            # pesquisa textual por uma string que apareça na UI (ex.: "Clinical Papers" ou título conhecido)
+            keys = ['Clinical Papers', 'Clinical Paper', 'paper', 'inmode', 'VASCULAZE']
+            for k in keys:
+                found = body.lower().count(k.lower())
+                print(f"DEBUG: text occurrences of '{k}': {found}")
+
+            # print excerpt (first and last)
+            print("DEBUG: excerpt (first 2000 chars):")
+            print(body[:2000].replace('\n',' ')[:2000])
+        except Exception as e:
+            print("DEBUG: soup error:", e)
+
+    except Exception as e:
+        print("DEBUG: unexpected error in debug_inspect_site:", e)
+        
+
         items = []
         if html:
             try:
