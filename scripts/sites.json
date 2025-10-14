@@ -67,6 +67,66 @@
       "filters": { "keywords": ["a","inmode","device","acquisition","partnership","fda","clinical trial"], "exclude": ["opinion","review"] }
     },
     {
+      "name": "exchangewire-pubmatic",
+      "url": "https://www.exchangewire.com/?s=pubmatic",
+      "item_container": "#algolia-hits > div > ol > li, li.ais-Hits-item, #algolia-hits li",
+      "title": "h2[itemprop='name headline'] a@text, .ais-hits--title-link@text, h2 a@text",
+      "link": "h2[itemprop='name headline'] a@href, .ais-hits--thumbnail-link@href, a@href",
+      "date": "time@datetime, time@text, .post-date@text, .date@text",
+      "description": ".suggestion-post-content.ais-hits--content-snippet@text, .excerpt p@text, .ais-hits--content p@text",
+      "filters": { "keywords": [] }
+    },
+    {
+      "name": "exchangewire-tradedesk",
+      "url": "https://www.exchangewire.com/?s=trade+desk",
+      "item_container": "#algolia-hits > div > ol > li, li.ais-Hits-item, #algolia-hits li",
+      "title": "h2[itemprop='name headline'] a@text, .ais-hits--title-link@text, h2 a@text",
+      "link": "h2[itemprop='name headline'] a@href, .ais-hits--thumbnail-link@href, a@href",
+      "date": "time@datetime, time@text, .post-date@text, .date@text",
+      "description": ".suggestion-post-content.ais-hits--content-snippet@text, .excerpt p@text, .ais-hits--content p@text",
+      "filters": { "keywords": [] }
+    },
+    {
+      "name": "exchangewire-pinterest",
+      "url": "https://www.exchangewire.com/?s=pinterest",
+      "item_container": "#algolia-hits > div > ol > li, li.ais-Hits-item, #algolia-hits li",
+      "title": "h2[itemprop='name headline'] a@text, .ais-hits--title-link@text, h2 a@text",
+      "link": "h2[itemprop='name headline'] a@href, .ais-hits--thumbnail-link@href, a@href",
+      "date": "time@datetime, time@text, .post-date@text, .date@text",
+      "description": ".suggestion-post-content.ais-hits--content-snippet@text, .excerpt p@text, .ais-hits--content p@text",
+      "filters": { "keywords": [] }
+    },
+    {
+      "name": "prnewswire",
+      "url": "https://www.prnewswire.com/rss/news-releases-list.rss",
+      "item_container": "item",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
+      "filters": { "keywords": [] }
+    },
+    {
+      "name": "globenewswire",
+      "url": "https://www.globenewswire.com/RssFeed/orgclass/1/feedTitle/GlobeNewswire%20-%20News%20about%20Public%20Companies",
+      "item_container": "item",
+      "title": "title",
+      "link": "link",
+      "date": "pubDate",
+      "description": "description",
+      "filters": { "keywords": [] }
+    },
+    {
+      "name": "yahoo-multiquote-news",
+      "url": "https://finance.yahoo.com/quotes/TTD,PUBM,INMD,CRWD,FTNT,DDOG,PINS,MNDY,HUBS,ETSY,ONON,IOT,RBRK,ANET,DUOL,GTLB,ALAB,AXON,DAVA,EPAM,HIMS,LUV,PAYC/",
+      "item_container": "#main-content-wrapper > section.container.yf-7kyv2a > div > div > div > div > ul > li, li.stream-item.story-item, #main-content-wrapper ul li",
+      "title": ".publishing.yf-m1e6lz@text, .publishing@text, .footer .publishing@text",
+      "link": "a.subtle-link.titles@href, a.subtle-link@href, a[data-ylk]@href, a[href*='/news/']@href",
+      "date": ".taxonomy-links .ticker-wrapper .symbol@text, .ticker-wrapper .symbol@text, span.symbol@text",
+      "description": "h3.clamp@text, h3.yf-1952g7k@text, a.subtle-link.titles h3@text",
+      "filters": { "keywords": [] }
+    },
+    {
       "name": "mobihealthnews",
       "url": "https://www.mobihealthnews.com/",
       "item_container": "div.field.field--name-body.field--item",
