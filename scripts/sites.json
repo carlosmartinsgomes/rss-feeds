@@ -127,7 +127,7 @@
       "link": "a.subtle-link.titles@href, a.subtle-link@href, a[data-ylk]@href, a[href*='/news/']@href",
       "date": ".taxonomy-links .ticker-wrapper .symbol@text, .ticker-wrapper .symbol@text, span.symbol@text",
       "description": "h3.clamp@text, h3.yf-1952g7k@text, a.subtle-link.titles h3@text",
-      "render_file": "scripts/rendered/yahoo.html",
+      "render_file": "scripts/rendered/yahoo-multiquote-news.html",
       "filters": { "keywords": [] }
     },
     {
