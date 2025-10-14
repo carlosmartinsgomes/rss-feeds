@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # scripts/generate_feeds.py
-# Versão atualizada: corrige datas JSON YYYYMMDD, reconstrói links 510k, controla dedupe via cfg['dedupe'],
-# e repõe heurística de extração de datas em HTML (ancestrais/irmãos).
+# Versão atualizada: corrige datas JSON YYYYMMDD, reconstrói links 510k (quando aparecem apenas K###),
+# e extrai MDR IDs do MAUDE de forma robusta (usa grupos de 8 dígitos, ou junta grupos quando apropriado).
 
 import os
 import json
@@ -86,7 +86,6 @@ def get_value_from_record(record, path):
     cur = record
     try:
         for p in parts:
-            # handle OR inside a part (shouldn't normally happen here)
             if isinstance(p, str) and re.search(r'\s+OR\s+', p, flags=re.I):
                 p = p.split(' OR ')[0].strip()
             m = re.match(r'^([^\[]+)\[(\d+)\]$', p)
@@ -153,10 +152,8 @@ def _normalize_date_if_needed(selector_expr, value):
             return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
         except Exception:
             pass
-    # already YYYY-MM-DD? return as-is
     if re.match(r'^\d{4}-\d{2}-\d{2}$', v):
         return v
-    # else attempt to parse with dateutil (may be slower, but ok)
     try:
         dt = dateparser.parse(v)
         if dt:
@@ -233,7 +230,7 @@ def extract_items_from_json(json_obj, cfg):
     if not found_records:
         return items
 
-    # DEBUG: sample for MAUDE-like names
+    # debug sample for MAUDE-like names
     if cfg.get('name') and 'maude' in cfg.get('name', '').lower():
         try:
             sample = found_records[0]
@@ -250,30 +247,65 @@ def extract_items_from_json(json_obj, cfg):
 
             url_lower = (cfg.get('url') or '').lower()
 
-            # MAUDE link-building
+            # --- MAUDE: robust MDR id extraction & link building ---
             item_mdr_num = None
             if '/device/event' in url_lower or any(get_value_from_record(rec, k) for k in ('mdr_report_key','report_number','event_key')):
                 cand_id = choose_first_available(rec, 'mdr_report_key OR report_number OR event_key') or ''
-                if cand_id:
-                    digits = re.findall(r'\d+', str(cand_id))
-                    if digits:
-                        idnum = max(digits, key=len)
-                        pc = choose_first_available(rec, 'product_code OR device[0].device_report_product_code') or ''
-                        link = f"https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfMAUDE/Detail.CFM?MDRFOI__ID={idnum}&pc={pc}"
-                        try:
-                            item_mdr_num = int(idnum)
-                        except Exception:
-                            item_mdr_num = None
+                cand_id_raw = str(cand_id or '').strip()
+                idnum = None
+                if cand_id_raw:
+                    # 1) try contiguous 8+ digits
+                    m8 = re.search(r'(\d{8,})', cand_id_raw)
+                    if m8:
+                        idnum = m8.group(1)
+                    else:
+                        # find all digit groups
+                        groups = re.findall(r'\d+', cand_id_raw)
+                        if groups:
+                            total_len = sum(len(g) for g in groups)
+                            # if sensible to join (ex: '2316-5516'), join when sum length between 6 and 12
+                            if total_len >= 6 and total_len <= 12 and len(groups) >= 2:
+                                idnum = ''.join(groups)
+                            else:
+                                # fallback: take the longest group
+                                idnum = max(groups, key=len)
+                if idnum:
+                    # keep item_mdr_num for sorting if numeric
+                    try:
+                        item_mdr_num = int(idnum)
+                    except Exception:
+                        item_mdr_num = None
+                    # product code attempt
+                    pc = choose_first_available(rec, 'product_code OR device[0].device_report_product_code') or ''
+                    link = f"https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfMAUDE/Detail.CFM?MDRFOI__ID={idnum}&pc={pc}"
 
-            # 510k link-building fallback (sempre que possível)
-            if not link and ('/device/510k' in url_lower or '510k' in cfg.get('name','').lower()):
-                k_candidate = choose_first_available(rec, 'k_number OR pma_pmn_number OR k_number[0]') or ''
-                if k_candidate:
-                    kdigits = re.sub(r'\D','', str(k_candidate))
-                    if kdigits:
-                        link = f"https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfpmn/pmn.cfm?ID={kdigits}"
+            # --- 510k: if link looks like plain K-number, build URL
+            if link:
+                link_str = str(link).strip()
+                # if link looks like K123682 or 123682 or 'K 123682', normalise to digits
+                m_k = re.match(r'^[Kk]?\s*0*([0-9]+)$', link_str)
+                if m_k:
+                    kdigits = m_k.group(1)
+                    # zero-pad to 6 if desired? we simply use digits (API urls accept non-zero-padded too)
+                    link = f"https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfpmn/pmn.cfm?ID={kdigits}"
+            else:
+                # if no link found, try to build for 510k if context suggests it
+                if '/device/510k' in url_lower or '510k' in cfg.get('name','').lower():
+                    k_candidate = choose_first_available(rec, 'k_number OR pma_pmn_number OR k_number[0]') or ''
+                    k_candidate = str(k_candidate or '').strip()
+                    if k_candidate:
+                        m_k2 = re.search(r'([0-9]{4,})', k_candidate)
+                        if m_k2:
+                            kdigits = re.sub(r'\D','', k_candidate)
+                            link = f"https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfpmn/pmn.cfm?ID={kdigits}"
+                # for MAUDE if we didn't build link above, create a safe urn
+                if '/device/event' in url_lower and not link:
+                    raw_id = choose_first_available(rec, 'mdr_report_key OR report_number OR event_key') or ''
+                    raw_id_str = str(raw_id or '').strip()
+                    if raw_id_str:
+                        link = f"urn:maude:{raw_id_str}"
 
-            # title fallbacks (MAUDE / event)
+            # title fallbacks
             if not title:
                 for cand in ('device.brand_name', 'device.generic_name', 'device.openfda.device_name', 'product_problems', 'event_type', 'mdr_text[0].text', 'manufacturer_d_name', 'report_number'):
                     t = choose_first_available(rec, cand)
@@ -283,14 +315,11 @@ def extract_items_from_json(json_obj, cfg):
             if not title:
                 title = 'No title'
 
-            # ensure link present (avoid empty link collapsing dedupe)
+            # ensure link present to avoid empty dedupe keys
             if not link:
-                if item_mdr_num:
-                    link = f"urn:maude:{item_mdr_num}"
-                else:
-                    link = f"urn:record:{cfg.get('name')}:{idx}"
+                link = f"urn:record:{cfg.get('name')}:{idx}"
 
-            # normaliza data (YYYYMMDD -> YYYY-MM-DD, else tenta parse)
+            # normalize date if present, else try common fields
             if date:
                 date = _normalize_date_if_needed(cfg.get('date',''), date)
             else:
@@ -318,7 +347,7 @@ def extract_items_from_json(json_obj, cfg):
             print(f"extract_items_from_json: skipping record idx {idx} due to error: {e}")
             continue
 
-    # sort logic
+    # sorting logic (same semantics)
     sort_cfg = cfg.get('json_sort') or None
     if not sort_cfg:
         if '/device/510k' in (cfg.get('url') or '').lower():
@@ -408,7 +437,6 @@ def extract_items_from_html(html, cfg):
                 except Exception:
                     continue
 
-        # helpers for date searching (node, ancestors, siblings)
         def find_date_in(element):
             date_selectors = []
             if cfg.get('date'):
@@ -435,7 +463,6 @@ def extract_items_from_html(html, cfg):
                 link_sel = cfg.get('link')
                 desc_sel = cfg.get('description')
 
-                # title extraction
                 if title_sel:
                     for s in [t.strip() for t in title_sel.split(',')]:
                         try:
@@ -450,7 +477,6 @@ def extract_items_from_html(html, cfg):
                     if t:
                         title = t.get_text(strip=True)
 
-                # link extraction (support selector@attr)
                 if link_sel:
                     parts = [p.strip() for p in link_sel.split(',')]
                     for ps in parts:
@@ -482,7 +508,6 @@ def extract_items_from_html(html, cfg):
                         if candidate and not _bad_href_re.search(candidate):
                             link = urljoin(cfg.get('url',''), candidate)
 
-                # description
                 if desc_sel:
                     for s in [t.strip() for t in desc_sel.split(',')]:
                         try:
@@ -497,7 +522,6 @@ def extract_items_from_html(html, cfg):
                     if p:
                         desc = p.get_text(" ", strip=True)
 
-                # date search: node -> ancestors (up to 3) -> prev/next siblings
                 date = find_date_in(node) or ''
                 if not date:
                     ancestor = node
@@ -525,7 +549,6 @@ def extract_items_from_html(html, cfg):
                     except Exception:
                         pass
 
-                # final normalization of date
                 if date:
                     date = _normalize_date_if_needed(cfg.get('date',''), date)
 
@@ -542,12 +565,11 @@ def extract_items_from_html(html, cfg):
     return items
 
 def dedupe_items(items, cfg=None):
-    # default behavior: dedupe by normalized link
     do_dedupe = True
     if isinstance(cfg, dict) and cfg.get('dedupe') is False:
         do_dedupe = False
     if not do_dedupe:
-        return items[:]  # return copy preserving order
+        return items[:]  # copy preserving order
     unique = {}
     out = []
     for it in (items or []):
@@ -700,7 +722,6 @@ def main():
 
         print(f'Found {len(items)} items for {name} (raw)')
 
-        # filters
         matched = []
         kw = cfg.get('filters', {}).get('keywords', []) or []
         print(f'Applying {len(kw)} keyword filters for {name}: {kw}')
@@ -714,7 +735,6 @@ def main():
             print(f'No items matched filters for {name} — falling back to all {len(items)} items')
             matched = items
 
-        # dedupe controlled by cfg.get('dedupe', True)
         deduped = dedupe_items(matched, cfg)
 
         build_feed(name, cfg, deduped)
