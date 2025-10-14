@@ -688,7 +688,7 @@ def main():
 def debug_inspect_site(cfg, resp):
     try:
         name = cfg.get('name','')
-        if name != 'inmodemd-clinical-papers':
+        if name != 'yahoo-multiquote-news':
             return
         print("DEBUG: running debug_inspect_site for", name)
         if resp is None:
@@ -706,7 +706,7 @@ def debug_inspect_site(cfg, resp):
         # grava html para artifact / logs
         try:
             os.makedirs('scripts', exist_ok=True)
-            fn = 'scripts/debug_inmodemd_clinical-papers.html'
+            fn = 'scripts/debug_yahoo-multiquote-news.html'
             with open(fn, 'w', encoding='utf-8') as fh:
                 fh.write(body)
             print(f"DEBUG: wrote response to {fn}")
