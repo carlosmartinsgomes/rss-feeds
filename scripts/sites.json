@@ -74,6 +74,7 @@
       "link": "h2[itemprop='name headline'] a@href, .ais-hits--thumbnail-link@href, a@href",
       "date": "time@datetime, time@text, .post-date@text, .date@text",
       "description": ".suggestion-post-content.ais-hits--content-snippet@text, .excerpt p@text, .ais-hits--content p@text",
+      "render_file": "scripts/rendered/exchangewire.html",
       "filters": { "keywords": [] }
     },
     {
@@ -84,6 +85,7 @@
       "link": "h2[itemprop='name headline'] a@href, .ais-hits--thumbnail-link@href, a@href",
       "date": "time@datetime, time@text, .post-date@text, .date@text",
       "description": ".suggestion-post-content.ais-hits--content-snippet@text, .excerpt p@text, .ais-hits--content p@text",
+      "render_file": "scripts/rendered/exchangewire1.html",
       "filters": { "keywords": [] }
     },
     {
@@ -94,6 +96,7 @@
       "link": "h2[itemprop='name headline'] a@href, .ais-hits--thumbnail-link@href, a@href",
       "date": "time@datetime, time@text, .post-date@text, .date@text",
       "description": ".suggestion-post-content.ais-hits--content-snippet@text, .excerpt p@text, .ais-hits--content p@text",
+      "render_file": "scripts/rendered/exchangewire2.html",
       "filters": { "keywords": [] }
     },
     {
@@ -124,6 +127,7 @@
       "link": "a.subtle-link.titles@href, a.subtle-link@href, a[data-ylk]@href, a[href*='/news/']@href",
       "date": ".taxonomy-links .ticker-wrapper .symbol@text, .ticker-wrapper .symbol@text, span.symbol@text",
       "description": "h3.clamp@text, h3.yf-1952g7k@text, a.subtle-link.titles h3@text",
+      "render_file": "scripts/rendered/yahoo.html",
       "filters": { "keywords": [] }
     },
     {
@@ -302,6 +306,7 @@
       "link": ".button.modal-show a.btn@href, .col-md-9.col-sm-12 a.btn@href, a.btn@href",
       "date": "span.clinical-paper-date, #content-start > div > div > div:nth-child(1) > div > div > div > div.col-md-9.col-sm-12 > p.field-value-holder:nth-child(6), p.field-value-holder",
       "description": "#content-start > div > div > div:nth-child(1) > div > div > div > div.col-md-9.col-sm-12 > div.title, .col-md-9.col-sm-12 .title, .title",
+      "render_file": "scripts/rendered/inmodemd.html",
       "filters": { "keywords": [] }
     },
     {
