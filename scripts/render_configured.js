@@ -35,6 +35,8 @@ const allowedHosts = [
   'stocktwits.com',
   'journals.lww.com',
   'inmodeinvestors.com',
+  'inmodemd.com/clinical-papers/'
+  'https://finance.yahoo.com/quotes/TTD,PUBM,INMD,CRWD,FTNT,DDOG,PINS,MNDY,HUBS,ETSY,ONON,IOT,RBRK,ANET,DUOL,GTLB,ALAB,AXON,DAVA,EPAM,HIMS,LUV,PAYC/'
   'aibusiness.com',
   'businesswire.com'
 ];
