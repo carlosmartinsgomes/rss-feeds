@@ -37,6 +37,7 @@ const allowedHosts = [
   'inmodeinvestors.com',
   'inmodemd.com',
   'finance.yahoo.com',
+  'exchangewire.com',
   'aibusiness.com',
   'businesswire.com'
 ];
