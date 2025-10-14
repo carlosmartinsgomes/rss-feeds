@@ -860,6 +860,7 @@
       "link": "k_number",
       "date": "decision_date",
       "description": "decision_description AND openfda.device_name AND openfda.medical_specialty_description",
+      "topic": "applicant",
       "filters": { "keywords": [] }
     },
 
