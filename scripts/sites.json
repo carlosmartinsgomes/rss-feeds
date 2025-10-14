@@ -298,6 +298,17 @@
       "render_file": "scripts/rendered/stocktwits-pubm.html",
       "filters": { "keywords": [] }
     },
+    { 
+      "name": "inmode-press",
+      "url": "https://inmodeinvestors.com/press-release/",
+      "item_container": ".investors_events_content_boxes .investors_events_bodybox, article",
+      "title": "article h2 a, a",
+      "link": "article h2 a@href, a@href",
+      "date": "article time, time",
+      "description": "article p, p",
+      "render_file": "scripts/rendered/inmode-press.html",
+      "filters": { "keywords": [] } 
+    },
     {
       "name": "inmodemd-clinical-papers",
       "url": "https://www.inmodemd.com/clinical-papers/",
