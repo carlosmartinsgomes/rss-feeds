@@ -318,34 +318,44 @@
     {
       "name": "marketingdive-search-trade-desk",
       "url": "https://www.marketingdive.com/search/?q=trade+desk&selected_facets=&topics=&sortby=on",
-      "item_container": "article, li, div",
-      "title": "a, h2 a, h3 a",
-      "link": "a@href, h2 a@href",
-      "date": "time, .date",
-      "description": "p",
+      "item_container": "#main-content > ul > li, #main-content li.row.feed__item, #main-content ul li",
+      "title": "h3.feed__title a, #main-content h3 a, h3.feed__title a[href], h3 a",
+      "link": "h3.feed__title a@href, a@href",
+      "date": "span.secondary-label, span.secondary-label time, time, span",
+      "description": ".deck, .card__description, p",
       "render_file": "scripts/rendered/marketingdive-tradedesk.html",
       "filters": { "keywords": [] }
     },
     {
       "name": "marketingdive-search-pubmatic",
       "url": "https://www.marketingdive.com/search/?q=pubmatic&selected_facets=&topics=&sortby=on",
-      "item_container": "article, li, div",
-      "title": "a, h2 a, h3 a",
-      "link": "a@href, h2 a@href",
-      "date": "time, .date",
-      "description": "p",
+      "item_container": "#main-content > ul > li, #main-content li.row.feed__item, #main-content ul li",
+      "title": "h3.feed__title a, #main-content h3 a, h3.feed__title a[href], h3 a",
+      "link": "h3.feed__title a@href, a@href",
+      "date": "span.secondary-label, span.secondary-label time, time, span",
+      "description": ".deck, .card__description, p",
       "render_file": "scripts/rendered/marketingdive-pubmatic.html",
       "filters": { "keywords": [] }
     },
     {
       "name": "stocktwits-pubm",
       "url": "https://stocktwits.com/symbol/PUBM",
-      "item_container": ".stream .message, .stream-item, article",
-      "title": ".message, .stream-item .body, a",
-      "link": "a@href",
-      "date": "time, .timestamp",
-      "description": ".message, p",
+      "item_container": "div.infinite-scroll-component__outerdiv > div > div > article, article.StreamMessage_article__kCnZx, div.Container article, article",
+      "title": "div.RichTextMessage_body__4qUeP, .RichTextMessage_body__4qUeP, .RichTextMessage_body, .StreamMessage_messageContentDefault__cHL1P .RichTextMessage_body__4qUeP, article div.RichTextMessage_body__4qUeP",
+      "link": "a[href*='/message']@href, a[href*='/T']@href",
+      "date": "a > time@text, time.StreamMessage_timestamp__VVDmF@text, time@text",
+      "description": "",
       "render_file": "scripts/rendered/stocktwits-pubm.html",
+      "filters": { "keywords": [] }
+    },
+    {
+      "name": "inmodemd-clinical-papers",
+      "url": "https://www.inmodemd.com/clinical-papers/",
+      "item_container": "#content-start .col-md-9.col-sm-12, #content-start > div > div > div > div.col-md-9.col-sm-12",
+      "title": "#content-start > div > div > div:nth-child(1) > div > div > div > div.col-md-9.col-sm-12 > p.field-value-holder:nth-child(5), .col-md-9.col-sm-12 > p.field-value-holder:nth-child(5), p.field-value-holder",
+      "link": ".button.modal-show a.btn@href, .col-md-9.col-sm-12 a.btn@href, a.btn@href",
+      "date": "span.clinical-paper-date, #content-start > div > div > div:nth-child(1) > div > div > div > div.col-md-9.col-sm-12 > p.field-value-holder:nth-child(6), p.field-value-holder",
+      "description": "#content-start > div > div > div:nth-child(1) > div > div > div > div.col-md-9.col-sm-12 > div.title, .col-md-9.col-sm-12 .title, .title",
       "filters": { "keywords": [] }
     },
     {
@@ -455,17 +465,7 @@
       "description": "description",
       "filters": { "keywords": ["a","hims","hers","hims&hers"] }
     },
-    {
-      "name": "venturebeat",
-      "url": "https://venturebeat.com/",
-      "item_container": "article, li, div",
-      "title": "a, h2 a, h3 a",
-      "link": "a@href, h2 a@href",
-      "date": "time, .date",
-      "description": "p",
-      "render_file": "scripts/rendered/venturebeat.html",
-      "filters": { "keywords": ["a","iot","samsara","mndy","monday.com"] }
-    },
+    
     {
       "name": "wwd-on-holding",
       "url": "https://wwd.com/tag/on-holding/",
