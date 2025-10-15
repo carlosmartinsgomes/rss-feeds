@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 # scripts/generate_feeds.py
-# Versão atualizada: corrige datas JSON YYYYMMDD, reconstrói links 510k (quando aparecem apenas K###),
-# extrai MDR IDs do MAUDE de forma robusta e inclui debug helpers para inspecionar HTML/responses.
+# Versão com heurísticas específicas para Yahoo Related News:
+#  - tenta localizar a secção "Related News" e extrair os itens <li>
+#  - coloca nos titles a linha de metadados (ex: "Insider Monkey • 2h ago")
+#  - coloca na description o headline + informação de ticker/percent extraída
 
 import os
 import json
@@ -26,25 +28,17 @@ except Exception:
 
 _default_tzinfos = {"ET": date_tz.gettz("America/New_York")}
 _original_parse = dateparser.parse
-
-
 def _parse_with_default_tzinfos(timestr, *args, **kwargs):
     if "tzinfos" not in kwargs or kwargs["tzinfos"] is None:
         kwargs["tzinfos"] = _default_tzinfos
     return _original_parse(timestr, *args, **kwargs)
-
-
 dateparser.parse = _parse_with_default_tzinfos
 
 ROOT = os.path.dirname(__file__)
 SITES_JSON = os.path.join(ROOT, 'sites.json')
 FEEDS_DIR = os.path.join(ROOT, '..', 'feeds')
 
-_bad_href_re = re.compile(
-    r'(^#|/help|/legal|cookie|privacy|terms|signin|login|settings|/consent|/preferences|/policies|mailto:)',
-    re.I
-)
-
+_bad_href_re = re.compile(r'(^#|/help|/legal|cookie|privacy|terms|signin|login|settings|/consent|/preferences|/policies|mailto:)', re.I)
 
 def load_sites():
     try:
@@ -54,7 +48,6 @@ def load_sites():
     except Exception as e:
         print('Failed to load sites.json:', e)
         return []
-
 
 def fetch_url(url, timeout=20):
     headers = {
@@ -66,12 +59,10 @@ def fetch_url(url, timeout=20):
     r.raise_for_status()
     return r
 
-
 def text_of_node(node):
     if node is None:
         return ''
     return ' '.join(node.stripped_strings)
-
 
 def normalize_link_for_dedupe(href):
     if not href:
@@ -89,8 +80,7 @@ def normalize_link_for_dedupe(href):
     except Exception:
         return href.strip().lower()
 
-
-# ---------------- JSON helpers ----------------
+# ---------------- JSON helpers (kept generic) ----------------
 def get_value_from_record(record, path):
     if not path or record is None:
         return None
@@ -153,12 +143,10 @@ def get_value_from_record(record, path):
     except Exception:
         return None
 
-
 def _normalize_date_if_needed(selector_expr, value):
     if not value:
         return value
     v = str(value).strip()
-    # YYYYMMDD -> YYYY-MM-DD
     m = re.match(r'^(\d{4})(\d{2})(\d{2})$', v)
     if m:
         try:
@@ -174,7 +162,6 @@ def _normalize_date_if_needed(selector_expr, value):
     except Exception:
         pass
     return v
-
 
 def choose_first_available(record, selector_expr):
     if not selector_expr:
@@ -198,13 +185,12 @@ def choose_first_available(record, selector_expr):
             return _normalize_date_if_needed(selector_expr, v)
     return None
 
-
 def parse_field_from_json(entry, spec):
     if not spec or entry is None:
         return None
     return choose_first_available(entry, spec)
 
-
+# ---------------- JSON extractor (kept) ----------------
 def extract_items_from_json(json_obj, cfg):
     items = []
     if not isinstance(json_obj, dict):
@@ -265,25 +251,21 @@ def extract_items_from_json(json_obj, cfg):
 
             # --- MAUDE: robust MDR id extraction & link building ---
             item_mdr_num = None
-            if '/device/event' in url_lower or any(get_value_from_record(rec, k) for k in ('mdr_report_key', 'report_number', 'event_key')):
+            if '/device/event' in url_lower or any(get_value_from_record(rec, k) for k in ('mdr_report_key','report_number','event_key')):
                 cand_id = choose_first_available(rec, 'mdr_report_key OR report_number OR event_key') or ''
                 cand_id_raw = str(cand_id or '').strip()
                 idnum = None
                 if cand_id_raw:
-                    # 1) try contiguous 8+ digits
                     m8 = re.search(r'(\d{8,})', cand_id_raw)
                     if m8:
                         idnum = m8.group(1)
                     else:
-                        # find all digit groups
                         groups = re.findall(r'\d+', cand_id_raw)
                         if groups:
                             total_len = sum(len(g) for g in groups)
-                            # if sensible to join (ex: '2316-5516'), join when sum length between 6 and 12
                             if total_len >= 6 and total_len <= 12 and len(groups) >= 2:
                                 idnum = ''.join(groups)
                             else:
-                                # fallback: take the longest group
                                 idnum = max(groups, key=len)
                 if idnum:
                     try:
@@ -301,23 +283,20 @@ def extract_items_from_json(json_obj, cfg):
                     kdigits = m_k.group(1)
                     link = f"https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfpmn/pmn.cfm?ID={kdigits}"
             else:
-                # if no link found, try to build for 510k if context suggests it
-                if '/device/510k' in url_lower or '510k' in cfg.get('name', '').lower():
+                if '/device/510k' in url_lower or '510k' in cfg.get('name','').lower():
                     k_candidate = choose_first_available(rec, 'k_number OR pma_pmn_number OR k_number[0]') or ''
                     k_candidate = str(k_candidate or '').strip()
                     if k_candidate:
                         m_k2 = re.search(r'([0-9]{4,})', k_candidate)
                         if m_k2:
-                            kdigits = re.sub(r'\D', '', k_candidate)
+                            kdigits = re.sub(r'\D','', k_candidate)
                             link = f"https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfpmn/pmn.cfm?ID={kdigits}"
-                # for MAUDE if we didn't build link above, create a safe urn
                 if '/device/event' in url_lower and not link:
                     raw_id = choose_first_available(rec, 'mdr_report_key OR report_number OR event_key') or ''
                     raw_id_str = str(raw_id or '').strip()
                     if raw_id_str:
                         link = f"urn:maude:{raw_id_str}"
 
-            # title fallbacks
             if not title:
                 for cand in ('device.brand_name', 'device.generic_name', 'device.openfda.device_name', 'product_problems', 'event_type', 'mdr_text[0].text', 'manufacturer_d_name', 'report_number'):
                     t = choose_first_available(rec, cand)
@@ -327,15 +306,13 @@ def extract_items_from_json(json_obj, cfg):
             if not title:
                 title = 'No title'
 
-            # ensure link present to avoid empty dedupe keys
             if not link:
                 link = f"urn:record:{cfg.get('name')}:{idx}"
 
-            # normalize date if present, else try common fields
             if date:
-                date = _normalize_date_if_needed(cfg.get('date', ''), date)
+                date = _normalize_date_if_needed(cfg.get('date',''), date)
             else:
-                for cand in ('date_received', 'report_date', 'date_added', 'date_of_event', 'date'):
+                for cand in ('date_received','report_date','date_added','date_of_event','date'):
                     dd = choose_first_available(rec, cand)
                     if dd:
                         date = _normalize_date_if_needed(cand, dd)
@@ -359,7 +336,6 @@ def extract_items_from_json(json_obj, cfg):
             print(f"extract_items_from_json: skipping record idx {idx} due to error: {e}")
             continue
 
-    # sorting logic
     sort_cfg = cfg.get('json_sort') or None
     if not sort_cfg:
         if '/device/510k' in (cfg.get('url') or '').lower():
@@ -369,9 +345,9 @@ def extract_items_from_json(json_obj, cfg):
     if sort_cfg:
         field, _, direction = sort_cfg.partition(':')
         reverse = (direction.lower() == 'desc')
-        if field in ('mdr_id', 'mdr_id_num'):
+        if field in ('mdr_id','mdr_id_num'):
             items = sorted(items, key=lambda it: it.get('mdr_id_num') or 0, reverse=reverse)
-        elif field in ('decision_date', 'date_received', 'date', 'report_date'):
+        elif field in ('decision_date','date_received','date','report_date'):
             def _k(it):
                 try:
                     if it.get('date'):
@@ -393,16 +369,15 @@ def extract_items_from_json(json_obj, cfg):
     print(f"After sorting/truncation returning {len(items)} items (max_items={max_items})")
     return items
 
-
-# ---------------- HTML extraction (with date heuristics) ----------------
+# ---------------- HTML extraction (with Yahoo special-case) ----------------
 def extract_items_from_html(html, cfg):
     """
     Extrai items (title, link, description, date, full_text) de um HTML dado e uma config de site.
-    - Se cfg['name'] == 'yahoo-multiquote-news' usa heurística específica: procura anchors '/news/' '/article/' '/story/'
-      e sobe ao ancestor relevante (li/article/div) para extrair título/descrição/data.
-    - Caso contrário, mantém heurística genérica que já tinhas.
+    Inclui heurísticas específicas para 'yahoo-multiquote-news' para:
+      - localizar o bloco 'Related News' (se existir)
+      - extrair os <li> desse bloco
+      - trocar title/description para que title contenha a linha de metadados e description o headline + ticker
     """
-    # detectar XML/feed
     is_xml = False
     preview = (html or '').lstrip()[:200].lower()
     if preview.startswith('<?xml') or '<rss' in preview or '<feed' in preview:
@@ -410,90 +385,6 @@ def extract_items_from_html(html, cfg):
 
     items = []
     try:
-        # ---------------- special-case: Yahoo multiquote (heurística robusta) ---------------
-        name = (cfg.get('name') or '').lower()
-        if name == 'yahoo-multiquote-news':
-            soup = BeautifulSoup(html, 'html.parser')
-            # localizar anchors que pareçam notícias
-            anchors = []
-            for a in soup.find_all('a', href=True):
-                href = a.get('href') or ''
-                if not href:
-                    continue
-                href_low = href.lower()
-                # ignorar partners/session etc.
-                if any(x in href_low for x in ('sessionid', 'partners', 'guce', 'consent', 'cookie', 'privacy', 'uk.yahoo.com', 'mailto:')):
-                    continue
-                # aceitar anchors que provavelmente são notícias
-                if any(x in href_low for x in ('/news/', '/article/', '/story/', '/articles/')):
-                    anchors.append(a)
-
-            print(f"YAHOO: found {len(anchors)} candidate anchors")
-
-            seen_links = set()
-            for a in anchors:
-                try:
-                    raw_href = a.get('href') or ''
-                    link = urljoin(cfg.get('url', ''), raw_href)
-                    # evita duplicados
-                    if link in seen_links:
-                        continue
-                    # localização do container (prefere li > article > div)
-                    parent = a.find_parent(['li', 'article', 'div'])
-                    if parent is None:
-                        parent = a.parent or a
-
-                    # extrair título: preferir texto do anchor, depois h3/h2 do parent
-                    title = (a.get_text(" ", strip=True) or '').strip()
-                    if not title:
-                        tnode = parent.find(['h1', 'h2', 'h3'])
-                        if tnode:
-                            title = tnode.get_text(" ", strip=True)
-
-                    # descrição: procura <p> no parent / sibling
-                    desc = ''
-                    p = parent.find('p')
-                    if p:
-                        desc = p.get_text(" ", strip=True)
-                    else:
-                        # às vezes a descrição está num span pequeno
-                        small = parent.find('small') or parent.find('span')
-                        if small:
-                            desc = small.get_text(" ", strip=True)
-
-                    # data: procura time, span[class*="time"|"date"], atributo datetime
-                    date = ''
-                    ttag = parent.find('time')
-                    if ttag:
-                        date = (ttag.get('datetime') or ttag.get_text(" ", strip=True) or '').strip()
-                    if not date:
-                        # procurar por spans com classes que contenham 'date' ou 'time'
-                        maybe = parent.find(lambda tag: tag.name in ('span','div') and tag.get('class') and any('date' in c.lower() or 'time' in c.lower() for c in tag.get('class')))
-                        if maybe:
-                            date = maybe.get_text(" ", strip=True)
-                    # fallback: pegar texto do anchor se ainda nada
-                    if not title:
-                        title = link
-                    # evitar apanhar nós de cookie/partners que por acaso tenham '/news/' — rejeitar por classes/texto
-                    parent_text_low = (parent.get_text(" ", strip=True) or '').lower()
-                    if any(x in parent_text_low for x in ('cookie', 'privacy', 'our partners', 'manage privacy', 'reject all', 'accept all')):
-                        # ignora
-                        continue
-
-                    # montar item
-                    seen_links.add(link)
-                    full_text = ' '.join([title, desc])[:2000]
-                    items.append({'title': title or 'No title', 'link': link or '', 'description': desc or '', 'date': date or '', 'full_text': full_text})
-                except Exception as e:
-                    # não falhar tudo por um item
-                    print("YAHOO: skip anchor due to error:", e)
-                    continue
-
-            print(f"YAHOO: produced {len(items)} items after heuristics")
-            return items
-
-        # ---------------- fallback genérico (teu código original adaptado) ---------------
-        # XML feed path
         if is_xml:
             soup = BeautifulSoup(html, 'xml')
             container_sel = cfg.get('item_container') or ''
@@ -525,8 +416,8 @@ def extract_items_from_html(html, cfg):
                     if tnode and tnode.string:
                         title = tnode.string.strip()
                     else:
-                        tnode = node.find(['name', 'headline'])
-                        if tnode and getattr(tnode, 'string', None):
+                        tnode = node.find(['name','headline'])
+                        if tnode and getattr(tnode,'string',None):
                             title = tnode.string.strip()
                         else:
                             title = (node.get_text(" ", strip=True) or '')[:1000]
@@ -534,26 +425,26 @@ def extract_items_from_html(html, cfg):
                     if lnode:
                         href = lnode.get('href') or lnode.get('HREF') or None
                         if href:
-                            link = urljoin(cfg.get('url', ''), href)
+                            link = urljoin(cfg.get('url',''), href)
                         else:
                             txt = (lnode.string or '').strip()
                             if txt:
-                                link = urljoin(cfg.get('url', ''), txt)
+                                link = urljoin(cfg.get('url',''), txt)
                             else:
-                                alt = node.find('link', attrs={'rel': 'alternate'})
+                                alt = node.find('link', attrs={'rel':'alternate'})
                                 if alt and alt.get('href'):
-                                    link = urljoin(cfg.get('url', ''), alt.get('href'))
+                                    link = urljoin(cfg.get('url',''), alt.get('href'))
                     if not link:
                         g = node.find('guid')
-                        if g and getattr(g, 'string', None):
+                        if g and getattr(g,'string',None):
                             candidate = g.string.strip()
                             if candidate and not _bad_href_re.search(candidate):
-                                link = urljoin(cfg.get('url', ''), candidate)
+                                link = urljoin(cfg.get('url',''), candidate)
                     dnode = node.find('description') or node.find('summary')
-                    if dnode and getattr(dnode, 'string', None):
+                    if dnode and getattr(dnode,'string',None):
                         desc = dnode.string.strip()
                     dnode = node.find('pubDate') or node.find('published') or node.find('updated') or node.find('dc:date')
-                    if dnode and getattr(dnode, 'string', None):
+                    if dnode and getattr(dnode,'string',None):
                         date = dnode.string.strip()
                     full_text = (title or '') + ' ' + (desc or '') + ' ' + (node.get_text(" ", strip=True) or '')
                     items.append({'title': title or '', 'link': link or '', 'description': desc or '', 'date': date or '', 'full_text': full_text or ''})
@@ -561,30 +452,83 @@ def extract_items_from_html(html, cfg):
                     continue
             return items
 
-        # HTML generic path (mantém heurística prévia — selectors passados pelo sites.json)
+        # HTML path
         soup = BeautifulSoup(html, 'html.parser')
-        container_sel = cfg.get('item_container') or 'article'
-        nodes = []
-        for sel in [s.strip() for s in container_sel.split(',')]:
-            try:
-                found = soup.select(sel)
-                if found:
-                    nodes.extend(found)
-            except Exception:
-                continue
 
-        if not nodes:
-            for fallback in ('li', 'article', 'div'):
+        # ---------- YAHOO SPECIAL CASE ----------
+        # If this cfg is the yahoo-multiquote-news entry, attempt to find the "Related News"
+        nodes = []
+        if cfg.get('name','').lower() == 'yahoo-multiquote-news':
+            # 1) Try to locate a container whose heading contains "Related" or "Related News"
+            related_container = None
+            for htag in soup.find_all(text=re.compile(r'Related\s+News|Related', re.I)):
                 try:
-                    found = soup.select(fallback)
+                    parent = getattr(htag, 'parent', None)
+                    # prefer a header's next sibling UL/OL or parent with UL/LI
+                    if parent:
+                        # look for next ul/ol
+                        nxt = parent.find_next_sibling()
+                        if nxt and nxt.name in ('ul','ol'):
+                            related_container = nxt
+                            break
+                        # or look for an ancestor with ul/ol children
+                        anc = parent
+                        for _ in range(4):
+                            anc = getattr(anc, 'parent', None)
+                            if anc is None:
+                                break
+                            if anc.find('ul') or anc.find('ol'):
+                                related_container = anc
+                                break
+                        if related_container:
+                            break
+                except Exception:
+                    continue
+            # 2) fallback: look for an element with "related" in class or id
+            if not related_container:
+                candidate = soup.select_one('[class*="related"], [id*="related"], [data-test*="related"]')
+                if candidate:
+                    related_container = candidate
+            # 3) fallback: select main-content lists
+            if related_container:
+                # collect LI inside it
+                lis = related_container.find_all('li')
+                if not lis:
+                    # maybe direct anchors
+                    anchors = related_container.find_all('a')
+                    for a in anchors:
+                        # create a dummy wrapper element to keep interface uniform
+                        wrapper = BeautifulSoup('<div></div>', 'html.parser').div
+                        wrapper.append(a)
+                        nodes.append(wrapper)
+                else:
+                    nodes = lis
+            else:
+                # no clear related container found; fallback to generic selectors provided in cfg
+                pass
+
+        # If not yahoo case or fallback, proceed with generic container selection
+        if not nodes:
+            container_sel = cfg.get('item_container') or 'article'
+            for sel in [s.strip() for s in container_sel.split(',')]:
+                try:
+                    found = soup.select(sel)
                     if found:
                         nodes.extend(found)
                 except Exception:
                     continue
+            if not nodes:
+                for fallback in ('li','article','div'):
+                    try:
+                        found = soup.select(fallback)
+                        if found:
+                            nodes.extend(found)
+                    except Exception:
+                        continue
 
         # debug counts
         try:
-            sel_list = [s.strip() for s in container_sel.split(',') if s.strip()]
+            sel_list = [s.strip() for s in (cfg.get('item_container') or '').split(',') if s.strip()]
             counts = []
             for s in sel_list:
                 try:
@@ -597,7 +541,7 @@ def extract_items_from_html(html, cfg):
         except Exception:
             pass
 
-        # função auxiliar simples para selectors com '@attr'
+        # helper: select and get (supports '@attr' in the cfg selectors)
         def select_and_get(el, selector_with_attr):
             if not selector_with_attr:
                 return None
@@ -631,21 +575,24 @@ def extract_items_from_html(html, cfg):
                     h_low = h.lower()
                     if 'sessionid' in h_low or 'partners' in h_low or 'uk.yahoo.com' in h_low:
                         continue
-                    full = urljoin(cfg.get('url', ''), h)
-                    anchors.append((full, h_low))
+                    full = urljoin(cfg.get('url',''), h)
+                    anchors.append((full, h_low, a))
             except Exception:
                 pass
             if not anchors:
-                return ''
-            for pref in ('/news/', '/articles/', '/story/', '/article/'):
-                for full, low in anchors:
+                return '', None
+            # prefer news/article/story
+            for pref in ('/news/','/article/','/story/','/articles/'):
+                for full, low, a in anchors:
                     if pref in low:
-                        return full
-            for full, low in anchors:
-                if 'finance.yahoo.com' in low:
-                    return full
-            return anchors[0][0]
+                        return full, a
+            # otherwise return anchor that contains ticker-like substrings in nearby text (heuristic)
+            for full, low, a in anchors:
+                if re.search(r'\b[A-Z]{1,5}\b', a.get_text(" ", strip=True) or ''):
+                    return full, a
+            return anchors[0][0], anchors[0][2]
 
+        # iterate nodes
         for node in nodes:
             try:
                 title = ''
@@ -656,7 +603,7 @@ def extract_items_from_html(html, cfg):
                 link_sel = cfg.get('link')
                 desc_sel = cfg.get('description')
 
-                # Title extraction
+                # Title extraction (supports selector@attr)
                 if title_sel:
                     for s in [t.strip() for t in str(title_sel).split(',') if t.strip()]:
                         val = select_and_get(node, s)
@@ -664,16 +611,16 @@ def extract_items_from_html(html, cfg):
                             title = val
                             break
                 else:
-                    t = node.find(['h1', 'h2', 'h3', 'a'])
+                    t = node.find(['h1','h2','h3','a'])
                     if t:
                         title = t.get_text(strip=True)
 
-                # Link extraction
+                # Link extraction: try provided selectors first
                 if link_sel:
                     parts = [p.strip() for p in link_sel.split(',')]
                     for ps in parts:
                         if '@' in ps:
-                            sel, attr = ps.split('@', 1)
+                            sel, attr = ps.split('@',1)
                             sel = sel.strip(); attr = attr.strip()
                             try:
                                 el = node.select_one(sel)
@@ -682,7 +629,7 @@ def extract_items_from_html(html, cfg):
                             if el and el.has_attr(attr):
                                 candidate = el.get(attr) or ''
                                 if candidate and not _bad_href_re.search(candidate):
-                                    link = urljoin(cfg.get('url', ''), candidate)
+                                    link = urljoin(cfg.get('url',''), candidate)
                                     break
                         else:
                             try:
@@ -692,12 +639,15 @@ def extract_items_from_html(html, cfg):
                             if el:
                                 candidate = el.get('href') or ''
                                 if candidate and not _bad_href_re.search(candidate):
-                                    link = urljoin(cfg.get('url', ''), candidate)
+                                    link = urljoin(cfg.get('url',''), candidate)
                                     break
-                if not link:
-                    link = find_best_href(node) or ''
 
-                # Description
+                # Fallback: pick best anchor in node
+                if not link:
+                    chosen, chosen_anchor = find_best_href(node)
+                    link = chosen
+
+                # Description extraction
                 if desc_sel:
                     for s in [t.strip() for t in str(desc_sel).split(',') if t.strip()]:
                         val = select_and_get(node, s)
@@ -709,7 +659,7 @@ def extract_items_from_html(html, cfg):
                     if p:
                         desc = p.get_text(" ", strip=True)
 
-                # Date
+                # Date extraction attempt
                 date = ''
                 if cfg.get('date'):
                     for s in [t.strip() for t in str(cfg.get('date')).split(',') if t.strip()]:
@@ -718,7 +668,7 @@ def extract_items_from_html(html, cfg):
                             date = val
                             break
                 if not date:
-                    for candidate_sel in ['time', 'span.time', 'time[datetime]', '.date', 'span.date', '.timestamp']:
+                    for candidate_sel in ['time','span.time','time[datetime]','.date','span.date','.timestamp']:
                         try:
                             nd = node.select_one(candidate_sel)
                         except Exception:
@@ -729,8 +679,75 @@ def extract_items_from_html(html, cfg):
                                 date = dt
                                 break
 
+                # ---------- Yahoo-specific post-processing ----------
+                if cfg.get('name','').lower() == 'yahoo-multiquote-news':
+                    # Prefer headline from h3 or a text if we have it
+                    headline = ''
+                    hl = node.find(['h3','h2','h4'])
+                    if hl:
+                        headline = hl.get_text(" ", strip=True)
+                    else:
+                        # some items put the headline inside the anchor
+                        if chosen_anchor is not None:
+                            headline = (chosen_anchor.get_text(" ", strip=True) or '').strip()
+                    # publisher / meta line: try to get small/span with provider/time info
+                    meta_txt = ''
+                    # common patterns: small, .provider, .source, .publisher, .provider-name, .published
+                    for c in ['small','span.source','span.provider','div.provider','span.published','span.byline','div.byline']:
+                        try:
+                            el = node.select_one(c)
+                        except Exception:
+                            el = None
+                        if el:
+                            meta_txt = el.get_text(" ", strip=True)
+                            if meta_txt:
+                                break
+                    # if still empty, look for short text elements near headline
+                    if not meta_txt and hl:
+                        nxt = hl.find_next_sibling()
+                        if nxt:
+                            meta_txt = nxt.get_text(" ", strip=True)
+                    # ticker/percent: scan node text for patterns like "DDOG -2.02%" or "DDOG -2.02% OPAI.PVT"
+                    ticker_txt = ''
+                    txt_all = node.get_text(" ", strip=True)
+                    # collect things that look like TICKER +/-% (heuristic)
+                    m_tick = re.findall(r'\b([A-Z]{1,6})\b\s*[-–]\s*\d{1,3}\.\d{1,2}%', txt_all)
+                    if m_tick:
+                        # reconstruct occurrences (grab full matches)
+                        all_matches = re.findall(r'\b([A-Z]{1,6})\b\s*[-–]\s*\d{1,3}\.\d{1,2}%', txt_all)
+                        # simpler: take the first full textual match
+                        ft = re.search(r'\b([A-Z]{1,6})\b\s*[-–]\s*\d{1,3}\.\d{1,2}%', txt_all)
+                        if ft:
+                            # find surrounding substring of up to 30 chars
+                            span = ft.span()
+                            start = max(0, span[0]-20); end = min(len(txt_all), span[1]+20)
+                            ticker_txt = txt_all[start:end].strip()
+                    # fallback: small uppercase tokens like "DDOG -2.02%OPAI.PVT" may be contiguous; try to grab short uppercase groups
+                    if not ticker_txt:
+                        m2 = re.search(r'([A-Z]{1,6}\s*[-–]\s*\d{1,3}\.\d{1,2}%\b.*?)(?:\s{2,}|\n|$)', txt_all)
+                        if m2:
+                            ticker_txt = m2.group(1).strip()
+
+                    # now build desired fields:
+                    # - title should be the meta line (publisher/time) if present, else fallback to 'headline source'
+                    # - description should be headline + ' ' + ticker_txt (if present)
+                    final_title = meta_txt or headline or title or 'No title'
+                    final_desc = ''
+                    if headline:
+                        final_desc = headline
+                    elif desc:
+                        final_desc = desc
+                    # append ticker text if found
+                    if ticker_txt:
+                        final_desc = (final_desc + ' ' + ticker_txt).strip()
+                    # apply back
+                    title = final_title
+                    desc = final_desc
+
                 full_text = (title or '') + ' ' + (desc or '') + ' ' + text_of_node(node)
+
                 items.append({'title': title or '', 'link': link or '', 'description': desc or '', 'date': date or '', 'full_text': full_text or ''})
+
             except Exception:
                 continue
 
@@ -740,19 +757,18 @@ def extract_items_from_html(html, cfg):
 
     return items
 
-
 def dedupe_items(items, cfg=None):
     do_dedupe = True
     if isinstance(cfg, dict) and cfg.get('dedupe') is False:
         do_dedupe = False
     if not do_dedupe:
-        return items[:]  # copy preserving order
+        return items[:]
     unique = {}
     out = []
     for it in (items or []):
         key = normalize_link_for_dedupe(it.get('link') or '')
         if not key:
-            key = (it.get('title', '') or '').strip().lower()[:200]
+            key = (it.get('title','') or '').strip().lower()[:200]
         if not key:
             key = f"__no_key__{len(out)}"
         if key not in unique:
@@ -760,11 +776,10 @@ def dedupe_items(items, cfg=None):
             out.append(it)
     return out
 
-
 def build_feed(name, cfg, items):
     fg = FeedGenerator()
     fg.title(name)
-    fg.link(href=cfg.get('url', ''), rel='alternate')
+    fg.link(href=cfg.get('url',''), rel='alternate')
     fg.description(f'Feed gerado para {name}')
     fg.generator('generate_feeds.py')
     max_items = cfg.get('max_items') or cfg.get('max') or None
@@ -807,139 +822,28 @@ def build_feed(name, cfg, items):
     fg.rss_file(outpath)
     print(f'Wrote {outpath} ({count} entries)')
 
-
 def matches_filters_debug(item, cfg):
     kw = cfg.get('filters', {}).get('keywords', []) or []
     exclude = cfg.get('filters', {}).get('exclude', []) or []
     if not kw and not exclude:
         return True, None
-    text_title = (item.get('title', '') or '').lower()
-    text_desc = (item.get('description', '') or '').lower()
-    text_full = (item.get('full_text', '') or '').lower()
-    text_link = (item.get('link', '') or '').lower()
+    text_title = (item.get('title','') or '').lower()
+    text_desc = (item.get('description','') or '').lower()
+    text_full = (item.get('full_text','') or '').lower()
+    text_link = (item.get('link','') or '').lower()
     if kw:
         for k in kw:
             kl = k.lower()
-            if kl in text_title:
-                return True, f"keyword '{k}' in title"
-            if kl in text_desc:
-                return True, f"keyword '{k}' in description"
-            if kl in text_full:
-                return True, f"keyword '{k}' in full_text"
-            if kl in text_link:
-                return True, f"keyword '{k}' in link"
+            if kl in text_title: return True, f"keyword '{k}' in title"
+            if kl in text_desc: return True, f"keyword '{k}' in description"
+            if kl in text_full: return True, f"keyword '{k}' in full_text"
+            if kl in text_link: return True, f"keyword '{k}' in link"
         return False, None
     for ex in exclude:
         if ex.lower() in text_title or ex.lower() in text_desc or ex.lower() in text_full:
             return False, f"exclude '{ex}' matched"
     return True, None
 
-
-# ---------------- Debug inspect helpers ----------------
-def debug_inspect_site(cfg, resp):
-    """
-    Legacy debug function: inspects resp (object with .text and .headers).
-    Only prints/writes if cfg.name matches the one we're debugging (yahoo-multiquote-news).
-    """
-    try:
-        name = cfg.get('name', '')
-        if name != 'yahoo-multiquote-news':
-            return
-        if resp is None:
-            print("DEBUG: resp is None")
-            return
-        try:
-            status = getattr(resp, 'status_code', 'no-status')
-            ctype = resp.headers.get('Content-Type', '') if hasattr(resp, 'headers') else ''
-            body = resp.text if hasattr(resp, 'text') else str(resp)
-        except Exception as e:
-            print("DEBUG: error reading resp:", e)
-            return
-
-        print(f"DEBUG: status={status} Content-Type={ctype} body_len={len(body)}")
-
-        # grava html para artifact / logs
-        try:
-            os.makedirs('scripts', exist_ok=True)
-            fn = 'scripts/debug_yahoo-multiquote-news.html'
-            with open(fn, 'w', encoding='utf-8') as fh:
-                fh.write(body)
-            print(f"DEBUG: wrote response to {fn}")
-        except Exception as e:
-            print("DEBUG: failed to write HTML file:", e)
-
-        # Quick checks with BeautifulSoup
-        try:
-            soup = BeautifulSoup(body, 'html.parser')
-
-            selectors = [
-                'article',
-                '.article',
-                '.post',
-                '.post-list',
-                '.blog-list',
-                '.entry',
-                '.fusion-column-wrapper',
-                '.container .post',
-                '.avia-post-entry',
-                '.elementor-widget'
-            ]
-
-            for sel in selectors:
-                try:
-                    cnt = len(soup.select(sel))
-                except Exception:
-                    cnt = -1
-                print(f"DEBUG: selector '{sel}' -> {cnt} matches")
-
-            custom_selectors = [
-                '.publishing.yf-m1e6lz@text',
-                '.publishing@text',
-                '.footer .publishing@text',
-                'h3.clamp@text',
-                'h3.yf-1952g7k@text',
-                'a.subtle-link.titles h3@text'
-            ]
-            for sel in custom_selectors:
-                try:
-                    # strip @text for selecting
-                    sel_plain = sel.split('@', 1)[0]
-                    print(f"DEBUG: custom selector '{sel}' -> {len(soup.select(sel_plain))} matches")
-                except Exception as e:
-                    print(f"DEBUG: custom selector '{sel}' error: {e}")
-
-            keys = ['My Portfolio', 'News', 'Markets', 'Research', 'Personal Finance', 'Videos', 'Watch now']
-            for k in keys:
-                found = body.lower().count(k.lower())
-                print(f"DEBUG: text occurrences of '{k}': {found}")
-
-            print("DEBUG: excerpt (first 2000 chars):")
-            print(body[:2000].replace('\n', ' ')[:2000])
-
-        except Exception as e:
-            print("DEBUG: soup error:", e)
-
-    except Exception as e:
-        print("DEBUG: unexpected error in debug_inspect_site:", e)
-
-
-def debug_inspect_site_with_html(cfg, resp=None, html_override=None):
-    """
-    Wrapper: if html_override provided, build a fake resp-like object for debug_inspect_site.
-    """
-    if resp is None and html_override is not None:
-        class FakeResp:
-            pass
-        fr = FakeResp()
-        fr.status_code = 200
-        fr.headers = {'Content-Type': 'text/html'}
-        fr.text = html_override
-        return debug_inspect_site(cfg, fr)
-    else:
-        return debug_inspect_site(cfg, resp)
-
-
-# ---------------- main ----------------
 def main():
     sites = load_sites()
     print(f'Loaded {len(sites)} site configurations from {SITES_JSON}')
@@ -951,8 +855,6 @@ def main():
         print(f'--- Processing {name} ({url}) ---')
         html = None
         resp = None
-
-        # prefer rendered file if exists
         rf = cfg.get('render_file')
         if rf:
             rf_path = rf
@@ -962,26 +864,20 @@ def main():
                 try:
                     html = open(rf_path, 'r', encoding='utf-8').read()
                     print(f'Using rendered file: {rf_path} for {name}')
-                    # debug the rendered HTML (if debug site)
-                    debug_inspect_site_with_html(cfg, resp=None, html_override=html)
                 except Exception as e:
                     print('Failed reading rendered file:', e)
                     html = None
             else:
                 print(f'No rendered file found at {rf_path} for {name}')
-
         if html is None:
             try:
                 print(f'Fetching {url} via requests...')
                 resp = fetch_url(url)
-                # debug the HTTP response (if debug site)
-                debug_inspect_site_with_html(cfg, resp=resp)
             except Exception as e:
                 print(f'Request error for {url}: {e}')
                 resp = None
 
         items = []
-        # if we have a rendered HTML file, treat as HTML
         if html:
             try:
                 items = extract_items_from_html(html, cfg)
@@ -989,16 +885,11 @@ def main():
                 print('Error parsing rendered HTML:', e)
                 items = []
         elif resp is not None:
-            # Decide JSON vs HTML based on Content-Type or content startswith
-            try:
-                ctype = resp.headers.get('Content-Type', '').lower()
-            except Exception:
-                ctype = ''
+            ctype = resp.headers.get('Content-Type','').lower()
             body = resp.text or ''
             is_json = False
             if 'application/json' in ctype or body.strip().startswith('{') or body.strip().startswith('['):
                 is_json = True
-
             if is_json:
                 print(f"Detected JSON response for {name}; parsing with JSON handler")
                 try:
@@ -1042,7 +933,6 @@ def main():
         build_feed(name, cfg, deduped)
 
     print('All done.')
-
 
 if __name__ == '__main__':
     main()
