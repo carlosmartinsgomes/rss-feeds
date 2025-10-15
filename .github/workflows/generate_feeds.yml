@@ -199,6 +199,9 @@ jobs:
           path: ${{ steps.detect.outputs.scripts_dir }}/output
           if-no-files-found: warn
 
+      - name: Diagnostics for rendered files (all)
+        run: python3 scripts/diagnose_rendered_no_bs4.py all    
+
   build:
     needs: render-on-selfhosted
     runs-on: ubuntu-latest
