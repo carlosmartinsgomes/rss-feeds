@@ -1,9 +1,6 @@
 #!/usr/bin/env python3
 # scripts/generate_feeds.py
-# Versão com heurísticas específicas para Yahoo Related News:
-#  - tenta localizar a secção "Related News" e extrair os itens <li>
-#  - coloca nos titles a linha de metadados (ex: "Insider Monkey • 2h ago")
-#  - coloca na description o headline + informação de ticker/percent extraída
+# Versão robusta: correções para Yahoo multi-quote "Related News" + debug por-item
 
 import os
 import json
@@ -80,7 +77,7 @@ def normalize_link_for_dedupe(href):
     except Exception:
         return href.strip().lower()
 
-# ---------------- JSON helpers (kept generic) ----------------
+# ---------------- JSON helpers ----------------
 def get_value_from_record(record, path):
     if not path or record is None:
         return None
@@ -190,7 +187,7 @@ def parse_field_from_json(entry, spec):
         return None
     return choose_first_available(entry, spec)
 
-# ---------------- JSON extractor (kept) ----------------
+# ---------------- JSON extractor ----------------
 def extract_items_from_json(json_obj, cfg):
     items = []
     if not isinstance(json_obj, dict):
@@ -369,15 +366,8 @@ def extract_items_from_json(json_obj, cfg):
     print(f"After sorting/truncation returning {len(items)} items (max_items={max_items})")
     return items
 
-# ---------------- HTML extraction (with Yahoo special-case) ----------------
+# ---------------- HTML extraction (robusta + debug Yahoo) ----------------
 def extract_items_from_html(html, cfg):
-    """
-    Extrai items (title, link, description, date, full_text) de um HTML dado e uma config de site.
-    Inclui heurísticas específicas para 'yahoo-multiquote-news' para:
-      - localizar o bloco 'Related News' (se existir)
-      - extrair os <li> desse bloco
-      - trocar title/description para que title contenha a linha de metadados e description o headline + ticker
-    """
     is_xml = False
     preview = (html or '').lstrip()[:200].lower()
     if preview.startswith('<?xml') or '<rss' in preview or '<feed' in preview:
@@ -452,65 +442,84 @@ def extract_items_from_html(html, cfg):
                     continue
             return items
 
-        # HTML path
         soup = BeautifulSoup(html, 'html.parser')
 
         # ---------- YAHOO SPECIAL CASE ----------
-        # If this cfg is the yahoo-multiquote-news entry, attempt to find the "Related News"
         nodes = []
         if cfg.get('name','').lower() == 'yahoo-multiquote-news':
-            # 1) Try to locate a container whose heading contains "Related" or "Related News"
             related_container = None
-            for htag in soup.find_all(text=re.compile(r'Related\s+News|Related', re.I)):
+            # 1) try explicit selectors often used on Yahoo
+            for sel in ["section[data-test='qsp-news']", "ul[data-test='quoteNewsStream']", "div[data-test='quoteRelated']",
+                        "[aria-label*='Related']", "[class*='Related']", "[id*='related']"]:
                 try:
-                    parent = getattr(htag, 'parent', None)
-                    # prefer a header's next sibling UL/OL or parent with UL/LI
-                    if parent:
-                        # look for next ul/ol
-                        nxt = parent.find_next_sibling()
-                        if nxt and nxt.name in ('ul','ol'):
-                            related_container = nxt
-                            break
-                        # or look for an ancestor with ul/ol children
-                        anc = parent
-                        for _ in range(4):
-                            anc = getattr(anc, 'parent', None)
-                            if anc is None:
-                                break
-                            if anc.find('ul') or anc.find('ol'):
-                                related_container = anc
-                                break
-                        if related_container:
-                            break
+                    candidate = soup.select_one(sel)
                 except Exception:
-                    continue
-            # 2) fallback: look for an element with "related" in class or id
-            if not related_container:
-                candidate = soup.select_one('[class*="related"], [id*="related"], [data-test*="related"]')
+                    candidate = None
                 if candidate:
+                    # prefer an inner ul/ol
+                    if candidate.name in ('ul','ol'):
+                        related_container = candidate
+                        break
+                    ul = candidate.find('ul')
+                    if ul:
+                        related_container = ul
+                        break
                     related_container = candidate
-            # 3) fallback: select main-content lists
+                    break
+
+            # 2) try header text "Related" / "Related News"
+            if not related_container:
+                for txt in soup.find_all(text=re.compile(r'\bRelated\b|\bRelated News\b', re.I)):
+                    try:
+                        el = getattr(txt, 'parent', None)
+                        if el:
+                            # look for sibling ul/ol
+                            nxt = el.find_next_sibling()
+                            if nxt and nxt.name in ('ul','ol'):
+                                related_container = nxt
+                                break
+                            # search ancestors for ul
+                            anc = el
+                            for _ in range(4):
+                                anc = getattr(anc, 'parent', None)
+                                if not anc:
+                                    break
+                                ul = anc.find('ul')
+                                if ul:
+                                    related_container = ul
+                                    break
+                            if related_container:
+                                break
+                    except Exception:
+                        continue
+
+            # 3) fallback: use selectors in cfg.item_container if present
             if related_container:
-                # collect LI inside it
-                lis = related_container.find_all('li')
+                lis = related_container.find_all('li') or []
                 if not lis:
-                    # maybe direct anchors
-                    anchors = related_container.find_all('a')
+                    # if the container doesn't have lis, try to gather direct anchors
+                    anchors = related_container.find_all('a', href=True)
                     for a in anchors:
-                        # create a dummy wrapper element to keep interface uniform
                         wrapper = BeautifulSoup('<div></div>', 'html.parser').div
                         wrapper.append(a)
                         nodes.append(wrapper)
                 else:
                     nodes = lis
-            else:
-                # no clear related container found; fallback to generic selectors provided in cfg
-                pass
 
-        # If not yahoo case or fallback, proceed with generic container selection
+            # 4) if still nothing, fallback to common yahoo stream li selectors
+            if not nodes:
+                for sel in ("li.stream-item.story-item", "li.js-stream-content", "ul[data-test='quoteNewsStream'] li", "section[data-test='qsp-news'] li"):
+                    try:
+                        found = soup.select(sel)
+                    except Exception:
+                        found = []
+                    if found:
+                        nodes.extend(found)
+
+        # ---------- GENERIC FALLBACK ----------
         if not nodes:
             container_sel = cfg.get('item_container') or 'article'
-            for sel in [s.strip() for s in container_sel.split(',')]:
+            for sel in [s.strip() for s in container_sel.split(',') if s.strip()]:
                 try:
                     found = soup.select(sel)
                     if found:
@@ -526,7 +535,7 @@ def extract_items_from_html(html, cfg):
                     except Exception:
                         continue
 
-        # debug counts
+        # debug: counts for configured selectors
         try:
             sel_list = [s.strip() for s in (cfg.get('item_container') or '').split(',') if s.strip()]
             counts = []
@@ -541,7 +550,7 @@ def extract_items_from_html(html, cfg):
         except Exception:
             pass
 
-        # helper: select and get (supports '@attr' in the cfg selectors)
+        # helper to get text or attr
         def select_and_get(el, selector_with_attr):
             if not selector_with_attr:
                 return None
@@ -573,51 +582,58 @@ def extract_items_from_html(html, cfg):
                     if not h:
                         continue
                     h_low = h.lower()
-                    if 'sessionid' in h_low or 'partners' in h_low or 'uk.yahoo.com' in h_low:
+                    if 'sessionid' in h_low or 'partners' in h_low or 'uk.yahoo.com' in h_low or 'v2/partners' in h_low:
+                        # skip partner/session links
                         continue
+                    # resolve relative
                     full = urljoin(cfg.get('url',''), h)
                     anchors.append((full, h_low, a))
             except Exception:
                 pass
             if not anchors:
                 return '', None
-            # prefer news/article/story
+            # prefer '/news/' '/article/' '/story/' anchors
             for pref in ('/news/','/article/','/story/','/articles/'):
                 for full, low, a in anchors:
                     if pref in low:
                         return full, a
-            # otherwise return anchor that contains ticker-like substrings in nearby text (heuristic)
+            # prefer ones on finance.yahoo.com
             for full, low, a in anchors:
-                if re.search(r'\b[A-Z]{1,5}\b', a.get_text(" ", strip=True) or ''):
+                if 'finance.yahoo.com' in low:
                     return full, a
+            # otherwise return first
             return anchors[0][0], anchors[0][2]
 
-        # iterate nodes
-        for node in nodes:
+        # iterate nodes and extract (always append an item even if fields empty)
+        for idx, node in enumerate(nodes):
             try:
                 title = ''
                 link = ''
                 date = ''
                 desc = ''
+                # try configured selectors first
                 title_sel = cfg.get('title')
                 link_sel = cfg.get('link')
                 desc_sel = cfg.get('description')
 
-                # Title extraction (supports selector@attr)
+                # title
                 if title_sel:
                     for s in [t.strip() for t in str(title_sel).split(',') if t.strip()]:
                         val = select_and_get(node, s)
                         if val:
                             title = val
                             break
-                else:
-                    t = node.find(['h1','h2','h3','a'])
-                    if t:
-                        title = t.get_text(strip=True)
+                if not title:
+                    # many Yahoo headlines are in h3, h4, a, span
+                    for tag in ('h3','h2','h4','a','p','span'):
+                        el = node.find(tag)
+                        if el and el.get_text(strip=True):
+                            title = el.get_text(" ", strip=True)
+                            break
 
-                # Link extraction: try provided selectors first
+                # link
                 if link_sel:
-                    parts = [p.strip() for p in link_sel.split(',')]
+                    parts = [p.strip() for p in str(link_sel).split(',')]
                     for ps in parts:
                         if '@' in ps:
                             sel, attr = ps.split('@',1)
@@ -641,26 +657,23 @@ def extract_items_from_html(html, cfg):
                                 if candidate and not _bad_href_re.search(candidate):
                                     link = urljoin(cfg.get('url',''), candidate)
                                     break
-
-                # Fallback: pick best anchor in node
                 if not link:
                     chosen, chosen_anchor = find_best_href(node)
-                    link = chosen
+                    link = chosen or ''
 
-                # Description extraction
+                # description
                 if desc_sel:
                     for s in [t.strip() for t in str(desc_sel).split(',') if t.strip()]:
                         val = select_and_get(node, s)
                         if val:
                             desc = val
                             break
-                else:
+                if not desc:
                     p = node.find('p')
-                    if p:
+                    if p and p.get_text(strip=True):
                         desc = p.get_text(" ", strip=True)
 
-                # Date extraction attempt
-                date = ''
+                # date
                 if cfg.get('date'):
                     for s in [t.strip() for t in str(cfg.get('date')).split(',') if t.strip()]:
                         val = select_and_get(node, s)
@@ -679,76 +692,63 @@ def extract_items_from_html(html, cfg):
                                 date = dt
                                 break
 
-                # ---------- Yahoo-specific post-processing ----------
+                # Yahoo-specific tweaks: headline/metadata/ticker
                 if cfg.get('name','').lower() == 'yahoo-multiquote-news':
-                    # Prefer headline from h3 or a text if we have it
+                    # headline prefer h3 > a text
                     headline = ''
-                    hl = node.find(['h3','h2','h4'])
-                    if hl:
-                        headline = hl.get_text(" ", strip=True)
-                    else:
-                        # some items put the headline inside the anchor
-                        if chosen_anchor is not None:
-                            headline = (chosen_anchor.get_text(" ", strip=True) or '').strip()
-                    # publisher / meta line: try to get small/span with provider/time info
+                    for htag in ('h3','h4','h2','a'):
+                        h = node.find(htag)
+                        if h and h.get_text(strip=True):
+                            headline = h.get_text(" ", strip=True)
+                            break
+                    # meta (publisher/time)
                     meta_txt = ''
-                    # common patterns: small, .provider, .source, .publisher, .provider-name, .published
-                    for c in ['small','span.source','span.provider','div.provider','span.published','span.byline','div.byline']:
+                    for sel in ['small','span.source','span.provider','div.provider','span.published','span.byline','.provider','.source','.byline']:
                         try:
-                            el = node.select_one(c)
+                            el = node.select_one(sel)
                         except Exception:
                             el = None
-                        if el:
+                        if el and el.get_text(strip=True):
                             meta_txt = el.get_text(" ", strip=True)
-                            if meta_txt:
-                                break
-                    # if still empty, look for short text elements near headline
-                    if not meta_txt and hl:
-                        nxt = hl.find_next_sibling()
-                        if nxt:
-                            meta_txt = nxt.get_text(" ", strip=True)
-                    # ticker/percent: scan node text for patterns like "DDOG -2.02%" or "DDOG -2.02% OPAI.PVT"
-                    ticker_txt = ''
+                            break
+                    # ticker/percent heuristic
                     txt_all = node.get_text(" ", strip=True)
-                    # collect things that look like TICKER +/-% (heuristic)
-                    m_tick = re.findall(r'\b([A-Z]{1,6})\b\s*[-–]\s*\d{1,3}\.\d{1,2}%', txt_all)
-                    if m_tick:
-                        # reconstruct occurrences (grab full matches)
-                        all_matches = re.findall(r'\b([A-Z]{1,6})\b\s*[-–]\s*\d{1,3}\.\d{1,2}%', txt_all)
-                        # simpler: take the first full textual match
-                        ft = re.search(r'\b([A-Z]{1,6})\b\s*[-–]\s*\d{1,3}\.\d{1,2}%', txt_all)
-                        if ft:
-                            # find surrounding substring of up to 30 chars
-                            span = ft.span()
-                            start = max(0, span[0]-20); end = min(len(txt_all), span[1]+20)
-                            ticker_txt = txt_all[start:end].strip()
-                    # fallback: small uppercase tokens like "DDOG -2.02%OPAI.PVT" may be contiguous; try to grab short uppercase groups
-                    if not ticker_txt:
-                        m2 = re.search(r'([A-Z]{1,6}\s*[-–]\s*\d{1,3}\.\d{1,2}%\b.*?)(?:\s{2,}|\n|$)', txt_all)
-                        if m2:
-                            ticker_txt = m2.group(1).strip()
-
-                    # now build desired fields:
-                    # - title should be the meta line (publisher/time) if present, else fallback to 'headline source'
-                    # - description should be headline + ' ' + ticker_txt (if present)
-                    final_title = meta_txt or headline or title or 'No title'
-                    final_desc = ''
-                    if headline:
-                        final_desc = headline
-                    elif desc:
-                        final_desc = desc
-                    # append ticker text if found
+                    ticker_txt = ''
+                    # look for patterns like "DDOG -2.02%" or "DDOG -2.02% OPAI.PVT"
+                    ft = re.search(r'([A-Z]{1,6})\s*[-–]\s*\d{1,3}\.\d{1,2}%', txt_all)
+                    if ft:
+                        span = ft.span()
+                        sstart = max(0, span[0]-30); send = min(len(txt_all), span[1]+30)
+                        ticker_txt = txt_all[sstart:send].strip()
+                    # build final title/description according to your spec:
+                    final_title = meta_txt or title or headline or 'No title'
+                    final_desc = headline or desc or ''
                     if ticker_txt:
                         final_desc = (final_desc + ' ' + ticker_txt).strip()
-                    # apply back
+                    # push back
                     title = final_title
                     desc = final_desc
 
+                # Final fallbacks to avoid dropping items
+                if not title:
+                    title = 'No title'
+                if not link:
+                    link = f"urn:node:{cfg.get('name')}:{idx}"
+
                 full_text = (title or '') + ' ' + (desc or '') + ' ' + text_of_node(node)
 
+                # debug per node for Yahoo to help diagnosticar problemas
+                if cfg.get('name','').lower() == 'yahoo-multiquote-news':
+                    try:
+                        anchors_count = len(node.find_all('a', href=True))
+                    except Exception:
+                        anchors_count = 0
+                    print(f"YAHOO: node idx={idx} headline='{(headline[:60] + '...') if headline else ''}' anchors={anchors_count} chosen_link='{link[:120]}' title_len={len(title)} desc_len={len(desc)}")
                 items.append({'title': title or '', 'link': link or '', 'description': desc or '', 'date': date or '', 'full_text': full_text or ''})
-
-            except Exception:
+            except Exception as e:
+                # debug
+                if cfg.get('name','').lower() == 'yahoo-multiquote-news':
+                    print(f"YAHOO: error extracting node idx={idx}: {e}")
                 continue
 
     except Exception as e:
