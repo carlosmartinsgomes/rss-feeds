@@ -524,7 +524,7 @@
       "date": "div.byline, .byline, time",
       "description": "span.teaser, .teaser, p",
       "render_file": "scripts/rendered/medscape.html",
-      "filters": { "keywords": ["a","inmode","morpheus8","facetite","bodytite","complication","adverse","review","case","experience"], "exclude":["spam","promotion","promo","course"] }
+      "filters": { "keywords": ["a","inmode","morpheus8","facetite","bodytite","complication","adverse","review","case","experience"], "exclude": ["spam","promotion","promo","course"] }
     },
     {
       "name": "medscape-derm1",
@@ -535,7 +535,7 @@
       "date": "div.byline, .byline, time",
       "description": "span.teaser, .teaser, p",
       "render_file": "scripts/rendered/medscape1.html",
-      "filters": { "keywords": ["a","inmode","morpheus8","facetite","bodytite","complication","adverse","review","case","experience"], "exclude":["spam","promotion","promo","course"] }
+      "filters": { "keywords": ["a","inmode","morpheus8","facetite","bodytite","complication","adverse","review","case","experience"], "exclude": ["spam","promotion","promo","course"] }
     },
     {
       "name": "modernhealthcare",
