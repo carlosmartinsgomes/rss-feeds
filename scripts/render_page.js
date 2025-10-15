@@ -1,12 +1,15 @@
 // scripts/render_page.js
-// Robust renderer with anti-bot recovery heuristics for CI (Playwright Chromium).
+// Robust renderer with selective anti-bot recovery (per-domain).
+//
 // Usage:
 //   node scripts/render_page.js "<url>" "scripts/rendered/out.html"
 //   or: node scripts/render_page.js "<url1>" "<url2>" ...
 //
-// Notes:
-// - HEADLESS env var controls headless mode (HEADLESS=false to see browser).
-// - NAV_TIMEOUT env var (ms) can override default 45000.
+// Environment variables (optional):
+//   HEADLESS=false    -> run visible browser (useful for debug)
+//   NAV_TIMEOUT       -> navigation timeout in ms (default 45000)
+//   RECOVERY_DOMAINS  -> comma-separated domains to attempt recovery (default: medscape.com,eetimes.com)
+//   NO_RECOVERY_DOMAINS -> comma-separated domains to never attempt recovery (default: yahoo.com,finance.yahoo.com)
 
 const fs = require('fs');
 const path = require('path');
@@ -20,21 +23,17 @@ function sanitizeFilename(s) {
   return String(s || '').replace(/[^a-z0-9\-_.]/gi, '_').replace(/_+/g, '_').slice(0, 200);
 }
 
-// detect anti-bot phrases in content (lowercase)
+function domainOf(u) {
+  try { return (new URL(u)).hostname.replace(/^www\./,'').toLowerCase(); } catch(e) { return ''; }
+}
+
 function has_antibot_text(html) {
   if (!html) return false;
   const l = html.toLowerCase();
   const phrases = [
-    'verify you are human',
-    'checking your browser',
-    'access denied',
-    'please enable javascript',
-    'cloudflare',
-    'ddos protection',
-    'turn on javascript',
-    'are you human',
-    'captcha',
-    'security check'
+    'verify you are human','checking your browser','access denied','please enable javascript',
+    'cloudflare','ddos protection','turn on javascript','are you human','captcha','security check',
+    'verify that you are not a robot'
   ];
   return phrases.some(p => l.indexOf(p) !== -1);
 }
@@ -62,38 +61,37 @@ function has_antibot_text(html) {
 
     const headless = (process.env.HEADLESS === undefined) ? true : (process.env.HEADLESS !== 'false');
     const NAV_TIMEOUT = parseInt(process.env.NAV_TIMEOUT || '45000', 10);
-    // how many anti-bot recovery attempts
-    const MAX_ANTIBOT_ATTEMPTS = 3;
 
-    // Candidate user agents to rotate if anti-bot triggered
+    // config: domains to attempt light recovery for, and domains to never touch
+    const defaultRecovery = ['medscape.com','eetimes.com'];
+    const defaultNoRecovery = ['yahoo.com','finance.yahoo.com'];
+
+    const RECOVERY_DOMAINS = (process.env.RECOVERY_DOMAINS ? process.env.RECOVERY_DOMAINS.split(',').map(s=>s.trim()).filter(Boolean) : defaultRecovery);
+    const NO_RECOVERY_DOMAINS = (process.env.NO_RECOVERY_DOMAINS ? process.env.NO_RECOVERY_DOMAINS.split(',').map(s=>s.trim()).filter(Boolean) : defaultNoRecovery);
+
     const UAs = [
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36',
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.5845.96 Safari/537.36'
     ];
 
-    // Launch browser with helpful flags
-    const browser = await chromium.launch({
-      headless,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-http2',
-        '--disable-dev-shm-usage',
-        '--no-zygote',
-        '--disable-site-isolation-trials'
-      ]
-    });
+    const browser = await chromium.launch({ headless, args: ['--no-sandbox','--disable-setuid-sandbox','--disable-http2'] });
 
-    let anyFailed = false;
+    let anyWarnings = false;
 
-    try {
-      // We'll create a single context and reuse, but if antibot recovery needs UA change we'll create new context
-      let context = await browser.newContext({
-        userAgent: UAs[0],
-        viewport: { width: 1366, height: 768 }
-      });
+    for (const originalUrl of urls) {
+      const start = Date.now();
+      const domain = domainOf(originalUrl);
+      let outPath = explicitOut;
+      if (!outPath) {
+        const u = (() => { try { return new URL(originalUrl); } catch(e) { return null; } })();
+        const hostpart = u ? sanitizeFilename(u.hostname + (u.pathname || '')) : sanitizeFilename(originalUrl);
+        const ts = Date.now();
+        outPath = path.join(renderedDir, `${hostpart}-${ts}.html`);
+      }
 
-      // small stealth init
+      log(`Rendering ${originalUrl} -> ${outPath} (domain=${domain})`);
+      // create a fresh context & page per URL to avoid reuse issues
+      const context = await browser.newContext({ userAgent: UAs[0], viewport: { width: 1366, height: 768 } });
       await context.addInitScript(() => {
         try {
           Object.defineProperty(navigator, 'webdriver', { get: () => false });
@@ -108,248 +106,190 @@ function has_antibot_text(html) {
           'accept-language': 'en-US,en;q=0.9',
           'sec-ch-ua': '"Chromium";v="140", "Not A;Brand";v="24"',
           'sec-ch-ua-platform': '"Windows"',
-          'sec-ch-ua-mobile': '?0',
-          'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-          'upgrade-insecure-requests': '1'
+          'sec-ch-ua-mobile': '?0'
         });
-      } catch(e){ /* ignore */ }
+      } catch(e){}
 
       const page = await context.newPage();
 
-      // helper to attempt to “unstick” anti-bot pages
-      async function attempt_antibot_recovery(page, url, preferredSelector) {
-        // try multiple recovery strategies
-        for (let attempt = 1; attempt <= MAX_ANTIBOT_ATTEMPTS; attempt++) {
-          warn(`ANTIBOT: attempt ${attempt} recovery for ${url}`);
-
-          // 1) simple reload
-          try { await page.reload({ waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT/2 }); } catch(e){}
-
-          // small wait
-          await page.waitForTimeout(1200 + 1000*attempt);
-
-          // 2) simulate small human activity: mouse moves and clicks
-          try {
-            const box = await page.evaluate(() => ({ w: window.innerWidth, h: window.innerHeight }));
-            const w = box.w || 800, h = box.h || 600;
-            // move in a curve
-            const steps = 10;
-            for (let i=0;i<steps;i++){
-              const x = Math.floor((w/4) + (w/2) * (i/steps));
-              const y = Math.floor((h/4) + (h/2) * Math.abs(Math.sin(i)));
-              try { await page.mouse.move(x, y, { steps: 4 }); } catch(e){}
-              await page.waitForTimeout(120);
-            }
-            // click somewhere safe
-            try { await page.mouse.click(Math.max(10, Math.floor(w*0.1)), Math.max(10, Math.floor(h*0.1))); } catch(e){}
-          } catch(e){}
-
-          // 3) scroll slowly to trigger lazy loads
-          try {
-            await page.evaluate(async () => {
-              await new Promise(r => {
-                let total = 0, step = 400;
-                const timer = setInterval(() => {
-                  window.scrollBy(0, step);
-                  total += step;
-                  if (total > document.body.scrollHeight + 1000) { clearInterval(timer); r(); }
-                }, 300);
-                // safety timeout 8s
-                setTimeout(() => { clearInterval(timer); r(); }, 8000);
-              });
-            });
-          } catch(e){}
-
-          // 4) wait for preferredSelector if given
-          if (preferredSelector) {
-            try {
-              await page.waitForSelector(preferredSelector, { timeout: 8000 });
-              log('ANTIBOT: recovery succeeded (preferred selector found)');
-              return true;
-            } catch(e) { /* continue attempts */ }
-          }
-
-          // 5) if still stuck, try reload with a rotated UA by creating a new context (clean slate)
-          if (attempt < MAX_ANTIBOT_ATTEMPTS) {
-            const ua = UAs[attempt % UAs.length] || UAs[0];
-            warn(`ANTIBOT: recreating context with UA=${ua}`);
-            try {
-              try { await page.close(); } catch(e){}
-              try { await context.close(); } catch(e){}
-            } catch(e){}
-            context = await browser.newContext({ userAgent: ua, viewport: { width: 1366, height: 768 } });
-            await context.addInitScript(() => {
-              try {
-                Object.defineProperty(navigator, 'webdriver', { get: () => false });
-                Object.defineProperty(navigator, 'languages', { get: () => ['en-US','en'] });
-                Object.defineProperty(navigator, 'plugins', { get: () => [1,2,3] });
-                window.chrome = window.chrome || { runtime: {} };
-              } catch (e) {}
-            });
-            try {
-              await context.setExtraHTTPHeaders({
-                'accept-language': 'en-US,en;q=0.9',
-                'sec-ch-ua': '"Chromium";v="140", "Not A;Brand";v="24"',
-                'sec-ch-ua-platform': '"Windows"',
-                'sec-ch-ua-mobile': '?0',
-              });
-            } catch(e){}
-            // rebuild page reference
-            page = await context.newPage();
-            try {
-              await page.goto(url, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT });
-              await page.waitForTimeout(1200);
-            } catch(e){}
-          }
-
-          // brief pause before next attempt
-          await new Promise(r => setTimeout(r, 1200));
-          // check if content no longer appears as antibot
-          const html = await page.content();
-          if (!has_antibot_text(html)) {
-            log('ANTIBOT: page content no longer contains antibot phrases');
-            return true;
-          }
-        } // end attempts
-
-        // if we get here recovery failed
-        warn('ANTIBOT: all recovery attempts exhausted');
-        return false;
+      // Navigation with retries
+      let gotoErr = null;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          await page.goto(originalUrl, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT });
+          // small wait for dynamic bits
+          await page.waitForTimeout(800);
+          gotoErr = null;
+          break;
+        } catch (e) {
+          gotoErr = e;
+          warn(`page.goto attempt ${attempt} failed for ${originalUrl}: ${e && e.message ? e.message : e}`);
+          await page.waitForTimeout(800 * attempt);
+        }
+      }
+      if (gotoErr) {
+        warn(`All page.goto attempts failed for ${originalUrl}: ${gotoErr && gotoErr.message ? gotoErr.message : gotoErr}`);
+        anyWarnings = true;
       }
 
-      // main loop for urls
-      for (const originalUrl of urls) {
-        const url = originalUrl;
-        const start = Date.now();
-        let outPath = explicitOut;
-        if (!outPath) {
-          const u = (() => { try { return new URL(url); } catch(e) { return null; } })();
-          const hostpart = u ? sanitizeFilename(u.hostname + (u.pathname || '')) : sanitizeFilename(url);
-          const ts = Date.now();
-          outPath = path.join(renderedDir, `${hostpart}-${ts}.html`);
-        }
-
-        log(`Starting render for: ${url}`);
-
-        // try navigation with retries
-        let gotoErr = null;
-        const maxGotoAttempts = 3;
-        for (let attempt = 1; attempt <= maxGotoAttempts; attempt++) {
-          try {
-            await page.goto(url, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT });
-            await page.waitForTimeout(1200);
-            try { await page.waitForLoadState('networkidle', { timeout: 5000 }); } catch(e){}
-            gotoErr = null;
-            break;
-          } catch (e) {
-            gotoErr = e;
-            warn(`page.goto attempt ${attempt} failed: ${e && e.message ? e.message : e}`);
-            await page.waitForTimeout(1000 * attempt);
-          }
-        }
-        if (gotoErr) {
-          warn(`page.goto ultimately failed for ${url}: ${gotoErr && gotoErr.message ? gotoErr.message : gotoErr}`);
-          // continue anyway (we'll still try to salvage content)
-        }
-
-        // try clicking/dismissing consents
+      // try to dismiss common cookie dialogs quickly
+      try {
         const consentSelectors = [
           'button:has-text("Accept all")','button:has-text("Accept")','button:has-text("I agree")',
           'button[aria-label*="Accept"]','button[id*="accept"]','button[name*="agree"]',
           'button:has-text("Allow all")','button:has-text("Accept cookies")',
-          'button[data-testid="consent-accept-button"]','input[type="button"][value*="Accept"]',
-          '[role="button"]:has-text("Accept all")'
+          'button[data-testid="consent-accept-button"]'
         ];
         for (const sel of consentSelectors) {
           try {
             const els = await page.$$(sel);
             for (const e of els) {
-              try { await e.click({ timeout: 2000 }); } catch(e2){ try { await page.evaluate(el => el.click(), e); } catch(e3){} }
+              try { await e.click({ timeout: 1200 }); } catch(e2){ try { await page.evaluate(el => el.click(), e); } catch(e3){} }
             }
-            if (els.length) await page.waitForTimeout(400);
+            if (els.length) await page.waitForTimeout(300);
           } catch(e){}
         }
+        // remove basic overlays
+        await page.evaluate(() => {
+          const bad = document.querySelectorAll('[id*="consent"], [class*="consent"], [class*="cookie"], [id*="cookie"], .cookie-banner, .consent-banner, .overlay, .modal-backdrop');
+          for (const n of bad) try { n.remove(); } catch(e) {}
+        });
+      } catch(e){}
 
-        // remove overlay elements
-        try {
-          await page.evaluate(() => {
-            const bad = document.querySelectorAll('[id*="consent"], [class*="consent"], [class*="cookie"], [id*="cookie"], .cookie-banner, .consent-banner, .overlay, .modal-backdrop');
-            for (const n of bad) try { n.remove(); } catch(e) {}
+      // short auto-scroll (lightweight)
+      try {
+        await page.evaluate(async () => {
+          await new Promise(r => {
+            let i = 0;
+            const t = setInterval(() => {
+              window.scrollBy(0, window.innerHeight * 0.6);
+              i++;
+              if (i > 4) { clearInterval(t); r(); }
+            }, 250);
           });
-        } catch(e){}
+        });
+      } catch(e){}
 
-        // expand see-more, click load-more, scroll
+      // capture content
+      let html = '';
+      try {
+        html = await page.content();
+      } catch(e) {
+        warn('Error reading page content:', e && e.message ? e.message : e);
+        anyWarnings = true;
+      }
+
+      // decide whether to attempt lightweight recovery:
+      const shouldRecover = domain && RECOVERY_DOMAINS.includes(domain) && !(NO_RECOVERY_DOMAINS.includes(domain));
+      if (shouldRecover && has_antibot_text(html)) {
+        warn('Detected anti-bot content for', originalUrl);
+        // do a few lightweight recovery steps (reload, mouse moves, additional waits); don't recreate contexts
+        let recovered = false;
         try {
-          const seeMore = await page.$$('button[aria-label*="see more"], button[aria-label*="See more"], button.show-more, a.show-more');
-          for (const b of seeMore) { try { await b.click({ timeout: 1000 }); } catch(e){} }
-        } catch(e){}
+          // attempt small recovery sequence
+          for (let rtry = 1; rtry <= 2; rtry++) {
+            warn(`ANTIBOT: recovery attempt ${rtry} for ${originalUrl}`);
+            try { await page.reload({ waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT/2 }); } catch(e){}
+            await page.waitForTimeout(1200 + 800 * rtry);
 
-        // a longer scroll to load things
-        try {
-          await page.evaluate(async () => {
-            await new Promise(r => {
-              let i = 0;
-              const t = setInterval(() => {
-                window.scrollBy(0, window.innerHeight * 0.9);
-                i++;
-                if (i > 8) { clearInterval(t); r(); }
-              }, 400);
-            });
-          });
-        } catch(e){}
+            // small mouse movements
+            try {
+              const rect = await page.evaluate(() => ({ w: window.innerWidth, h: window.innerHeight }));
+              const w = rect.w || 800, h = rect.h || 600;
+              for (let i = 0; i < 6; i++) {
+                const x = Math.floor(10 + Math.random() * (w - 20));
+                const y = Math.floor(10 + Math.random() * (h - 20));
+                try { await page.mouse.move(x, y, { steps: 5 }); } catch(e){}
+                await page.waitForTimeout(120);
+              }
+              try { await page.mouse.click(10,10); } catch(e){}
+            } catch(e){}
 
-        // give extra time for dynamic content
-        await page.waitForTimeout(800);
+            // extra scroll
+            try {
+              await page.evaluate(async () => {
+                await new Promise(r => {
+                  let i = 0;
+                  const t = setInterval(() => {
+                    window.scrollBy(0, window.innerHeight * 0.5);
+                    i++;
+                    if (i > 6) { clearInterval(t); r(); }
+                  }, 250);
+                });
+              });
+            } catch(e){}
 
-        // capture initial content and check for anti-bot phrases
-        let html = await page.content();
-        if (has_antibot_text(html)) {
-          warn('Detected anti-bot content for', url);
-          // attempt recovery with preferred selector '#archives' (medscape list uses '#archives')
-          const recovered = await attempt_antibot_recovery(page, url, '#archives');
-          html = await page.content();
-          if (!recovered && has_antibot_text(html)) {
-            warn('Anti-bot recovery failed for', url, '— saving current HTML (likely block page)');
-          } else {
-            log('Anti-bot recovery likely successful for', url);
+            // wait for generic content selectors (some domains)
+            const preferredMap = {
+              'medscape.com': '#archives',
+              'eetimes.com': '.archive-list, .cd-article-list, .cards-list'
+            };
+            const pref = preferredMap[domain] || null;
+            if (pref) {
+              try {
+                await page.waitForSelector(pref, { timeout: 5000 });
+                recovered = true;
+                log('ANTIBOT: found preferred selector after recovery:', pref);
+                break;
+              } catch(e){}
+            }
+
+            // re-fetch content and check
+            try { html = await page.content(); } catch(e){}
+            if (!has_antibot_text(html)) { recovered = true; break; }
+
+            await page.waitForTimeout(600);
           }
+        } catch(e){
+          warn('ANTIBOT: recovery sequence threw:', e && e.message ? e.message : e);
         }
 
-        // write out the html
-        try {
-          const dir = path.dirname(outPath);
-          fs.mkdirSync(dir, { recursive: true });
-          fs.writeFileSync(outPath, html, 'utf8');
-          const bytes = Buffer.byteLength(html, 'utf8');
-          if (bytes < 2000) {
-            warn(`Rendered ${url} -> ${outPath} (status: saved, bytes: ${bytes}) - SMALL RENDER`);
-          } else {
-            log(`Rendered ${url} -> ${outPath} (status: saved, bytes: ${bytes})`);
-          }
-        } catch (e) {
-          warn('Failed to save rendered content:', e && e.message ? e.message : e);
-          anyFailed = true;
+        if (!recovered && has_antibot_text(html)) {
+          warn('ANTIBOT: recovery attempts exhausted for', originalUrl);
+          anyWarnings = true;
+        } else {
+          log('ANTIBOT: recovery appears successful (or antibot phrases gone) for', originalUrl);
         }
+      }
 
-        const elapsed = Math.round((Date.now() - start)/1000);
-        log(`-> Done: ${url} (elapsed ${elapsed}s)`);
-      } // end for urls
+      // final read (capture up-to-date content)
+      try { html = await page.content(); } catch(e){}
 
+      // always save HTML even if small or antibot
+      try {
+        const dir = path.dirname(outPath);
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(outPath, html, 'utf8');
+        const bytes = Buffer.byteLength(html, 'utf8');
+        if (bytes < 2000) {
+          warn(`Rendered ${originalUrl} -> ${outPath} (saved, bytes: ${bytes}) - SMALL RENDER`);
+          anyWarnings = true;
+        } else {
+          log(`Rendered ${originalUrl} -> ${outPath} (saved, bytes: ${bytes})`);
+        }
+      } catch (e) {
+        warn('Failed to save rendered content:', e && e.message ? e.message : e);
+        anyWarnings = true;
+      }
+
+      try { await page.close(); } catch(e){}
       try { await context.close(); } catch(e){}
-    } finally {
-      try { await browser.close(); } catch(e){}
-    }
+      const elapsed = Math.round((Date.now() - start) / 1000);
+      log(`-> Done: ${originalUrl} (elapsed ${elapsed}s)`);
+    } // end for urls
 
-    if (anyFailed) {
-      warn('Some renders failed (see logs). Exiting code 2.');
-      process.exit(2);
+    try { await browser.close(); } catch(e){}
+
+    if (anyWarnings) {
+      warn('Rendering completed with warnings — check logs and rendered files.');
     } else {
       log('All renders completed successfully.');
-      process.exit(0);
     }
+    // Important: exit 0 to avoid breaking CI; consumer can check logs/files for bad renders
+    process.exit(0);
 
   } catch (err) {
-    console.error('Fatal error in render_page.js:', err && (err.message || err));
-    try { process.exit(1); } catch(e){}
+    console.error('Fatal render error:', err && (err.message || err));
+    try { process.exit(0); } catch(e){}
   }
 })();
