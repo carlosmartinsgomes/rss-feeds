@@ -24,17 +24,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Create linkedin_auth.json from base64 secret (if provided)
-        run: |
-          mkdir -p scripts
-          if [ -n "${{ secrets.LINKEDIN_AUTH_JSON_B64 }}" ]; then
-            echo "Decoding LINKEDIN_AUTH_JSON_B64 -> scripts/linkedin_auth.json"
-            printf '%s' "${{ secrets.LINKEDIN_AUTH_JSON_B64 }}" | base64 --decode > scripts/linkedin_auth.json
-            chmod 600 scripts/linkedin_auth.json || true
-            echo "Created scripts/linkedin_auth.json (size: $(wc -c < scripts/linkedin_auth.json) bytes)"
-          else
-            echo "No secret LINKEDIN_AUTH_JSON_B64 provided — continuing without it."
-          fi
+      
 
       - name: Detect scripts dir
         id: detect
@@ -155,49 +145,7 @@ jobs:
           path: ${{ steps.detect.outputs.scripts_dir }}/rendered
           if-no-files-found: warn
 
-      - name: Run linkedin extractor
-        working-directory: ${{ steps.detect.outputs.scripts_dir }}
-        run: |
-          node render_linkedin_extract.js \
-            'https://www.linkedin.com/groups/5146549/' \
-            'https://www.linkedin.com/groups/4682610/' \
-            'https://www.linkedin.com/groups/3875737/' \
-            'https://www.linkedin.com/search/results/content/?datePosted=%22past-week%22&keywords=the%20trade%20desk&origin=FACETED_SEARCH' \
-            'https://www.linkedin.com/search/results/content/?datePosted=%22past-week%22&keywords=pubmatic&origin=FACETED_SEARCH'
-        env:
-          LINKEDIN_EMAIL: ${{ secrets.LINKEDIN_EMAIL || '' }}
-          LINKEDIN_PASSWORD: ${{ secrets.LINKEDIN_PASSWORD || '' }}
-          HEADLESS: 'true'
-
-      - name: Clean linkedin output files (.html .png)
-        working-directory: ${{ steps.detect.outputs.scripts_dir }}
-        run: |
-          SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
-          echo "Cleaning possible large debug files in $SCRIPTS/output ..."
-          rm -f "$SCRIPTS/output"/*.html "$SCRIPTS/output"/*.png || true
-          ls -la "$SCRIPTS/output" || true
-
-      - name: Show produced linkedin files (debug)
-        working-directory: ${{ steps.detect.outputs.scripts_dir }}
-        run: |
-          pwd
-          echo "Scripts dir: $SCRIPTS / $(pwd)"
-          ls -la || true
-          ls -la output || true
-          echo "---- head of output/linkedin.json (if exists) ----"
-          test -f output/linkedin.json && (echo "LEN:" $(wc -c < output/linkedin.json) && head -n 200 output/linkedin.json) || echo "no linkedin.json"
-          echo "---- list debug html/png ----"
-          ls -la output/debug-* || true
-          test -f linkedin_auth.json && echo "linkedin_auth.json exists (size: $(wc -c < linkedin_auth.json))" || echo "no linkedin_auth.json"
-        env:
-          SCRIPTS: ${{ steps.detect.outputs.scripts_dir }}
-
-      - name: Upload linkedin artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: linkedin-output
-          path: ${{ steps.detect.outputs.scripts_dir }}/output
-          if-no-files-found: warn
+      
 
       - name: Diagnostics for rendered files (all)
         run: python3 scripts/diagnose_rendered_no_bs4.py all    
