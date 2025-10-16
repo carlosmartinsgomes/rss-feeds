@@ -885,10 +885,16 @@ def matches_filters_debug(item, cfg):
         return True, None
 
     # extrai campos relevantes (garante strings)
-    text_title = (item.get('title','') or '').strip()
-    text_desc = (item.get('description','') or '').strip()
-    text_full = (item.get('full_text','') or '').strip()
-    text_link = (item.get('link','') or '').strip()
+    text_title = (item.get('title','') or '').lower()
+    # suportar 'description (short)' quando 'description' não existe
+    if item.get('description'):
+        text_desc = (item.get('description') or '').lower()
+    elif item.get('description (short)'):
+        text_desc = (item.get('description (short)') or '').lower()
+    else:
+        text_desc = ''
+    text_full = (item.get('full_text','') or '').lower()
+    text_link = (item.get('link','') or item.get('link (source)','') or '').lower()
 
     # função utilitária: normaliza espaço e passa para lower
     def _norm(s):
