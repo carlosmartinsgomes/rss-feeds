@@ -871,85 +871,36 @@ def build_feed(name, cfg, items):
 
 def matches_filters_debug(item, cfg):
     """
-    Versão robusta do matches: 
-      - normaliza texto (lower, remove espaços repetidos),
-      - suporta wildcard '*' nos keywords,
-      - tenta casar keywords como palavras inteiras quando apropriado,
-      - devolve (True/False, reason-string-or-None).
+    Retorna (keep:bool, reason:str_or_None)
+    - reason será o termo exacto que deu match (p.ex. 'inmode') ou
+      'exclude:<term>' se o exclude corresponder.
+    - Se não houver filtros (keywords/exclude) devolve (True, None).
     """
     kw = cfg.get('filters', {}).get('keywords', []) or []
     exclude = cfg.get('filters', {}).get('exclude', []) or []
-
-    # se não há filtros definidos -> keep everything
+    # sem filtros -> keep tudo (comportamento existente)
     if not kw and not exclude:
         return True, None
 
-    # extrai campos relevantes (garante strings)
     text_title = (item.get('title','') or '').lower()
-    # suportar 'description (short)' quando 'description' não existe
-    if item.get('description'):
-        text_desc = (item.get('description') or '').lower()
-    elif item.get('description (short)'):
-        text_desc = (item.get('description (short)') or '').lower()
-    else:
-        text_desc = ''
+    text_desc = (item.get('description','') or '').lower()
     text_full = (item.get('full_text','') or '').lower()
-    text_link = (item.get('link','') or item.get('link (source)','') or '').lower()
+    text_link = (item.get('link','') or '').lower()
 
-    # função utilitária: normaliza espaço e passa para lower
-    def _norm(s):
-        import re
-        s2 = re.sub(r'\s+', ' ', s or '')
-        return s2.strip().lower()
-
-    nt_title = _norm(text_title)
-    nt_desc  = _norm(text_desc)
-    nt_full  = _norm(text_full)
-    nt_link  = _norm(text_link)
-
-    # helper para compilar keyword -> regex
-    def _kw_to_regex(k):
-        k0 = (k or '').strip()
-        if not k0:
-            return None
-        # allow wildcard '*' -> convert to '.*'
-        if '*' in k0:
-            pat = re.escape(k0).replace(r'\*', '.*')
-            return re.compile(pat, flags=re.I)
-        # if keyword is a simple word (letters/numbers/_ or hyphen), prefer whole-word match
-        if re.match(r'^[\w\-]+$', k0, flags=re.I):
-            pat = r'\b' + re.escape(k0) + r'\b'
-            return re.compile(pat, flags=re.I)
-        # otherwise fallback to plain substring regex
-        return re.compile(re.escape(k0), flags=re.I)
-
-    # check excludes first (if any exclude matches -> reject immediately)
-    for ex in exclude:
-        rex = _kw_to_regex(ex)
-        if not rex:
-            continue
-        if rex.search(nt_title) or rex.search(nt_desc) or rex.search(nt_full) or rex.search(nt_link):
-            return False, f"exclude '{ex}' matched"
-
-    # if there are keywords, require at least one match
+    # keywords: devolve o termo exacto que bateu (primeiro match)
     if kw:
         for k in kw:
-            rex = _kw_to_regex(k)
-            if not rex:
-                continue
-            # check specific fields and return a reason that mentions the field
-            if rex.search(nt_title):
-                return True, f"keyword '{k}' in title"
-            if rex.search(nt_desc):
-                return True, f"keyword '{k}' in description"
-            if rex.search(nt_full):
-                return True, f"keyword '{k}' in full_text"
-            if rex.search(nt_link):
-                return True, f"keyword '{k}' in link"
-        # nenhum keyword casou
+            kl = k.lower()
+            if kl and (kl in text_title or kl in text_desc or kl in text_full or kl in text_link):
+                return True, kl  # devolvemos só o termo
         return False, None
 
-    # if only exclude list existed (handled above) and none matched -> keep item
+    # excludes: se qualquer exclude bate, rejeita e fornece razão
+    for ex in exclude:
+        el = ex.lower() if ex else ''
+        if el and (el in text_title or el in text_desc or el in text_full or el in text_link):
+            return False, f"exclude:{el}"
+
     return True, None
 
 
