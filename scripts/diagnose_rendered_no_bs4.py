@@ -1,9 +1,6 @@
-# na raiz do repo: cria o ficheiro diretamente
-mkdir -p scripts
-cat > scripts/diagnose_rendered_no_bs4.py <<'PY'
 #!/usr/bin/env python3
 # scripts/diagnose_rendered_no_bs4.py
-# Diagnóstico leve sem dependências externas (usa stdlib).
+# Diagnóstico leve sem dependências externas (usa apenas stdlib).
 # Produz blocos marcados que devem aparecer nos logs do CI.
 
 import os, sys, json, glob, re
@@ -56,7 +53,6 @@ def find_rendered_file(cfg, name):
     for pat in patterns:
         l = glob.glob(os.path.join(RENDERED_DIR, pat))
         if l:
-            # prefer largest (most content)
             l = sorted(l, key=lambda p: os.path.getsize(p), reverse=True)
             return l[0]
     return None
@@ -67,11 +63,9 @@ def contains_antibot(text):
     return any(p in lo for p in _antibot_phrases)
 
 def strip_tags(text):
-    # remove html tags quickly
     return re.sub(r'<[^>]+>', '', text)
 
 def anchor_extract_all(html):
-    # simple regex-based anchor extraction (approximate)
     anchors = []
     for m in re.finditer(r'<a\b([^>]*)>(.*?)</a>', html, flags=re.I|re.S):
         attrs = m.group(1)
@@ -85,38 +79,29 @@ def count_selector_occurrences(html, sel):
     sel = (sel or '').strip()
     if not sel:
         return 0
-    # heuristics for common selectors:
-    # id selector: #foo
     if sel.startswith('#'):
         name = sel[1:]
         return len(re.findall(r'id\s*=\s*["\']%s["\']' % re.escape(name), html, flags=re.I))
-    # attribute selector like section[data-test='qsp-news']
     m = re.match(r'([a-z0-9]+)?\s*\[\s*([a-zA-Z0-9_\-:]+)\s*=\s*[\'"]?([^\'"\]]+)[\'"]?\s*\]', sel)
     if m:
         attr = m.group(2); val = m.group(3)
         return len(re.findall(r'%s\s*=\s*["\']%s["\']' % (re.escape(attr), re.escape(val)), html, flags=re.I))
-    # class selector .foo or tag.class1.class2
     if '.' in sel:
         parts = sel.split('.')
         tag = parts[0] if not sel.startswith('.') else None
         classes = parts[1:] if not sel.startswith('.') else parts
         if tag:
-            # count occurrences of <tag ... class="...cls..."
-            cnt = 0
+            cnts = []
             for cls in classes:
-                cnt += len(re.findall(r'<%s\b[^>]*class\s*=\s*["\'][^"\']*\b%s\b[^"\']*["\']' % (re.escape(tag), re.escape(cls)), html, flags=re.I))
-            # approximate by min of counts
-            return min(cnt, 999999)
+                cnts.append(len(re.findall(r'<%s\b[^>]*class\s*=\s*["\'][^"\']*\b%s\b[^"\']*["\']' % (re.escape(tag), re.escape(cls)), html, flags=re.I)))
+            return min(cnts) if cnts else 0
         else:
-            # just class counts
             cnt = 0
             for cls in classes:
                 cnt += len(re.findall(r'class\s*=\s*["\'][^"\']*\b%s\b[^"\']*["\']' % re.escape(cls), html, flags=re.I))
             return cnt
-    # fallback: count occurrences of opening tag
     if re.match(r'^[a-zA-Z0-9]+$', sel):
         return len(re.findall(r'<%s\b' % re.escape(sel), html, flags=re.I))
-    # if it's a complex css selector, fallback to substring occurrences
     return html.count(sel)
 
 def print_block_marker(kind, site):
@@ -144,11 +129,9 @@ def analyze_rendered(name, cfg, path):
     print(head.replace('\n',' '))
     print_block_marker("HTML_EXCERPT_TAIL", name)
     print(tail.replace('\n',' '))
-    # selector diagnostics
     selectors = []
     if cfg.get('item_container'):
         selectors += [s.strip() for s in str(cfg.get('item_container')).split(',') if s.strip()]
-    # add some extra selectors commonly used
     extra = ['section[data-test=\"qsp-news\"] ul li', 'ul[data-test=\"quoteNewsStream\"] li', 'li.stream-item.story-item', 'li.js-stream-content']
     for e in extra:
         if e not in selectors:
@@ -168,13 +151,10 @@ def analyze_rendered(name, cfg, path):
     print("ANCHORS_FOUND:", len(anchors))
     for i,(h,t) in enumerate(anchors[:120]):
         print(f"ANCHOR[{i}]\t{h}\t| text={t[:200]}")
-    # try simple extraction simulation (title/link/desc/date)
     print_block_marker("EXTRACTOR_SIMULATION", name)
-    # very simple node scan: find <li ...> blocks as candidate items
     li_blocks = re.findall(r'(<li\b[^>]*>.*?</li>)', html, flags=re.I|re.S)[:300]
     items = []
     for idx, block in enumerate(li_blocks):
-        # find first anchor title, link
         a_m = re.search(r'<a\b([^>]*)>(.*?)</a>', block, flags=re.I|re.S)
         title = ''
         link = ''
@@ -192,7 +172,6 @@ def analyze_rendered(name, cfg, path):
     print("ITEMS_FOUND:", len(items))
     for i,it in enumerate(items[:200]):
         print(f"ITEM[{i}]\tTITLE={it['title']}\tLINK={it['link']}\tDESC={it['desc'][:200]}")
-    # suspicious phrases
     lower = html.lower()
     suspicious = [ph for ph in _antibot_phrases if ph in lower]
     if suspicious:
@@ -231,4 +210,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-PY
