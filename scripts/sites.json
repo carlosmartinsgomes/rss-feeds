@@ -8,7 +8,6 @@
       "link": "a.ArticlePreview-Title@href, a.ContentCard-Title@href, .ListPreview-TitleWrapper > a@href, a.ListPreview-Title@href, a@href",
       "date": ".ArticlePreview-Footer .ArticlePreview-Date, .ContentCard-Footer .ContentCard-Date, .ListPreview-Footer .ListPreview-Date, time, .CardTime span, span",
       "description": "p.ArticlePreview-Summary, .ArticlePreview-Summary, .card-text, .excerpt, p",
-      "topic": "p.ArticlePreview-Summary, .ArticlePreview-Summary, .card-text, .excerpt, p",
       "render_file": "scripts/rendered/aibusiness.html",
       "filters": { "keywords": ["iot","samsara"] }
     },
@@ -20,7 +19,6 @@
       "link": "a.ArticlePreview-Title@href, a.ContentCard-Title@href, a.ListPreview-Title@href, a@href",
       "date": "span.ArticlePreview-Date, span.ContentCard-Date, .ListPreview-Date, .ArticlePreview-Footer span, .ContentCard-Footer span, time, .ListPreview-Footer .ListPreview-Date",
       "description": "p.ArticlePreview-Summary, .ArticlePreview-Summary, .ArticlePreview-Body p, .ListPreview-ContentWrapper p.ArticlePreview-Summary, .ListPreview-ContentWrapper .ArticlePreview-Summary, .excerpt, p",
-      "topic": "p.ArticlePreview-Summary, .ArticlePreview-Summary, .ArticlePreview-Body p, .ListPreview-ContentWrapper p.ArticlePreview-Summary, .ListPreview-ContentWrapper .ArticlePreview-Summary, .excerpt, p",
       "max_items": 300,
       "render_file": "scripts/rendered/darkreading.html",
       "filters": { "keywords": ["rbrk","rubrik","crwd","crowdstrike","fortinet", "gitlab"] }
@@ -33,6 +31,7 @@
       "link": "a@href",
       "date": "h6.mt0_25.mb0.regular.grey-5.fs-small > span:first-child, h6 span",
       "description": "",
+      "topic": "h4.grey-8.bold.mt0_25, h4",
       "render_file": "scripts/rendered/edsurge.html",
       "max_items": 200,
       "filters": { "keywords": [] }
