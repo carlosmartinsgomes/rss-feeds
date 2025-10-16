@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3 
 # scripts/feeds_to_excel.py
 # Requisitos: feedparser, pandas, beautifulsoup4, openpyxl, python-dateutil, requests
 
@@ -134,6 +134,51 @@ def find_date_from_xml_item(xml_soup, entry_title, entry_link):
                 found = find_date_in_text(combined)
                 if found:
                     return found
+    return None
+
+# --- helper: detectar URLs / hosts dentro do ficheiro de feed (para acionar scrapers especiais) ---
+def detect_profile_url_in_feed_file(feedfile_path, host_substrings):
+    """
+    Tenta detectar uma URL do tipo 'profile' (ou um host) dentro do ficheiro de feed.
+    host_substrings: lista de substrings a procurar, ex: ['thedrum.com/profile', 'semiengineering.com']
+    Retorna a primeira URL encontrada (string absoluta) ou None.
+    """
+    # 1) tentar feedparser rápido
+    try:
+        parsed = feedparser.parse(feedfile_path)
+        # tentar feed.link
+        feed_link = getattr(parsed, 'feed', {}).get('link') if getattr(parsed, 'feed', None) else None
+        if feed_link:
+            for s in host_substrings:
+                if s in (feed_link or ''):
+                    return feed_link
+        # tentar primeira entry
+        entries = getattr(parsed, 'entries', None) or []
+        if entries:
+            first = entries[0]
+            for k in ('link','id','guid'):
+                v = first.get(k) if isinstance(first, dict) else None
+                if v:
+                    for s in host_substrings:
+                        if s in (v or ''):
+                            return v
+    except Exception:
+        pass
+
+    # 2) abrir ficheiro raw e procurar substrings / urls simples
+    try:
+        raw = open(feedfile_path, 'r', encoding='utf-8', errors='ignore').read()
+        # procura http(s) urls contendo as substrings
+        for s in host_substrings:
+            if s in raw:
+                # tentar extrair a primeira http... que contenha s
+                m = re.search(r'https?://[^"\'>\s]*' + re.escape(s.split(s.split('/')[-1])[-1]) + r'[^"\'>\s]*', raw)
+                if m:
+                    return m.group(0)
+                # fallback: devolver apenas a substring encontrada (o chamador pode normalizar)
+                return s
+    except Exception:
+        pass
     return None
 
 
@@ -697,9 +742,12 @@ def scrape_modern_rendered(rendered_path, base_url="https://www.modernhealthcare
         })
     print(f"scrape_modern_rendered: found {len(out)} items from {rendered_path}")
     return out
+
 # ---------------------------
 # SCRAPER específico MEDIAPOST (novo)
+# (mantive o teu código mediapost tal como o tinhas)
 # ---------------------------
+
 def scrape_mediapost_listing(base_url="https://www.mediapost.com/news/", max_items=30, timeout=10):
     """
     Fetch the Mediapost /news/ page and return items list with fields:
@@ -905,8 +953,6 @@ def scrape_mediapost_listing(base_url="https://www.mediapost.com/news/", max_ite
                 description = description.replace('\n', ' ').strip()
             if date:
                 date = date.replace('\n', ' ').strip()
-
-
 
             seen.add(canon)
             items.append({
@@ -1256,7 +1302,86 @@ def scrape_semiengineering_listing(rendered_path=None, base_url="https://semieng
 
     return out[:max_items]
 
+# ---------------------------
+# SCRAPER específico THE DRUM (profiles 'featured')
+# ---------------------------
 
+# Mapeamento: as chaves devem corresponder aos basenames dos ficheiros feeds/*.xml (sem .xml)
+THE_DRUM_PROFILE_URLS = {
+    "thedrum-pubmatic": "https://www.thedrum.com/profile/pubmatic/featured",
+    "thedrum-the-trade-desk": "https://www.thedrum.com/profile/the-trade-desk/featured",
+    # adiciona mais chaves conforme os teus ficheiros feeds/....xml
+}
+
+def scrape_thedrum_profile(base_url, max_items=5, timeout=10):
+    """
+    Fetch and parse a TheDrum profile 'featured' page and return up to max_items dicts:
+    {'title','link','date','description','source'}
+    Observações: a estrutura do TheDrum coloca o título/descrição na mesma div; usamos heurísticas
+    para extrair description, date e link.
+    """
+    try:
+        r = requests.get(base_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=timeout)
+        r.raise_for_status()
+        html = r.text
+    except Exception as e:
+        print("scrape_thedrum_profile: fetch failed:", e)
+        return []
+
+    soup = BeautifulSoup(html, "html.parser")
+
+    def txt(el):
+        try:
+            return (el.get_text(" ", strip=True) if el else "").strip()
+        except Exception:
+            return ""
+
+    def abs_url(href):
+        try:
+            return urljoin(base_url, (href or "").strip())
+        except Exception:
+            return (href or "").strip()
+
+    # selectors baseados no exemplo que forneceste
+    card_sel = ".td-company-profile__company-details__article-card"
+    wrapper_sel = ".td-company-profile__company-details__article-card__wrapper"
+    title_sel = ".td-company-profile__company-details__article-card__wrapper__title"
+    footer_sel = ".td-company-profile__company-details__article-card__wrapper__footer"
+
+    cards = []
+    for c in soup.select(card_sel):
+        w = c.select_one(wrapper_sel) or c
+        cards.append(w)
+    if not cards:
+        cards = soup.select(wrapper_sel)[:max_items]
+
+    items = []
+    seen = set()
+    for w in cards:
+        if len(items) >= max_items:
+            break
+        try:
+            desc_el = w.select_one(title_sel) or w
+            description = txt(desc_el)
+            date_el = w.select_one(footer_sel) or w.select_one("time, .meta, .post-date")
+            date = txt(date_el) if date_el else ""
+            a = w.select_one("a[href]") or w.find_parent("a")
+            if not a:
+                # try find anchor in parent card
+                parent_card = w.find_parent(class_=lambda x: x and "td-company-profile__company-details__article-card" in x)
+                if parent_card:
+                    a = parent_card.select_one("a[href]")
+            link = abs_url(a.get("href")) if a and a.has_attr("href") else ""
+            key = (link or description).rstrip("/").strip()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            title = description  # conforme conversámos: description também serve de title
+            items.append({"title": title or "", "link": link or "", "date": date or "", "description": description or "", "source": "thedrum-profile"})
+        except Exception:
+            continue
+
+    return items[:max_items]
 
 
 # ---------------------------
@@ -1290,27 +1415,105 @@ def main():
     if not feed_files:
         print("No feed files found in", FEEDS_DIR)
 
+    # --- loop pelos feeds (o teu código aqui deve permanecer tal como o tens) ---
     for ff in feed_files:
         try:
             base = os.path.basename(ff)
             site_name = os.path.splitext(base)[0]
             ic = site_item_map.get(site_name, "")
 
-            # special: if mediapost, ignore the XML and scrape the listing page directly
+            # --- DETECÇÃO AUTOMÁTICA ROBUSTA: procurar TheDrum profile/url dentro do feed ---
+            try:
+                td_url = None
+                td_url = detect_profile_url_in_feed_file(ff, ['thedrum.com/profile', 'thedrum.com'])
+                if not td_url:
+                    try:
+                        parsed = feedparser.parse(ff)
+                        entries = getattr(parsed, 'entries', []) or []
+                        for e in entries:
+                            cand = e.get('link') or e.get('id') or e.get('guid') or ''
+                            if cand and '/profile/' in cand:
+                                td_url = cand
+                                break
+                    except Exception:
+                        td_url = None
+
+                profile_base = None
+                if td_url:
+                    m = re.search(r'(https?://[^/]+/profile/[^/]+)', td_url, re.I)
+                    if m:
+                        profile_base = m.group(1).rstrip('/')
+                    else:
+                        m2 = re.search(r'/profile/([^/\s"\'>]+)', td_url, re.I)
+                        if m2:
+                            slug = m2.group(1).strip('/')
+                            profile_base = f"https://www.thedrum.com/profile/{slug}"
+                        else:
+                            slug_guess = site_name.replace('_','-').replace(' ','-').strip('-')
+                            if slug_guess and len(slug_guess) > 2:
+                                profile_base = f"https://www.thedrum.com/profile/{slug_guess}"
+
+                if profile_base:
+                    if not profile_base.endswith('/featured'):
+                        profile_base = profile_base.rstrip('/') + '/featured'
+                    try:
+                        td_items = scrape_thedrum_profile(base_url=profile_base, max_items=5, timeout=10)
+                        if td_items:
+                            for it in td_items:
+                                all_rows.append({
+                                    "site": site_name,
+                                    "title": it.get("title", "") or "",
+                                    "link (source)": it.get("link", "") or "",
+                                    "pubDate": it.get("date", "") or "",
+                                    "description (short)": strip_html_short(it.get("description", "") or "", max_len=300),
+                                    "item_container": ic,
+                                    "topic": "N/A"
+                                })
+                            print(f"Added {len(td_items)} items for {site_name} (TheDrum profile detected: {profile_base})")
+                            # saltar parsing XML para este feed
+                            continue
+                    except Exception as e:
+                        print("Error scraping TheDrum profile for", site_name, "url:", profile_base, ":", e)
+            except Exception:
+                pass
+
+            # --- special: The Drum profile featured pages mapping
+            if site_name in THE_DRUM_PROFILE_URLS:
+                try:
+                    url = THE_DRUM_PROFILE_URLS[site_name]
+                    td_items = scrape_thedrum_profile(base_url=url, max_items=5, timeout=10)
+                    for it in td_items:
+                        all_rows.append({
+                            "site": site_name,
+                            "title": it.get("title", "") or "",
+                            "link (source)": it.get("link", "") or "",
+                            "pubDate": it.get("date", "") or "",
+                            "description (short)": strip_html_short(it.get("description", "") or "", max_len=300),
+                            "item_container": ic,
+                            "topic": "N/A"
+                        })
+                    # skip XML parsing for this site (we already added rows)
+                    print(f"Added {len(td_items)} items for {site_name} (TheDrum profile scrape)")
+                    continue
+                except Exception as e:
+                    print("Error scraping TheDrum profile for", site_name, ":", e)
+                    # fall through to XML parsing as fallback
+    
+            # --- special: mediapost (scrape listing page directly) ---
             if site_name == "mediapost":
                 try:
                     mp_items = scrape_mediapost_listing(base_url="https://www.mediapost.com/news/", max_items=30)
                     for it in mp_items:
-                        t = it.get('title','').strip()
-                        link = it.get('link','').strip()
+                        t = it.get('title', '').strip()
+                        link = it.get('link', '').strip()
                         if not t or t.lower() in ("no title", "return to homepage", "category"):
                             continue
                         all_rows.append({
                             "site": site_name,
                             "title": t,
                             "link (source)": link,
-                            "pubDate": it.get('date',''),
-                            "description (short)": strip_html_short(it.get('description',''), max_len=300),
+                            "pubDate": it.get('date', ''),
+                            "description (short)": strip_html_short(it.get('description', ''), max_len=300),
                             "item_container": ic,
                             "topic": "N/A"
                         })
@@ -1318,9 +1521,9 @@ def main():
                     continue
                 except Exception as e:
                     print("Error scraping mediapost listing:", e)
-                    # fall through to XML parsing as fallback    
-
-            # special: modernhealthcare - prefer rendered HTML (if present)
+                    # fall through to XML parsing as fallback
+    
+            # --- special: modernhealthcare - prefer rendered HTML (if present) ---
             if site_name == "modernhealthcare":
                 rendered_path = os.path.join('scripts', 'rendered', 'modernhealthcare.html')
                 try:
@@ -1346,8 +1549,8 @@ def main():
                 except Exception as e:
                     print("Error scraping modernhealthcare rendered html (per-file):", e)
                     # fallthrough to XML parsing fallback below
-
-            # special: medtechdive homepage (hero)
+    
+            # --- special: medtechdive homepage (hero) ---
             if site_name == "medtechdive":
                 med_items = scrape_medtech_home(base_url="https://www.medtechdive.com/", timeout=10)
                 for it in med_items:
@@ -1362,8 +1565,8 @@ def main():
                     })
                 print(f"Added {len(med_items)} medtechdive (home hero) items")
                 continue
-
-            # special: medtechdive topic medical-devices (first 7)
+    
+            # --- special: medtechdive topic medical-devices (first 7) ---
             if site_name == "medtechdive-devices":
                 med_items = scrape_medtech_topic(base_url="https://www.medtechdive.com/topic/medical-devices/", max_items=7, timeout=10)
                 for it in med_items:
@@ -1378,8 +1581,8 @@ def main():
                     })
                 print(f"Added {len(med_items)} medtechdive-devices items")
                 continue
-
-            # special: if mobihealthnews, ignore the XML entries and build rows directly
+    
+            # --- special: mobihealthnews (scraped live) ---
             if site_name == "mobihealthnews":
                 mobi_items = scrape_mobihealth_listing(base_url="https://www.mobihealthnews.com/", max_items=11, timeout=10)
                 for it in mobi_items:
@@ -1395,7 +1598,8 @@ def main():
                     all_rows.append(rows)
                 print(f"Added {len(mobi_items)} mobihealthnews items (scraped live)")
                 continue
-            # special: semiengineering -> use page scraper (rendered if available, else live fetch)
+    
+            # --- special: semiengineering -> use page scraper (rendered if available, else live fetch) ---
             if site_name == "semiengineering":
                 try:
                     rendered_path = os.path.join('scripts', 'rendered', 'semiengineering.html')
@@ -1418,12 +1622,35 @@ def main():
                     continue
                 except Exception as e:
                     print("Error scraping semiengineering:", e)
-                    # fall through to XML parsing fallback
 
-
-            
-            # otherwise, behavior unchanged
+            # --- fallback: parse feed XML com fallback ---
             rows = parse_feed_file_with_fallback(ff)
+
+            # DEBUG: mostrar quantas rows devolvidas e primeiras entradas (ajuda a diagnosticar porque o xlsx pode não conter o esperado)
+            try:
+                print(f"PARSING FEEDS_TO_EXCEL DEBUG -> file={ff} | site={site_name} | rows_returned={len(rows)}")
+                if rows:
+                    for i, r in enumerate(rows[:8]):
+                        title_preview = (r.get('title') or '')[:160].replace('\n',' ')
+                        link_preview = (r.get('link') or '')
+                        date_preview = (r.get('pubDate') or r.get('date') or '')
+                        desc_preview = (r.get('description') or r.get('description (short)') or r.get('full_text',''))[:200].replace('\n',' ')
+                        print(f"  row[{i}] title='{title_preview}' link='{link_preview}' pubDate='{date_preview}' desc_preview='{desc_preview}'")
+                else:
+                    # tentamos ver o que feedparser vê (diagnóstico)
+                    import feedparser as _fp
+                    parsed = _fp.parse(ff)
+                    entries = getattr(parsed, 'entries', []) or []
+                    print(f"  feedparser entries: {len(entries)}")
+                    for i,e in enumerate(entries[:8]):
+                        t = e.get('title','')
+                        l = e.get('link','') or e.get('id','')
+                        p = e.get('published','') or e.get('updated','')
+                        s = (e.get('summary','') or '')[:200].replace('\n',' ')
+                        print(f"   entry[{i}] title='{t[:140]}' link='{l}' published='{p}' summary_preview='{s}'")
+            except Exception as dd:
+                print("  Error debug printing feed contents:", dd)
+
             for r in rows:
                 r["item_container"] = ic
                 all_rows.append(r)
@@ -1431,13 +1658,100 @@ def main():
         except Exception as exc:
             print("Error parsing feed", ff, ":", exc)
 
+    # --- finalizar e gravar (fora do loop) ---
     if not all_rows:
         print("No items found across feeds.")
-    cols = ["site", "title", "link (source)", "pubDate", "description (short)", "item_container", "topic"]
-    df = pd.DataFrame(all_rows, columns=cols)
-    df.to_excel(OUT_XLSX, index=False)
-    print(f"Wrote {OUT_XLSX} ({len(df)} rows)")
+
+        # ---------------------------------------------------------
+    # Normalização dos rows: garantir chaves, extrair matched reason
+    # ---------------------------------------------------------
+    try:
+        # small helper to extract matched reason pattern that generate_feeds.py uses:
+        mr_re = re.compile(r'\[MatchedReason:\s*(.+?)\]', re.I)
+        for r in all_rows:
+            # garantir topic
+            if 'topic' not in r:
+                r['topic'] = r.get('topic', 'N/A') or 'N/A'
+
+            # garantir description (campo usado por filtros)
+            if 'description' not in r or not r.get('description'):
+                # preferir description (short) quando for o caso
+                r['description'] = r.get('description (short)', '') or r.get('description', '') or ''
+
+            # extrair matched reason se estiver embutido na description
+            if not r.get('match'):
+                src_desc = r.get('description') or ''
+                m = mr_re.search(src_desc)
+                if m:
+                    reason = m.group(1).strip()
+                    r['match'] = reason
+                    # remover o sufixo da description (limpar)
+                    r['description'] = mr_re.sub('', src_desc).strip()
+                    # atualizar também description (short)
+                    r['description (short)'] = strip_html_short(r['description'], max_len=300)
+                else:
+                    # se já existir matched_reason vindo de outro processo, usar
+                    r['match'] = (r.get('matched_reason') or r.get('matched_reason_raw') or '') or ''
+
+            # garantir que description (short) existe
+            if 'description (short)' not in r or not r.get('description (short)'):
+                r['description (short)'] = strip_html_short(r.get('description','') or '', max_len=300)
+
+            # garantir outras chaves básicas para evitar KeyError no DataFrame
+            if 'site' not in r:
+                r['site'] = r.get('site') or ''
+            if 'title' not in r:
+                r['title'] = r.get('title') or ''
+            if 'link (source)' not in r:
+                r['link (source)'] = r.get('link') or r.get('link (source)') or ''
+            if 'pubDate' not in r:
+                r['pubDate'] = r.get('pubDate') or r.get('date') or ''
+    except Exception as _e:
+        print("Normalization step failed:", _e)
 
 
+    cols = ["site", "title", "link (source)", "pubDate", "description (short)", "item_container", "topic", "match"]
+
+
+    # DEBUG: verificar se 'pd' ainda é o pandas e se all_rows tem a forma correcta
+    import traceback
+    try:
+        if not hasattr(pd, 'DataFrame'):
+            print("ERROR: 'pd' não parece ser o pandas. type(pd) =", type(pd))
+        print("DEBUG: all_rows length =", len(all_rows))
+    except Exception as e:
+        print("DEBUG CHECK FAILED:", e)
+
+    try:
+        df = pd.DataFrame(all_rows, columns=cols)
+    except Exception as e:
+        print("Failed to create DataFrame:", e)
+        traceback.print_exc()
+        try:
+            # mostrar uma amostra para diagnosticar
+            print("Sample of all_rows (first 5):")
+            for i, r in enumerate(all_rows[:5]):
+                print(i, repr(r))
+        except Exception:
+            pass
+        return
+
+    try:
+        outpath = os.path.abspath(OUT_XLSX)
+        print("Saving Excel to:", outpath)
+        df.to_excel(outpath, index=False)
+        print(f"Wrote {outpath} ({len(df)} rows)")
+        # listar ficheiros do directório actual para confirmar que existe
+        try:
+            print("Files in cwd:", os.listdir('.'))
+        except Exception:
+            pass
+    except Exception as e:
+        print("Failed to write Excel file:", e)
+        traceback.print_exc()
+        return
+
+
+# === certifique-se de que esta linha ESTÁ na coluna 0 (não indentada) ===
 if __name__ == "__main__":
     main()
