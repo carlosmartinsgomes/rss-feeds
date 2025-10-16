@@ -51,8 +51,9 @@ def load_sites():
 
 def fetch_url(url, timeout=20):
     """
-    Fetch URL using requests with a Retry adapter.
-    Special-case: for PubMed (pubmed.ncbi.nlm.nih.gov) use larger timeouts and more retries.
+    Fetch URL.
+    - Special-case: strict PubMed detection -> robust Retry session + longer timeout.
+    - All other hosts: single fast requests.get() (no retry adapter) to avoid slowing the run.
     """
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36',
@@ -60,55 +61,51 @@ def fetch_url(url, timeout=20):
         'Accept': '*/*'
     }
 
-    # create session with retries
-    session = requests.Session()
-
-    # determine if this is PubMed -> use more forgiving retry/backoff
-    is_pubmed = False
+    # robust domain detection
     try:
-        p = url.lower()
-        if 'pubmed.ncbi.nlm.nih.gov' in p or 'ncbi.nlm.nih.gov' in p and '/rss/' in p:
-            is_pubmed = True
+        parsed = urlparse(url)
+        host = (parsed.hostname or '').lower()
     except Exception:
-        is_pubmed = False
+        host = (url or '').lower()
+
+    is_pubmed = host == 'pubmed.ncbi.nlm.nih.gov' or host.endswith('.pubmed.ncbi.nlm.nih.gov')
 
     if is_pubmed:
-        # more aggressive for PubMed: more retries, longer backoff, handle 502/503/504
+        # Log so we can see in CI logs which URLs used PubMed mode
+        print(f"fetch_url: using PubMed retry mode for {url}")
+
+        session = requests.Session()
         retry_strategy = Retry(
             total=5,
-            backoff_factor=1.0,              # 1s, 2s, 4s, ...
+            backoff_factor=1.0,
             status_forcelist=(429, 500, 502, 503, 504),
             allowed_methods=frozenset(['GET', 'HEAD', 'OPTIONS']),
             raise_on_status=False,
             respect_retry_after_header=True
         )
-        # extend timeout for PubMed
+        adapter = HTTPAdapter(max_retries=retry_strategy)
+        session.mount('https://', adapter)
+        session.mount('http://', adapter)
+
         effective_timeout = max(timeout, 45)
-    else:
-        # default conservative retry for other sites
-        retry_strategy = Retry(
-            total=2,
-            backoff_factor=0.5,
-            status_forcelist=(429, 500, 502, 503, 504),
-            allowed_methods=frozenset(['GET', 'HEAD', 'OPTIONS']),
-            raise_on_status=False,
-            respect_retry_after_header=True
-        )
-        effective_timeout = timeout
-
-    adapter = HTTPAdapter(max_retries=retry_strategy)
-    session.mount('https://', adapter)
-    session.mount('http://', adapter)
-
-    try:
-        r = session.get(url, headers=headers, timeout=effective_timeout)
-        r.raise_for_status()
-        return r
-    finally:
         try:
-            session.close()
+            r = session.get(url, headers=headers, timeout=effective_timeout)
+            r.raise_for_status()
+            return r
+        finally:
+            try:
+                session.close()
+            except Exception:
+                pass
+    else:
+        # Fast path for all other sites: single request, no retry adapter
+        try:
+            r = requests.get(url, headers=headers, timeout=timeout)
+            r.raise_for_status()
+            return r
         except Exception:
-            pass
+            # re-raise so original caller sees the same exceptions/logging behaviour
+            raise
 
 
 def text_of_node(node):
