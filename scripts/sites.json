@@ -107,7 +107,7 @@
       "link": "link",
       "date": "pubDate",
       "description": "description",
-      "filters": { "keywords": [] }
+      "filters": { "keywords": ["TTD","PUBM","INMD","CRWD","FTNT","DDOG","PINS","MNDY","HUBS","ETSY","IOT","RBRK","ANET","DUOL","GTLB","ALAB","AXON","DAVA","EPAM","HIMS","LUV","PAYC","ONON","on holding","on holdings","running"] }
     },
     {
       "name": "globenewswire",
@@ -117,7 +117,7 @@
       "link": "link",
       "date": "pubDate",
       "description": "description",
-      "filters": { "keywords": [] }
+      "filters": { "keywords": ["TTD","PUBM","INMD","CRWD","FTNT","DDOG","PINS","MNDY","HUBS","ETSY","IOT","RBRK","ANET","DUOL","GTLB","ALAB","AXON","DAVA","EPAM","HIMS","LUV","PAYC","ONON","on holding","on holdings","running"] }
     },
     {
       "name": "yahoo-multiquote-news",
