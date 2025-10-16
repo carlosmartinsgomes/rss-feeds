@@ -9,6 +9,7 @@ import feedparser
 import pandas as pd
 import html
 import re
+import re as _re
 import requests
 import warnings
 from bs4 import BeautifulSoup
@@ -1662,42 +1663,49 @@ def main():
     if not all_rows:
         print("No items found across feeds.")
 
-        # ---------------------------------------------------------
+    # ---------------------------------------------------------
     # Normalização dos rows: garantir chaves, extrair matched reason
     # ---------------------------------------------------------
+    # helper simples para gerar description (short) caso falte
+    def _strip_html_short_simple(text, max_len=300):
+        try:
+            s = _re.sub(r'<[^>]+>', '', text or '')
+            s = ' '.join(s.split())
+            return s[:max_len]
+        except Exception:
+            return (text or '')[:max_len]
+    
     try:
-        # small helper to extract matched reason pattern that generate_feeds.py uses:
-        mr_re = re.compile(r'\[MatchedReason:\s*(.+?)\]', re.I)
+        mr_re = _re.compile(r'\[MatchedReason:\s*(.+?)\]', _re.I)
         for r in all_rows:
             # garantir topic
-            if 'topic' not in r:
-                r['topic'] = r.get('topic', 'N/A') or 'N/A'
-
+            if 'topic' not in r or r.get('topic') is None:
+                r['topic'] = r.get('topic', '') or ''
+    
             # garantir description (campo usado por filtros)
-            if 'description' not in r or not r.get('description'):
-                # preferir description (short) quando for o caso
+            if not r.get('description'):
                 r['description'] = r.get('description (short)', '') or r.get('description', '') or ''
-
+    
             # extrair matched reason se estiver embutido na description
             if not r.get('match'):
-                src_desc = r.get('description') or ''
+                src_desc = r.get('description','') or ''
                 m = mr_re.search(src_desc)
                 if m:
                     reason = m.group(1).strip()
                     r['match'] = reason
                     # remover o sufixo da description (limpar)
                     r['description'] = mr_re.sub('', src_desc).strip()
-                    # atualizar também description (short)
-                    r['description (short)'] = strip_html_short(r['description'], max_len=300)
+                    # actualizar description (short)
+                    r['description (short)'] = _strip_html_short_simple(r['description'], max_len=300)
                 else:
-                    # se já existir matched_reason vindo de outro processo, usar
+                    # usar matched_reason se existir sob outro nome
                     r['match'] = (r.get('matched_reason') or r.get('matched_reason_raw') or '') or ''
-
-            # garantir que description (short) existe
-            if 'description (short)' not in r or not r.get('description (short)'):
-                r['description (short)'] = strip_html_short(r.get('description','') or '', max_len=300)
-
-            # garantir outras chaves básicas para evitar KeyError no DataFrame
+    
+            # garantir description (short) existe
+            if not r.get('description (short)'):
+                r['description (short)'] = _strip_html_short_simple(r.get('description',''), max_len=300)
+    
+            # garantir chaves base
             if 'site' not in r:
                 r['site'] = r.get('site') or ''
             if 'title' not in r:
@@ -1708,6 +1716,7 @@ def main():
                 r['pubDate'] = r.get('pubDate') or r.get('date') or ''
     except Exception as _e:
         print("Normalization step failed:", _e)
+
 
 
     cols = ["site", "title", "link (source)", "pubDate", "description (short)", "item_container", "topic", "match"]
