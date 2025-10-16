@@ -195,7 +195,7 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/thedrum-adtech.html",
-      "filters": { "keywords": ["supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"] }
+      "filters": { "keywords": [] }
     },
     {
       "name": "thedrum-adtech-pubm",
@@ -206,7 +206,7 @@
       "date": "time, .date",
       "description": "p",
       "render_file": "scripts/rendered/thedrum-adtech.html",
-      "filters": { "keywords": ["supply path optimization","supply-path","connected tv","ctv","connected-tv","connectedtv","programmatic","publisher","ssp","openwrap","pubmatic","the trade desk","trade desk","ttd","thetradedesk","dsp","identity","unified id"] }
+      "filters": { "keywords": [] }
     },
     {
       "name": "digiday",
