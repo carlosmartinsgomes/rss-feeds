@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 # scripts/generate_feeds.py
-# Versão atualizada: corrige datas JSON YYYYMMDD, reconstrói links 510k (quando aparecem apenas K###),
-# extrai MDR IDs do MAUDE de forma robusta e inclui debug helpers para inspecionar HTML/responses.
+# Versão robusta: correções para Yahoo multi-quote "Related News" + debug por-item
 
 import os
 import json
@@ -15,6 +14,9 @@ from urllib.parse import urljoin, urlparse, urlunparse, parse_qsl, urlencode
 import warnings
 from dateutil import parser as dateparser
 from dateutil import tz as date_tz
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
 
 # silence UnknownTimezoneWarning if present
 try:
@@ -26,25 +28,17 @@ except Exception:
 
 _default_tzinfos = {"ET": date_tz.gettz("America/New_York")}
 _original_parse = dateparser.parse
-
-
 def _parse_with_default_tzinfos(timestr, *args, **kwargs):
     if "tzinfos" not in kwargs or kwargs["tzinfos"] is None:
         kwargs["tzinfos"] = _default_tzinfos
     return _original_parse(timestr, *args, **kwargs)
-
-
 dateparser.parse = _parse_with_default_tzinfos
 
 ROOT = os.path.dirname(__file__)
 SITES_JSON = os.path.join(ROOT, 'sites.json')
 FEEDS_DIR = os.path.join(ROOT, '..', 'feeds')
 
-_bad_href_re = re.compile(
-    r'(^#|/help|/legal|cookie|privacy|terms|signin|login|settings|/consent|/preferences|/policies|mailto:)',
-    re.I
-)
-
+_bad_href_re = re.compile(r'(^#|/help|/legal|cookie|privacy|terms|signin|login|settings|/consent|/preferences|/policies|mailto:)', re.I)
 
 def load_sites():
     try:
@@ -55,23 +49,69 @@ def load_sites():
         print('Failed to load sites.json:', e)
         return []
 
-
 def fetch_url(url, timeout=20):
+    """
+    Fetch URL.
+    - Special-case: strict PubMed detection -> robust Retry session + longer timeout.
+    - All other hosts: single fast requests.get() (no retry adapter) to avoid slowing the run.
+    """
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36',
         'Accept-Language': 'en-US,en;q=0.9',
         'Accept': '*/*'
     }
-    r = requests.get(url, headers=headers, timeout=timeout)
-    r.raise_for_status()
-    return r
+
+    # robust domain detection
+    try:
+        parsed = urlparse(url)
+        host = (parsed.hostname or '').lower()
+    except Exception:
+        host = (url or '').lower()
+
+    is_pubmed = host == 'pubmed.ncbi.nlm.nih.gov' or host.endswith('.pubmed.ncbi.nlm.nih.gov')
+
+    if is_pubmed:
+        # Log so we can see in CI logs which URLs used PubMed mode
+        print(f"fetch_url: using PubMed retry mode for {url}")
+
+        session = requests.Session()
+        retry_strategy = Retry(
+            total=5,
+            backoff_factor=1.0,
+            status_forcelist=(429, 500, 502, 503, 504),
+            allowed_methods=frozenset(['GET', 'HEAD', 'OPTIONS']),
+            raise_on_status=False,
+            respect_retry_after_header=True
+        )
+        adapter = HTTPAdapter(max_retries=retry_strategy)
+        session.mount('https://', adapter)
+        session.mount('http://', adapter)
+
+        effective_timeout = max(timeout, 45)
+        try:
+            r = session.get(url, headers=headers, timeout=effective_timeout)
+            r.raise_for_status()
+            return r
+        finally:
+            try:
+                session.close()
+            except Exception:
+                pass
+    else:
+        # Fast path for all other sites: single request, no retry adapter
+        try:
+            r = requests.get(url, headers=headers, timeout=timeout)
+            r.raise_for_status()
+            return r
+        except Exception:
+            # re-raise so original caller sees the same exceptions/logging behaviour
+            raise
 
 
 def text_of_node(node):
     if node is None:
         return ''
     return ' '.join(node.stripped_strings)
-
 
 def normalize_link_for_dedupe(href):
     if not href:
@@ -88,7 +128,6 @@ def normalize_link_for_dedupe(href):
         return cleaned
     except Exception:
         return href.strip().lower()
-
 
 # ---------------- JSON helpers ----------------
 def get_value_from_record(record, path):
@@ -153,12 +192,10 @@ def get_value_from_record(record, path):
     except Exception:
         return None
 
-
 def _normalize_date_if_needed(selector_expr, value):
     if not value:
         return value
     v = str(value).strip()
-    # YYYYMMDD -> YYYY-MM-DD
     m = re.match(r'^(\d{4})(\d{2})(\d{2})$', v)
     if m:
         try:
@@ -174,7 +211,6 @@ def _normalize_date_if_needed(selector_expr, value):
     except Exception:
         pass
     return v
-
 
 def choose_first_available(record, selector_expr):
     if not selector_expr:
@@ -198,13 +234,12 @@ def choose_first_available(record, selector_expr):
             return _normalize_date_if_needed(selector_expr, v)
     return None
 
-
 def parse_field_from_json(entry, spec):
     if not spec or entry is None:
         return None
     return choose_first_available(entry, spec)
 
-
+# ---------------- JSON extractor ----------------
 def extract_items_from_json(json_obj, cfg):
     items = []
     if not isinstance(json_obj, dict):
@@ -265,25 +300,21 @@ def extract_items_from_json(json_obj, cfg):
 
             # --- MAUDE: robust MDR id extraction & link building ---
             item_mdr_num = None
-            if '/device/event' in url_lower or any(get_value_from_record(rec, k) for k in ('mdr_report_key', 'report_number', 'event_key')):
+            if '/device/event' in url_lower or any(get_value_from_record(rec, k) for k in ('mdr_report_key','report_number','event_key')):
                 cand_id = choose_first_available(rec, 'mdr_report_key OR report_number OR event_key') or ''
                 cand_id_raw = str(cand_id or '').strip()
                 idnum = None
                 if cand_id_raw:
-                    # 1) try contiguous 8+ digits
                     m8 = re.search(r'(\d{8,})', cand_id_raw)
                     if m8:
                         idnum = m8.group(1)
                     else:
-                        # find all digit groups
                         groups = re.findall(r'\d+', cand_id_raw)
                         if groups:
                             total_len = sum(len(g) for g in groups)
-                            # if sensible to join (ex: '2316-5516'), join when sum length between 6 and 12
                             if total_len >= 6 and total_len <= 12 and len(groups) >= 2:
                                 idnum = ''.join(groups)
                             else:
-                                # fallback: take the longest group
                                 idnum = max(groups, key=len)
                 if idnum:
                     try:
@@ -301,23 +332,20 @@ def extract_items_from_json(json_obj, cfg):
                     kdigits = m_k.group(1)
                     link = f"https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfpmn/pmn.cfm?ID={kdigits}"
             else:
-                # if no link found, try to build for 510k if context suggests it
-                if '/device/510k' in url_lower or '510k' in cfg.get('name', '').lower():
+                if '/device/510k' in url_lower or '510k' in cfg.get('name','').lower():
                     k_candidate = choose_first_available(rec, 'k_number OR pma_pmn_number OR k_number[0]') or ''
                     k_candidate = str(k_candidate or '').strip()
                     if k_candidate:
                         m_k2 = re.search(r'([0-9]{4,})', k_candidate)
                         if m_k2:
-                            kdigits = re.sub(r'\D', '', k_candidate)
+                            kdigits = re.sub(r'\D','', k_candidate)
                             link = f"https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfpmn/pmn.cfm?ID={kdigits}"
-                # for MAUDE if we didn't build link above, create a safe urn
                 if '/device/event' in url_lower and not link:
                     raw_id = choose_first_available(rec, 'mdr_report_key OR report_number OR event_key') or ''
                     raw_id_str = str(raw_id or '').strip()
                     if raw_id_str:
                         link = f"urn:maude:{raw_id_str}"
 
-            # title fallbacks
             if not title:
                 for cand in ('device.brand_name', 'device.generic_name', 'device.openfda.device_name', 'product_problems', 'event_type', 'mdr_text[0].text', 'manufacturer_d_name', 'report_number'):
                     t = choose_first_available(rec, cand)
@@ -327,15 +355,13 @@ def extract_items_from_json(json_obj, cfg):
             if not title:
                 title = 'No title'
 
-            # ensure link present to avoid empty dedupe keys
             if not link:
                 link = f"urn:record:{cfg.get('name')}:{idx}"
 
-            # normalize date if present, else try common fields
             if date:
-                date = _normalize_date_if_needed(cfg.get('date', ''), date)
+                date = _normalize_date_if_needed(cfg.get('date',''), date)
             else:
-                for cand in ('date_received', 'report_date', 'date_added', 'date_of_event', 'date'):
+                for cand in ('date_received','report_date','date_added','date_of_event','date'):
                     dd = choose_first_available(rec, cand)
                     if dd:
                         date = _normalize_date_if_needed(cand, dd)
@@ -359,7 +385,6 @@ def extract_items_from_json(json_obj, cfg):
             print(f"extract_items_from_json: skipping record idx {idx} due to error: {e}")
             continue
 
-    # sorting logic
     sort_cfg = cfg.get('json_sort') or None
     if not sort_cfg:
         if '/device/510k' in (cfg.get('url') or '').lower():
@@ -369,9 +394,9 @@ def extract_items_from_json(json_obj, cfg):
     if sort_cfg:
         field, _, direction = sort_cfg.partition(':')
         reverse = (direction.lower() == 'desc')
-        if field in ('mdr_id', 'mdr_id_num'):
+        if field in ('mdr_id','mdr_id_num'):
             items = sorted(items, key=lambda it: it.get('mdr_id_num') or 0, reverse=reverse)
-        elif field in ('decision_date', 'date_received', 'date', 'report_date'):
+        elif field in ('decision_date','date_received','date','report_date'):
             def _k(it):
                 try:
                     if it.get('date'):
@@ -393,16 +418,14 @@ def extract_items_from_json(json_obj, cfg):
     print(f"After sorting/truncation returning {len(items)} items (max_items={max_items})")
     return items
 
-
-# ---------------- HTML extraction (with date heuristics) ----------------
+# ---------------- HTML extraction (robusta + debug Yahoo) ----------------
 def extract_items_from_html(html, cfg):
     """
     Extrai items (title, link, description, date, full_text) de um HTML dado e uma config de site.
-    - Se cfg['name'] == 'yahoo-multiquote-news' usa heurística específica: procura anchors '/news/' '/article/' '/story/'
-      e sobe ao ancestor relevante (li/article/div) para extrair título/descrição/data.
-    - Caso contrário, mantém heurística genérica que já tinhas.
+    Versão consolidada: combina heurísticas antigas (fallbacks de title/desc/date por ancestrais/irmãos)
+    com as heurísticas novas (select_and_get, preferência por /news/, evitar partners/sessionId, debug).
     """
-    # detectar XML/feed
+    # detectar XML/feed (mantem comportamento)
     is_xml = False
     preview = (html or '').lstrip()[:200].lower()
     if preview.startswith('<?xml') or '<rss' in preview or '<feed' in preview:
@@ -410,90 +433,6 @@ def extract_items_from_html(html, cfg):
 
     items = []
     try:
-        # ---------------- special-case: Yahoo multiquote (heurística robusta) ---------------
-        name = (cfg.get('name') or '').lower()
-        if name == 'yahoo-multiquote-news':
-            soup = BeautifulSoup(html, 'html.parser')
-            # localizar anchors que pareçam notícias
-            anchors = []
-            for a in soup.find_all('a', href=True):
-                href = a.get('href') or ''
-                if not href:
-                    continue
-                href_low = href.lower()
-                # ignorar partners/session etc.
-                if any(x in href_low for x in ('sessionid', 'partners', 'guce', 'consent', 'cookie', 'privacy', 'uk.yahoo.com', 'mailto:')):
-                    continue
-                # aceitar anchors que provavelmente são notícias
-                if any(x in href_low for x in ('/news/', '/article/', '/story/', '/articles/')):
-                    anchors.append(a)
-
-            print(f"YAHOO: found {len(anchors)} candidate anchors")
-
-            seen_links = set()
-            for a in anchors:
-                try:
-                    raw_href = a.get('href') or ''
-                    link = urljoin(cfg.get('url', ''), raw_href)
-                    # evita duplicados
-                    if link in seen_links:
-                        continue
-                    # localização do container (prefere li > article > div)
-                    parent = a.find_parent(['li', 'article', 'div'])
-                    if parent is None:
-                        parent = a.parent or a
-
-                    # extrair título: preferir texto do anchor, depois h3/h2 do parent
-                    title = (a.get_text(" ", strip=True) or '').strip()
-                    if not title:
-                        tnode = parent.find(['h1', 'h2', 'h3'])
-                        if tnode:
-                            title = tnode.get_text(" ", strip=True)
-
-                    # descrição: procura <p> no parent / sibling
-                    desc = ''
-                    p = parent.find('p')
-                    if p:
-                        desc = p.get_text(" ", strip=True)
-                    else:
-                        # às vezes a descrição está num span pequeno
-                        small = parent.find('small') or parent.find('span')
-                        if small:
-                            desc = small.get_text(" ", strip=True)
-
-                    # data: procura time, span[class*="time"|"date"], atributo datetime
-                    date = ''
-                    ttag = parent.find('time')
-                    if ttag:
-                        date = (ttag.get('datetime') or ttag.get_text(" ", strip=True) or '').strip()
-                    if not date:
-                        # procurar por spans com classes que contenham 'date' ou 'time'
-                        maybe = parent.find(lambda tag: tag.name in ('span','div') and tag.get('class') and any('date' in c.lower() or 'time' in c.lower() for c in tag.get('class')))
-                        if maybe:
-                            date = maybe.get_text(" ", strip=True)
-                    # fallback: pegar texto do anchor se ainda nada
-                    if not title:
-                        title = link
-                    # evitar apanhar nós de cookie/partners que por acaso tenham '/news/' — rejeitar por classes/texto
-                    parent_text_low = (parent.get_text(" ", strip=True) or '').lower()
-                    if any(x in parent_text_low for x in ('cookie', 'privacy', 'our partners', 'manage privacy', 'reject all', 'accept all')):
-                        # ignora
-                        continue
-
-                    # montar item
-                    seen_links.add(link)
-                    full_text = ' '.join([title, desc])[:2000]
-                    items.append({'title': title or 'No title', 'link': link or '', 'description': desc or '', 'date': date or '', 'full_text': full_text})
-                except Exception as e:
-                    # não falhar tudo por um item
-                    print("YAHOO: skip anchor due to error:", e)
-                    continue
-
-            print(f"YAHOO: produced {len(items)} items after heuristics")
-            return items
-
-        # ---------------- fallback genérico (teu código original adaptado) ---------------
-        # XML feed path
         if is_xml:
             soup = BeautifulSoup(html, 'xml')
             container_sel = cfg.get('item_container') or ''
@@ -514,6 +453,7 @@ def extract_items_from_html(html, cfg):
                         pass
             if not nodes:
                 nodes = soup.find_all(['item', 'entry']) or []
+
             nodes = [n for n in nodes if n is not None]
             for node in nodes:
                 try:
@@ -561,11 +501,12 @@ def extract_items_from_html(html, cfg):
                     continue
             return items
 
-        # HTML generic path (mantém heurística prévia — selectors passados pelo sites.json)
         soup = BeautifulSoup(html, 'html.parser')
+
+        # prepare container nodes
         container_sel = cfg.get('item_container') or 'article'
         nodes = []
-        for sel in [s.strip() for s in container_sel.split(',')]:
+        for sel in [s.strip() for s in container_sel.split(',') if s.strip()]:
             try:
                 found = soup.select(sel)
                 if found:
@@ -573,6 +514,7 @@ def extract_items_from_html(html, cfg):
             except Exception:
                 continue
 
+        # fallback generic: se nada encontrado, tenta 'li' e 'article' e 'div'
         if not nodes:
             for fallback in ('li', 'article', 'div'):
                 try:
@@ -582,7 +524,7 @@ def extract_items_from_html(html, cfg):
                 except Exception:
                     continue
 
-        # debug counts
+        # debug counts (opcional)
         try:
             sel_list = [s.strip() for s in container_sel.split(',') if s.strip()]
             counts = []
@@ -597,7 +539,7 @@ def extract_items_from_html(html, cfg):
         except Exception:
             pass
 
-        # função auxiliar simples para selectors com '@attr'
+        # helper: selector@attr support
         def select_and_get(el, selector_with_attr):
             if not selector_with_attr:
                 return None
@@ -621,6 +563,7 @@ def extract_items_from_html(html, cfg):
             except Exception:
                 return None
 
+        # helper: encontra melhor href entre anchors (evita session/partners, prefere /news/)
         def find_best_href(node):
             anchors = []
             try:
@@ -632,43 +575,57 @@ def extract_items_from_html(html, cfg):
                     if 'sessionid' in h_low or 'partners' in h_low or 'uk.yahoo.com' in h_low:
                         continue
                     full = urljoin(cfg.get('url', ''), h)
-                    anchors.append((full, h_low))
+                    anchors.append((full, h_low, a))
             except Exception:
                 pass
             if not anchors:
-                return ''
+                return '', None
             for pref in ('/news/', '/articles/', '/story/', '/article/'):
-                for full, low in anchors:
+                for full, low, a in anchors:
                     if pref in low:
-                        return full
-            for full, low in anchors:
-                if 'finance.yahoo.com' in low:
-                    return full
-            return anchors[0][0]
+                        return full, a
+            for full, low, a in anchors:
+                if 'finance.yahoo.com' in low or 'yahoo.com' in low:
+                    return full, a
+            return anchors[0][0], anchors[0][2]
 
-        for node in nodes:
+        # iterate nodes and extract fields (reintroduzemos fallbacks antigos)
+        for node_idx, node in enumerate(nodes):
             try:
                 title = ''
                 link = ''
                 date = ''
                 desc = ''
+
                 title_sel = cfg.get('title')
                 link_sel = cfg.get('link')
                 desc_sel = cfg.get('description')
 
-                # Title extraction
+                # ------------- TITLE -------------
                 if title_sel:
                     for s in [t.strip() for t in str(title_sel).split(',') if t.strip()]:
                         val = select_and_get(node, s)
                         if val:
                             title = val
                             break
-                else:
-                    t = node.find(['h1', 'h2', 'h3', 'a'])
-                    if t:
-                        title = t.get_text(strip=True)
+                if not title:
+                    # try common headline tags
+                    t = node.find(['h1', 'h2', 'h3', 'h4', 'a'])
+                    if t and t.get_text(strip=True):
+                        title = t.get_text(" ", strip=True)
 
-                # Link extraction
+                # fallback: if anchor with title attribute exists, use it
+                if not title:
+                    try:
+                        a_try = node.select_one('a[title], a.title')
+                        if a_try and a_try.has_attr('title'):
+                            at = (a_try.get('title') or '').strip()
+                            if at:
+                                title = at
+                    except Exception:
+                        pass
+
+                # ------------- LINK -------------
                 if link_sel:
                     parts = [p.strip() for p in link_sel.split(',')]
                     for ps in parts:
@@ -694,22 +651,50 @@ def extract_items_from_html(html, cfg):
                                 if candidate and not _bad_href_re.search(candidate):
                                     link = urljoin(cfg.get('url', ''), candidate)
                                     break
-                if not link:
-                    link = find_best_href(node) or ''
 
-                # Description
+                if not link:
+                    chosen, chosen_anchor = find_best_href(node)
+                    link = chosen or ''
+
+                # ------------- DESCRIPTION -------------
                 if desc_sel:
                     for s in [t.strip() for t in str(desc_sel).split(',') if t.strip()]:
                         val = select_and_get(node, s)
                         if val:
                             desc = val
                             break
-                else:
+                if not desc:
                     p = node.find('p')
-                    if p:
+                    if p and p.get_text(strip=True):
                         desc = p.get_text(" ", strip=True)
 
-                # Date
+                # if desc equals title or is empty try fallbacks (old behavior)
+                if (not desc) or (title and desc and desc.strip() == title.strip()):
+                    try:
+                        # try anchor title attribute
+                        a_try = node.select_one('a.link, h4 a.title, a.title, a')
+                        if a_try and a_try.has_attr('title'):
+                            a_title_attr = (a_try.get('title') or '').strip()
+                            if a_title_attr and a_title_attr != title:
+                                desc = a_title_attr
+                        # previous paragraph
+                        if (not desc) or (desc.strip() == title.strip()):
+                            pprev = node.find_previous('p')
+                            if pprev and pprev.get_text(strip=True):
+                                ptxt = pprev.get_text(" ", strip=True)
+                                if ptxt and ptxt != title:
+                                    desc = ptxt
+                        # next paragraph
+                        if (not desc) or (desc.strip() == title.strip()):
+                            pnext = node.find_next('p')
+                            if pnext and pnext.get_text(strip=True):
+                                ptxt = pnext.get_text(" ", strip=True)
+                                if ptxt and ptxt != title:
+                                    desc = ptxt
+                    except Exception:
+                        pass
+
+                # ------------- DATE -------------
                 date = ''
                 if cfg.get('date'):
                     for s in [t.strip() for t in str(cfg.get('date')).split(',') if t.strip()]:
@@ -717,21 +702,100 @@ def extract_items_from_html(html, cfg):
                         if val:
                             date = val
                             break
+
+                # heuristics: search node, ancestors up to 3 levels, siblings
                 if not date:
-                    for candidate_sel in ['time', 'span.time', 'time[datetime]', '.date', 'span.date', '.timestamp']:
+                    def find_date_in(element):
+                        for ds in ['time', 'span.time', 'time[datetime]', '.date', 'span.date', '.timestamp', '.pubdate', 'small']:
+                            try:
+                                el = element.select_one(ds)
+                            except Exception:
+                                el = None
+                            if el:
+                                txt = (el.get('datetime') or el.get_text(" ", strip=True) or '').strip()
+                                if txt:
+                                    return txt
+                        # also try attributes like data-date
                         try:
-                            nd = node.select_one(candidate_sel)
+                            for attr in ('data-date','data-datetime','datetime'):
+                                if element and getattr(element, 'attrs', None) and element.attrs.get(attr):
+                                    return element.attrs.get(attr)
                         except Exception:
-                            nd = None
-                        if nd:
-                            dt = (nd.get('datetime') or nd.get_text(" ", strip=True) or '').strip()
-                            if dt:
-                                date = dt
+                            pass
+                        return None
+
+                    found = find_date_in(node)
+                    if not found:
+                        ancestor = node
+                        for _ in range(3):
+                            ancestor = getattr(ancestor, 'parent', None)
+                            if ancestor is None:
                                 break
+                            found = find_date_in(ancestor)
+                            if found:
+                                break
+                    if not found:
+                        try:
+                            prev_sib = node.find_previous_sibling()
+                            if prev_sib:
+                                found = find_date_in(prev_sib)
+                            if not found:
+                                next_sib = node.find_next_sibling()
+                                if next_sib:
+                                    found = find_date_in(next_sib)
+                        except Exception:
+                            found = None
+                    if found:
+                        date = found
+
+                # fallback: if still none, try any iso-like text in node
+                if not date:
+                    txt_all = node.get_text(" ", strip=True)
+                    m = re.search(r'(\d{4}-\d{2}-\d{2})', txt_all)
+                    if m:
+                        date = m.group(1)
+                    else:
+                        m2 = re.search(r'(\d{4}\d{2}\d{2})', txt_all)
+                        if m2:
+                            date = m2.group(1)
+
+                # ------------- FINAL NORMALIZATIONS & FALLBACKS -------------
+                # if title is empty, try several candidates
+                if not title:
+                    for cand in ('a[title]', 'h3 a', '.headline', '.title', 'img[alt]', '.provider'):
+                        try:
+                            tval = None
+                            if cand == 'img[alt]':
+                                img = node.select_one('img[alt]')
+                                if img and img.get('alt'):
+                                    tval = img.get('alt')
+                            else:
+                                tval = select_and_get(node, cand + '@text') if '@' not in cand else select_and_get(node, cand)
+                            if tval:
+                                title = tval
+                                break
+                        except Exception:
+                            pass
+                if not title:
+                    title = 'No title'
+
+                if not link:
+                    # build urn (so dedupe still works)
+                    link = f"urn:node:{cfg.get('name')}:{node_idx}"
 
                 full_text = (title or '') + ' ' + (desc or '') + ' ' + text_of_node(node)
+
+                # debug per-node lightweight
+                try:
+                    if cfg.get('name','').lower() == 'yahoo-multiquote-news':
+                        anchors_count = len(node.find_all('a', href=True))
+                        print(f"YAHOO: node idx={node_idx} anchors={anchors_count} chosen_link='{(link or '')[:140]}' title_len={len(title)} desc_len={len(desc)}")
+                except Exception:
+                    pass
+
                 items.append({'title': title or '', 'link': link or '', 'description': desc or '', 'date': date or '', 'full_text': full_text or ''})
             except Exception:
+                # não deixes um node problemático bloquear todo o resto
                 continue
 
     except Exception as e:
@@ -740,19 +804,18 @@ def extract_items_from_html(html, cfg):
 
     return items
 
-
 def dedupe_items(items, cfg=None):
     do_dedupe = True
     if isinstance(cfg, dict) and cfg.get('dedupe') is False:
         do_dedupe = False
     if not do_dedupe:
-        return items[:]  # copy preserving order
+        return items[:]
     unique = {}
     out = []
     for it in (items or []):
         key = normalize_link_for_dedupe(it.get('link') or '')
         if not key:
-            key = (it.get('title', '') or '').strip().lower()[:200]
+            key = (it.get('title','') or '').strip().lower()[:200]
         if not key:
             key = f"__no_key__{len(out)}"
         if key not in unique:
@@ -760,11 +823,10 @@ def dedupe_items(items, cfg=None):
             out.append(it)
     return out
 
-
 def build_feed(name, cfg, items):
     fg = FeedGenerator()
     fg.title(name)
-    fg.link(href=cfg.get('url', ''), rel='alternate')
+    fg.link(href=cfg.get('url',''), rel='alternate')
     fg.description(f'Feed gerado para {name}')
     fg.generator('generate_feeds.py')
     max_items = cfg.get('max_items') or cfg.get('max') or None
@@ -807,139 +869,90 @@ def build_feed(name, cfg, items):
     fg.rss_file(outpath)
     print(f'Wrote {outpath} ({count} entries)')
 
-
 def matches_filters_debug(item, cfg):
+    """
+    Versão robusta do matches: 
+      - normaliza texto (lower, remove espaços repetidos),
+      - suporta wildcard '*' nos keywords,
+      - tenta casar keywords como palavras inteiras quando apropriado,
+      - devolve (True/False, reason-string-or-None).
+    """
     kw = cfg.get('filters', {}).get('keywords', []) or []
     exclude = cfg.get('filters', {}).get('exclude', []) or []
+
+    # se não há filtros definidos -> keep everything
     if not kw and not exclude:
         return True, None
-    text_title = (item.get('title', '') or '').lower()
-    text_desc = (item.get('description', '') or '').lower()
-    text_full = (item.get('full_text', '') or '').lower()
-    text_link = (item.get('link', '') or '').lower()
+
+    # extrai campos relevantes (garante strings)
+    text_title = (item.get('title','') or '').lower()
+    # suportar 'description (short)' quando 'description' não existe
+    if item.get('description'):
+        text_desc = (item.get('description') or '').lower()
+    elif item.get('description (short)'):
+        text_desc = (item.get('description (short)') or '').lower()
+    else:
+        text_desc = ''
+    text_full = (item.get('full_text','') or '').lower()
+    text_link = (item.get('link','') or item.get('link (source)','') or '').lower()
+
+    # função utilitária: normaliza espaço e passa para lower
+    def _norm(s):
+        import re
+        s2 = re.sub(r'\s+', ' ', s or '')
+        return s2.strip().lower()
+
+    nt_title = _norm(text_title)
+    nt_desc  = _norm(text_desc)
+    nt_full  = _norm(text_full)
+    nt_link  = _norm(text_link)
+
+    # helper para compilar keyword -> regex
+    def _kw_to_regex(k):
+        k0 = (k or '').strip()
+        if not k0:
+            return None
+        # allow wildcard '*' -> convert to '.*'
+        if '*' in k0:
+            pat = re.escape(k0).replace(r'\*', '.*')
+            return re.compile(pat, flags=re.I)
+        # if keyword is a simple word (letters/numbers/_ or hyphen), prefer whole-word match
+        if re.match(r'^[\w\-]+$', k0, flags=re.I):
+            pat = r'\b' + re.escape(k0) + r'\b'
+            return re.compile(pat, flags=re.I)
+        # otherwise fallback to plain substring regex
+        return re.compile(re.escape(k0), flags=re.I)
+
+    # check excludes first (if any exclude matches -> reject immediately)
+    for ex in exclude:
+        rex = _kw_to_regex(ex)
+        if not rex:
+            continue
+        if rex.search(nt_title) or rex.search(nt_desc) or rex.search(nt_full) or rex.search(nt_link):
+            return False, f"exclude '{ex}' matched"
+
+    # if there are keywords, require at least one match
     if kw:
         for k in kw:
-            kl = k.lower()
-            if kl in text_title:
+            rex = _kw_to_regex(k)
+            if not rex:
+                continue
+            # check specific fields and return a reason that mentions the field
+            if rex.search(nt_title):
                 return True, f"keyword '{k}' in title"
-            if kl in text_desc:
+            if rex.search(nt_desc):
                 return True, f"keyword '{k}' in description"
-            if kl in text_full:
+            if rex.search(nt_full):
                 return True, f"keyword '{k}' in full_text"
-            if kl in text_link:
+            if rex.search(nt_link):
                 return True, f"keyword '{k}' in link"
+        # nenhum keyword casou
         return False, None
-    for ex in exclude:
-        if ex.lower() in text_title or ex.lower() in text_desc or ex.lower() in text_full:
-            return False, f"exclude '{ex}' matched"
+
+    # if only exclude list existed (handled above) and none matched -> keep item
     return True, None
 
 
-# ---------------- Debug inspect helpers ----------------
-def debug_inspect_site(cfg, resp):
-    """
-    Legacy debug function: inspects resp (object with .text and .headers).
-    Only prints/writes if cfg.name matches the one we're debugging (yahoo-multiquote-news).
-    """
-    try:
-        name = cfg.get('name', '')
-        if name != 'yahoo-multiquote-news':
-            return
-        if resp is None:
-            print("DEBUG: resp is None")
-            return
-        try:
-            status = getattr(resp, 'status_code', 'no-status')
-            ctype = resp.headers.get('Content-Type', '') if hasattr(resp, 'headers') else ''
-            body = resp.text if hasattr(resp, 'text') else str(resp)
-        except Exception as e:
-            print("DEBUG: error reading resp:", e)
-            return
-
-        print(f"DEBUG: status={status} Content-Type={ctype} body_len={len(body)}")
-
-        # grava html para artifact / logs
-        try:
-            os.makedirs('scripts', exist_ok=True)
-            fn = 'scripts/debug_yahoo-multiquote-news.html'
-            with open(fn, 'w', encoding='utf-8') as fh:
-                fh.write(body)
-            print(f"DEBUG: wrote response to {fn}")
-        except Exception as e:
-            print("DEBUG: failed to write HTML file:", e)
-
-        # Quick checks with BeautifulSoup
-        try:
-            soup = BeautifulSoup(body, 'html.parser')
-
-            selectors = [
-                'article',
-                '.article',
-                '.post',
-                '.post-list',
-                '.blog-list',
-                '.entry',
-                '.fusion-column-wrapper',
-                '.container .post',
-                '.avia-post-entry',
-                '.elementor-widget'
-            ]
-
-            for sel in selectors:
-                try:
-                    cnt = len(soup.select(sel))
-                except Exception:
-                    cnt = -1
-                print(f"DEBUG: selector '{sel}' -> {cnt} matches")
-
-            custom_selectors = [
-                '.publishing.yf-m1e6lz@text',
-                '.publishing@text',
-                '.footer .publishing@text',
-                'h3.clamp@text',
-                'h3.yf-1952g7k@text',
-                'a.subtle-link.titles h3@text'
-            ]
-            for sel in custom_selectors:
-                try:
-                    # strip @text for selecting
-                    sel_plain = sel.split('@', 1)[0]
-                    print(f"DEBUG: custom selector '{sel}' -> {len(soup.select(sel_plain))} matches")
-                except Exception as e:
-                    print(f"DEBUG: custom selector '{sel}' error: {e}")
-
-            keys = ['My Portfolio', 'News', 'Markets', 'Research', 'Personal Finance', 'Videos', 'Watch now']
-            for k in keys:
-                found = body.lower().count(k.lower())
-                print(f"DEBUG: text occurrences of '{k}': {found}")
-
-            print("DEBUG: excerpt (first 2000 chars):")
-            print(body[:2000].replace('\n', ' ')[:2000])
-
-        except Exception as e:
-            print("DEBUG: soup error:", e)
-
-    except Exception as e:
-        print("DEBUG: unexpected error in debug_inspect_site:", e)
-
-
-def debug_inspect_site_with_html(cfg, resp=None, html_override=None):
-    """
-    Wrapper: if html_override provided, build a fake resp-like object for debug_inspect_site.
-    """
-    if resp is None and html_override is not None:
-        class FakeResp:
-            pass
-        fr = FakeResp()
-        fr.status_code = 200
-        fr.headers = {'Content-Type': 'text/html'}
-        fr.text = html_override
-        return debug_inspect_site(cfg, fr)
-    else:
-        return debug_inspect_site(cfg, resp)
-
-
-# ---------------- main ----------------
 def main():
     sites = load_sites()
     print(f'Loaded {len(sites)} site configurations from {SITES_JSON}')
@@ -951,8 +964,6 @@ def main():
         print(f'--- Processing {name} ({url}) ---')
         html = None
         resp = None
-
-        # prefer rendered file if exists
         rf = cfg.get('render_file')
         if rf:
             rf_path = rf
@@ -962,26 +973,20 @@ def main():
                 try:
                     html = open(rf_path, 'r', encoding='utf-8').read()
                     print(f'Using rendered file: {rf_path} for {name}')
-                    # debug the rendered HTML (if debug site)
-                    debug_inspect_site_with_html(cfg, resp=None, html_override=html)
                 except Exception as e:
                     print('Failed reading rendered file:', e)
                     html = None
             else:
                 print(f'No rendered file found at {rf_path} for {name}')
-
         if html is None:
             try:
                 print(f'Fetching {url} via requests...')
                 resp = fetch_url(url)
-                # debug the HTTP response (if debug site)
-                debug_inspect_site_with_html(cfg, resp=resp)
             except Exception as e:
                 print(f'Request error for {url}: {e}')
                 resp = None
 
         items = []
-        # if we have a rendered HTML file, treat as HTML
         if html:
             try:
                 items = extract_items_from_html(html, cfg)
@@ -989,16 +994,11 @@ def main():
                 print('Error parsing rendered HTML:', e)
                 items = []
         elif resp is not None:
-            # Decide JSON vs HTML based on Content-Type or content startswith
-            try:
-                ctype = resp.headers.get('Content-Type', '').lower()
-            except Exception:
-                ctype = ''
+            ctype = resp.headers.get('Content-Type','').lower()
             body = resp.text or ''
             is_json = False
             if 'application/json' in ctype or body.strip().startswith('{') or body.strip().startswith('['):
                 is_json = True
-
             if is_json:
                 print(f"Detected JSON response for {name}; parsing with JSON handler")
                 try:
@@ -1033,16 +1033,19 @@ def main():
                 it['matched_reason'] = reason
                 matched.append(it)
         print(f'{len(matched)} items matched filters for {name}')
-        if not matched and items:
-            print(f'No items matched filters for {name} — falling back to all {len(items)} items')
-            matched = items
+        # Novo comportamento: se não houve matches, NÃO fazemos fallback.
+        # Isso faz que o feed final fique sem entries (0 entries), e consequentemente
+        # o artifact .xlsx terá 0 rows para este site.
+        if not matched:
+            print(f'No items matched filters for {name}; writing empty feed (no fallback).')
+            matched = []
+
 
         deduped = dedupe_items(matched, cfg)
 
         build_feed(name, cfg, deduped)
 
     print('All done.')
-
 
 if __name__ == '__main__':
     main()
