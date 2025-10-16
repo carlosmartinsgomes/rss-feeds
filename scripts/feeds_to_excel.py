@@ -1662,7 +1662,56 @@ def main():
     if not all_rows:
         print("No items found across feeds.")
 
-    cols = ["site", "title", "link (source)", "pubDate", "description (short)", "item_container", "topic"]
+        # ---------------------------------------------------------
+    # Normalização dos rows: garantir chaves, extrair matched reason
+    # ---------------------------------------------------------
+    try:
+        # small helper to extract matched reason pattern that generate_feeds.py uses:
+        mr_re = re.compile(r'\[MatchedReason:\s*(.+?)\]', re.I)
+        for r in all_rows:
+            # garantir topic
+            if 'topic' not in r:
+                r['topic'] = r.get('topic', 'N/A') or 'N/A'
+
+            # garantir description (campo usado por filtros)
+            if 'description' not in r or not r.get('description'):
+                # preferir description (short) quando for o caso
+                r['description'] = r.get('description (short)', '') or r.get('description', '') or ''
+
+            # extrair matched reason se estiver embutido na description
+            if not r.get('match'):
+                src_desc = r.get('description') or ''
+                m = mr_re.search(src_desc)
+                if m:
+                    reason = m.group(1).strip()
+                    r['match'] = reason
+                    # remover o sufixo da description (limpar)
+                    r['description'] = mr_re.sub('', src_desc).strip()
+                    # atualizar também description (short)
+                    r['description (short)'] = strip_html_short(r['description'], max_len=300)
+                else:
+                    # se já existir matched_reason vindo de outro processo, usar
+                    r['match'] = (r.get('matched_reason') or r.get('matched_reason_raw') or '') or ''
+
+            # garantir que description (short) existe
+            if 'description (short)' not in r or not r.get('description (short)'):
+                r['description (short)'] = strip_html_short(r.get('description','') or '', max_len=300)
+
+            # garantir outras chaves básicas para evitar KeyError no DataFrame
+            if 'site' not in r:
+                r['site'] = r.get('site') or ''
+            if 'title' not in r:
+                r['title'] = r.get('title') or ''
+            if 'link (source)' not in r:
+                r['link (source)'] = r.get('link') or r.get('link (source)') or ''
+            if 'pubDate' not in r:
+                r['pubDate'] = r.get('pubDate') or r.get('date') or ''
+    except Exception as _e:
+        print("Normalization step failed:", _e)
+
+
+    cols = ["site", "title", "link (source)", "pubDate", "description (short)", "item_container", "topic", "match"]
+
 
     # DEBUG: verificar se 'pd' ainda é o pandas e se all_rows tem a forma correcta
     import traceback
