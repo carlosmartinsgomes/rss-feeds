@@ -1033,17 +1033,12 @@ def main():
                 it['matched_reason'] = reason
                 matched.append(it)
         print(f'{len(matched)} items matched filters for {name}')
-        if not matched and items:
-            print(f'No items matched filters for {name} — falling back to all {len(items)} items')
-            # imprime alguns exemplos para te ajudar a diagnosticar porquê
-            sample_n = min(3, len(items))
-            print(f"DEBUG: showing {sample_n} sample items (title | desc snippet) for site={name}:")
-            for i in range(sample_n):
-                it = items[i]
-                t = (it.get('title') or '').strip()
-                d = (it.get('description') or it.get('full_text') or '')[:300].strip()
-                print(f"DEBUG-SAMPLE[{i}] title={t!r} | desc_snippet={d!r}")
-            matched = items
+        # Novo comportamento: se não houve matches, NÃO fazemos fallback.
+        # Isso faz que o feed final fique sem entries (0 entries), e consequentemente
+        # o artifact .xlsx terá 0 rows para este site.
+        if not matched:
+            print(f'No items matched filters for {name}; writing empty feed (no fallback).')
+            matched = []
 
 
         deduped = dedupe_items(matched, cfg)
