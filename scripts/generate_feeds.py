@@ -14,6 +14,9 @@ from urllib.parse import urljoin, urlparse, urlunparse, parse_qsl, urlencode
 import warnings
 from dateutil import parser as dateparser
 from dateutil import tz as date_tz
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
 
 # silence UnknownTimezoneWarning if present
 try:
@@ -47,14 +50,66 @@ def load_sites():
         return []
 
 def fetch_url(url, timeout=20):
+    """
+    Fetch URL using requests with a Retry adapter.
+    Special-case: for PubMed (pubmed.ncbi.nlm.nih.gov) use larger timeouts and more retries.
+    """
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36',
         'Accept-Language': 'en-US,en;q=0.9',
         'Accept': '*/*'
     }
-    r = requests.get(url, headers=headers, timeout=timeout)
-    r.raise_for_status()
-    return r
+
+    # create session with retries
+    session = requests.Session()
+
+    # determine if this is PubMed -> use more forgiving retry/backoff
+    is_pubmed = False
+    try:
+        p = url.lower()
+        if 'pubmed.ncbi.nlm.nih.gov' in p or 'ncbi.nlm.nih.gov' in p and '/rss/' in p:
+            is_pubmed = True
+    except Exception:
+        is_pubmed = False
+
+    if is_pubmed:
+        # more aggressive for PubMed: more retries, longer backoff, handle 502/503/504
+        retry_strategy = Retry(
+            total=5,
+            backoff_factor=1.0,              # 1s, 2s, 4s, ...
+            status_forcelist=(429, 500, 502, 503, 504),
+            allowed_methods=frozenset(['GET', 'HEAD', 'OPTIONS']),
+            raise_on_status=False,
+            respect_retry_after_header=True
+        )
+        # extend timeout for PubMed
+        effective_timeout = max(timeout, 45)
+    else:
+        # default conservative retry for other sites
+        retry_strategy = Retry(
+            total=2,
+            backoff_factor=0.5,
+            status_forcelist=(429, 500, 502, 503, 504),
+            allowed_methods=frozenset(['GET', 'HEAD', 'OPTIONS']),
+            raise_on_status=False,
+            respect_retry_after_header=True
+        )
+        effective_timeout = timeout
+
+    adapter = HTTPAdapter(max_retries=retry_strategy)
+    session.mount('https://', adapter)
+    session.mount('http://', adapter)
+
+    try:
+        r = session.get(url, headers=headers, timeout=effective_timeout)
+        r.raise_for_status()
+        return r
+    finally:
+        try:
+            session.close()
+        except Exception:
+            pass
+
 
 def text_of_node(node):
     if node is None:
