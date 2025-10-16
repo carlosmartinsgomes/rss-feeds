@@ -1,28 +1,16 @@
 // scripts/render_page.js
-// Playwright renderer improved:
-// - retries for navigation
-// - per-domain waitForSelector rules for dynamic sites (Yahoo, Medscape, EETimes, etc.)
-// - UA rotation and extra headers
-// - anti-bot detection and recovery attempts
-// - conservative timeouts (domain-specific to avoid big slowdowns)
+// Domain-aware renderer: uses a Yahoo-specific flow and a generic flow for other sites.
+// Usage:
+//   node scripts/render_page.js "<url>" "scripts/rendered/out.html"
+// If out path omitted, writes to scripts/rendered/<sanitized-host>-<ts>.html
 
 const fs = require('fs');
 const path = require('path');
-const { chromium } = require('playwright');
+const playwright = require('playwright');
 
-const DEFAULT_NAV_TIMEOUT = 45000;
-const SITE_WAITERS = {
-  // domain : { selectors: [ ... ], timeout: ms, extraWaitAfterFound: ms }
-  'finance.yahoo.com': { selectors: ['section[data-test="qsp-news"]','ul[data-test="quoteNewsStream"]','li.stream-item.story-item','li.js-stream-content'], timeout: 12000, extraWaitAfterFound: 600 },
-  'www.medscape.com': { selectors: ['#archives', '.article-list', 'article', '.module-content'], timeout: 14000, extraWaitAfterFound: 800 },
-  'www.eetimes.com': { selectors: ['.river', '.post-list', '.article'], timeout: 10000, extraWaitAfterFound: 600 }
-};
-
-const UAS = [
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.5845.96 Safari/537.36',
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
-];
+function sanitizeFilename(s) {
+  return String(s || '').replace(/[^a-z0-9\-_.]/gi, '_').replace(/_+/g, '_').slice(0, 200);
+}
 
 function domainFromUrl(u){
   try { return new URL(u).hostname.toLowerCase(); } catch(e){ return ''; }
@@ -30,159 +18,207 @@ function domainFromUrl(u){
 
 function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
 
-(async function(){
+(async () => {
   const argv = process.argv.slice(2);
-  if (argv.length < 1) {
+  if (!argv || argv.length < 1) {
     console.error('Usage: node scripts/render_page.js <url> [outPath]');
     process.exit(2);
   }
   const url = argv[0];
   let out = argv[1] || null;
   if (!out) {
-    const u = new URL(url);
-    const hostpart = (u.hostname + u.pathname).replace(/[^a-z0-9\-_.]/gi, '_').slice(0,200);
+    // auto path
+    let u;
+    try { u = new URL(url); } catch(e) { u = null; }
+    const hostpart = u ? sanitizeFilename(u.hostname + (u.pathname || '')) : sanitizeFilename(url);
     out = path.join('scripts','rendered', `${hostpart}-${Date.now()}.html`);
   }
   try { fs.mkdirSync(path.dirname(out), { recursive: true }); } catch(e){}
 
   const domain = domainFromUrl(url);
-  const siteCfg = SITE_WAITERS[domain] || null;
+  const isYahoo = domain.includes('finance.yahoo.com') || url.includes('/quotes/');
+  const NAV_TIMEOUT = 45000;
 
-  const browser = await chromium.launch({ headless: true, args: ['--no-sandbox','--disable-setuid-sandbox','--disable-http2'] });
-  let anyWarning = false;
+  const browser = await playwright.chromium.launch({ headless: true, args: ['--no-sandbox','--disable-setuid-sandbox','--disable-http2'] });
+  let anyWarnings = false;
+
   try {
-    let attempt = 0;
-    const maxRecoveryAttempts = 3;
+    // create new context per site to reduce cross-site state
+    const context = await browser.newContext({
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36',
+      locale: 'en-US'
+    });
 
-    while (attempt < maxRecoveryAttempts) {
-      attempt++;
-      const ua = UAS[(attempt-1) % UAS.length];
-      console.log(`Rendering attempt ${attempt} for ${url} (UA: ${ua})`);
-      const context = await browser.newContext({ userAgent: ua, locale: 'en-US' });
-      // basic stealth-ish init
-      await context.addInitScript(() => {
-        try {
-          Object.defineProperty(navigator, 'webdriver', { get: () => false });
-          Object.defineProperty(navigator, 'languages', { get: () => ['en-US','en'] });
-          Object.defineProperty(navigator, 'plugins', { get: () => [1,2,3,4,5] });
-          window.chrome = window.chrome || { runtime: {} };
-        } catch(e){}
-      });
-      const page = await context.newPage();
+    // reduce basic detection
+    await context.addInitScript(() => {
       try {
-        await page.setExtraHTTPHeaders({
-          'accept-language': 'en-US,en;q=0.9',
-          'sec-ch-ua': '"Chromium";v="140", "Not A;Brand";v="24"',
-          'sec-ch-ua-platform': '"Windows"',
-          'sec-ch-ua-mobile': '?0'
-        });
+        Object.defineProperty(navigator, 'webdriver', { get: () => false });
+        Object.defineProperty(navigator, 'languages', { get: () => ['en-US','en'] });
+        Object.defineProperty(navigator, 'plugins', { get: () => [1,2,3,4,5] });
+        window.chrome = window.chrome || { runtime: {} };
+      } catch(e){}
+    });
 
-        // navigation with retries
-        let navErr = null;
-        const navAttempts = 2;
-        for (let n=0;n<navAttempts;n++){
-          try {
-            await page.goto(url, { waitUntil: 'domcontentloaded', timeout: DEFAULT_NAV_TIMEOUT });
-            navErr = null;
-            break;
-          } catch(e) {
-            navErr = e;
-            console.warn(`page.goto attempt ${n+1} failed: ${e && e.message ? e.message : e}`);
-            await sleep(800 * (n+1));
-          }
-        }
-        if (navErr) {
-          console.warn('All page.goto attempts failed (will continue to try to capture content):', navErr.message || navErr);
+    const page = await context.newPage();
+
+    // extra headers
+    await page.setExtraHTTPHeaders({
+      'accept-language': 'en-US,en;q=0.9',
+      'sec-ch-ua': '"Chromium";v="140", "Not A;Brand";v="24"',
+      'sec-ch-ua-platform': '"Windows"',
+      'sec-ch-ua-mobile': '?0'
+    });
+
+    console.log('Starting render for:', url, '->', out, ' (yahoo-mode=', isYahoo, ')');
+
+    // PER-DOMAIN: Yahoo flow (use networkidle / wait for news anchors)
+    if (isYahoo) {
+      try {
+        // try networkidle first (good for Yahoo news injection)
+        try {
+          await page.goto(url, { waitUntil: 'networkidle', timeout: NAV_TIMEOUT });
+        } catch (e) {
+          // fallback to load
+          console.warn('Yahoo: networkidle failed, trying load:', e && e.message ? e.message : e);
+          try { await page.goto(url, { waitUntil: 'load', timeout: NAV_TIMEOUT }); } catch(e2){ console.warn('Yahoo: load also failed:', e2 && e2.message ? e2.message : e2); }
         }
 
-        // small automatic clicks for common consent overlays
+        // common cookie accept attempts
         const consentSelectors = [
-          'button:has-text("Accept all")','button:has-text("Accept")','button:has-text("I agree")','button:has-text("Allow all")',
-          'button:has-text("Accept cookies")','button[data-testid="consent-accept-button"]'
+          'button:has-text("Accept all")','button:has-text("Accept")','button[data-testid="consent-accept-button"]',
+          'button:has-text("Allow all")','button:has-text("Accept cookies")'
         ];
         for (const sel of consentSelectors) {
           try {
             const el = await page.$(sel);
-            if (el) {
-              console.log('Clicking consent selector:', sel);
-              try { await el.click({ timeout: 2000 }); } catch(e){ try{ await page.evaluate(el=>el.click(), el); }catch(e2){} }
-              await page.waitForTimeout(400);
-            }
+            if (el) { try { await el.click({ timeout: 2500 }); } catch(e){ try{ await page.evaluate(el=>el.click(), el); }catch(e2){} } await page.waitForTimeout(500); }
           } catch(e){}
         }
 
-        // if siteCfg present, wait for at least one selector
-        let foundSelector = false;
-        if (siteCfg && Array.isArray(siteCfg.selectors) && siteCfg.selectors.length) {
-          for (const sel of siteCfg.selectors) {
-            try {
-              await page.waitForSelector(sel, { timeout: siteCfg.timeout || 8000 }).then(()=>{ foundSelector = true; });
-              if (foundSelector) break;
-            } catch(e){}
-          }
-          if (foundSelector) {
-            const extra = siteCfg.extraWaitAfterFound || 300;
-            await page.waitForTimeout(extra);
-          } else {
-            // fallback small wait to allow dynamic loading
-            await page.waitForTimeout(900);
-          }
-        } else {
-          // generic wait to allow JS loads (short)
-          await page.waitForTimeout(900);
+        // Wait longer for news anchors typical selectors
+        const newsSelector = 'section[data-test="qsp-news"], ul[data-test="quoteNewsStream"], li.stream-item.story-item, li.js-stream-content';
+        let found = false;
+        try {
+          await page.waitForSelector(newsSelector, { timeout: 15000 });
+          found = true;
+          await page.waitForTimeout(800); // allow final injection
+        } catch (e) {
+          // not found -> small extra wait as fallback
+          console.warn('Yahoo: news selectors not found within timeout, doing small fallback wait');
+          await page.waitForTimeout(1200);
         }
 
-        // try scroll to trigger lazy loads
+        // final scroll to trigger lazy loads
         try {
           await page.evaluate(async () => {
-            const step = window.innerHeight || 800;
-            for (let i=0;i<6;i++){
-              window.scrollBy(0, step);
-              await new Promise(r => setTimeout(r, 300));
-            }
+            for (let i=0;i<6;i++){ window.scrollBy(0, window.innerHeight); await new Promise(r=>setTimeout(r,300)); }
           });
         } catch(e){}
 
-        // capture content and inspect for anti-bot signals
         const content = await page.content();
-        const low = (content || '').toLowerCase();
-        const antibotDetected = low.includes('verify you are human') || low.includes('just a moment') || low.includes('captcha') || low.includes('checking your browser') || low.includes('cloudflare');
-        if (antibotDetected) {
-          console.warn('ANTIBOT: detected content on attempt', attempt, ', will try recovery with different UA/context');
-          anyWarning = true;
-          // close page/context and try again with next UA
-          try { await page.close(); } catch(e){}
-          try { await context.close(); } catch(e){}
-          continue; // next attempt
+        fs.writeFileSync(out, content, 'utf8');
+        console.log(`Rendered (Yahoo) ${url} -> ${out} (bytes=${Buffer.byteLength(content,'utf8')})`);
+      } catch (err) {
+        console.warn('Yahoo render error:', err && err.message ? err.message : err);
+        anyWarnings = true;
+      } finally {
+        try { await page.close(); } catch(e) {}
+        try { await context.close(); } catch(e) {}
+      }
+
+    } else {
+      // GENERIC flow for other sites (the previous robust version)
+      try {
+        // navigation with retries
+        let lastErr = null;
+        const maxAttempts = 3;
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+          try {
+            await page.goto(url, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT });
+            await page.waitForTimeout(1200);
+            lastErr = null;
+            break;
+          } catch (e) {
+            lastErr = e;
+            console.warn(`page.goto attempt ${attempt} failed for ${url}: ${e && e.message ? e.message : e}`);
+            await page.waitForTimeout(800 * attempt);
+          }
+        }
+        if (lastErr) {
+          console.warn('All page.goto attempts failed (but will still capture content):', lastErr && lastErr.message ? lastErr.message : lastErr);
         }
 
-        // Save content and exit loop
-        fs.writeFileSync(out, content, { encoding: 'utf8' });
-        const bytes = Buffer.byteLength(content, 'utf8');
-        console.log(`Rendered ${url} -> ${out} (saved, bytes: ${bytes})`);
-        // close and break
-        try { await page.close(); } catch(e){}
-        try { await context.close(); } catch(e){}
-        break;
-      } catch (errPage) {
-        console.warn('Render error (page-level):', errPage && errPage.message ? errPage.message : errPage);
-        try { await page.close(); } catch(e){}
-        try { await context.close(); } catch(e){}
-        anyWarning = true;
-        // loop to next attempt
+        // try to close overlays
+        const overlaySelectors = [
+          'button[aria-label*="close"]','button[aria-label*="Close"]','button[aria-label*="Accept"]','button[aria-label*="Accept cookies"]',
+          '.cookie-consent', '.consent-banner', '.newsletter-popup', '.newsletter-modal'
+        ];
+        for (const sel of overlaySelectors) {
+          try {
+            const els = await page.$$(sel);
+            for (const e of els) { try { await e.click({ timeout: 1200 }); } catch(e2){} }
+          } catch(e){}
+        }
+        await page.waitForTimeout(400);
+
+        // expand "see more" like buttons
+        const seeMoreButtons = [
+          'button[aria-label*="see more"]','button[aria-label*="See more"]','button[data-more-button]'
+        ];
+        for (const sel of seeMoreButtons) {
+          try {
+            const btns = await page.$$(sel);
+            for (const b of btns) { try { await b.click({ timeout: 1200 }); } catch(e){} }
+          } catch(e){}
+        }
+        await page.waitForTimeout(400);
+
+        // auto scroll
+        try {
+          await page.evaluate(async () => {
+            for (let i=0;i<8;i++){ window.scrollBy(0, window.innerHeight); await new Promise(r=>setTimeout(r,400)); }
+          });
+        } catch(e){}
+
+        // load more clicks
+        const loadMoreSelectors = ['button.load-more','button[data-control-name="load_more"]','button[aria-label*="Load more"]'];
+        for (const sel of loadMoreSelectors) {
+          try {
+            const btns = await page.$$(sel);
+            for (const b of btns) { try { await b.click({ timeout: 1500 }); await page.waitForTimeout(500); } catch(e){} }
+          } catch(e){}
+        }
+
+        await page.waitForTimeout(700);
+        const content = await page.content();
+        fs.writeFileSync(out, content, 'utf8');
+        const bytes = Buffer.byteLength(content,'utf8');
+        if (bytes < 2000) {
+          console.warn(`Rendered ${url} -> ${out} (bytes=${bytes}) - SMALL RENDER (server might have rejected or HTTP2 failed)`);
+        } else {
+          console.log(`Rendered ${url} -> ${out} (bytes=${bytes})`);
+        }
+      } catch (err) {
+        console.warn('Generic render error:', err && err.message ? err.message : err);
+        anyWarnings = true;
+      } finally {
+        try { await page.close(); } catch(e) {}
+        try { await context.close(); } catch(e) {}
       }
-    } // attempts loop
+    }
 
   } catch (err) {
-    console.error('Fatal render error:', err && (err.message || err));
+    console.error('Fatal renderer error:', err && (err.message || err));
+    anyWarnings = true;
   } finally {
     try { await browser.close(); } catch(e){}
   }
 
-  if (anyWarning) {
-    console.warn('Rendering completed with warnings — check logs and rendered files.');
+  if (anyWarnings) {
+    console.warn('Render completed with warnings. Check rendered HTML files and logs.');
     process.exit(0);
   } else {
+    console.log('Render completed successfully.');
     process.exit(0);
   }
 })();
