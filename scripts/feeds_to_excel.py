@@ -208,11 +208,6 @@ def parse_feed_file_with_fallback(ff):
     for e in entries:
         title = (e.get("title", "") or "").strip()
         link = (e.get("link", "") or "")
-        # defensive modernhealthcare filtering in case feed contains noisy items
-        if title and title.lower().strip() in ("no title", "return to homepage"):
-            continue
-        if not title and (link.endswith("modernhealthcare.com") or link.rstrip('/') == "https://www.modernhealthcare.com"):
-            continue
         pub = (e.get("published", "") or e.get("pubDate", "") or e.get("updated", "") or "")
         desc = (e.get("summary", "") or e.get("description", "") or "")
         desc_short = strip_html_short(desc, max_len=300)
@@ -1393,24 +1388,6 @@ def main():
     site_item_map = load_sites_item_container()
     all_rows = []
 
-    # --- special: include modernhealthcare rendered HTML (se existir) no topo ---
-    mh_rendered_path = os.path.join("scripts", "rendered", "modernhealthcare.html")
-    if os.path.exists(mh_rendered_path):
-        try:
-            mh_items = scrape_modern_rendered(mh_rendered_path, base_url="https://www.modernhealthcare.com/latest-news/", max_items=10)
-            for it in mh_items:
-                all_rows.append({
-                    "site": "modernhealthcare",
-                    "title": it.get("title", "") or "",
-                    "link (source)": it.get("link", "") or "",
-                    "pubDate": it.get("date", "") or "",
-                    "description (short)": strip_html_short(it.get("description", "") or "", max_len=300),
-                    "item_container": site_item_map.get("modernhealthcare", ""),
-                    "topic": "N/A"
-                })
-            print(f"Added {len(mh_items)} modernhealthcare items from rendered HTML (preload)")
-        except Exception as e:
-            print("Error scraping modernhealthcare rendered html:", e)
 
     feed_files = sorted(glob.glob(os.path.join(FEEDS_DIR, "*.xml")))
     if not feed_files:
@@ -1524,6 +1501,32 @@ def main():
                     print("Error scraping mediapost listing:", e)
                     # fall through to XML parsing as fallback
     
+            # --- special: modernhealthcare - prefer rendered HTML (if present) ---
+            if site_name == "modernhealthcare":
+                rendered_path = os.path.join('scripts', 'rendered', 'modernhealthcare.html')
+                try:
+                    if os.path.exists(rendered_path):
+                        mh_items = scrape_modern_rendered(rendered_path, base_url="https://www.modernhealthcare.com/latest-news/", max_items=11)
+                        for it in mh_items:
+                            t = it.get('title', '').strip()
+                            link = it.get('link', '').strip()
+                            if not t or t.lower() in ("no title", "return to homepage", "category"):
+                                continue
+                            all_rows.append({
+                                "site": site_name,
+                                "title": t,
+                                "link (source)": link,
+                                "pubDate": it.get('date', ''),
+                                "description (short)": strip_html_short(it.get('description', ''), max_len=300),
+                                "item_container": ic,
+                                "topic": "N/A"
+                            })
+                        # skip parsing XML feed for this site
+                        print(f"Using rendered HTML for {site_name}: added {len(mh_items)} items")
+                        continue
+                except Exception as e:
+                    print("Error scraping modernhealthcare rendered html (per-file):", e)
+                    # fallthrough to XML parsing fallback below
     
             # --- special: medtechdive homepage (hero) ---
             if site_name == "medtechdive":
