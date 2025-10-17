@@ -915,7 +915,49 @@ def matches_filters_debug(item, cfg):
 
     return True, None
 
+# --- helper: aplicar filtros e garantir matched_reason -----------------------
+def apply_filters_and_mark(items, cfg):
+    """
+    Recebe lista de items (cada item é dict) e cfg (site cfg).
+    Retorna a lista de items filtrados (sem fallback quando houver filtros),
+    e garante que items que match têm item['matched_reason'] e ['matched_reason_raw'].
+    - Se não houver filtros configurados -> devolve todos os items sem matched_reason.
+    """
+    if not isinstance(items, list):
+        return []
 
+    kw = cfg.get('filters', {}).get('keywords', []) or []
+    exclude = cfg.get('filters', {}).get('exclude', []) or []
+
+    # se não há filtros configurados -> devolve todos (sem alteração)
+    if not kw and not exclude:
+        # ensure matched_reason fields exist but empty (optional)
+        for it in items:
+            if 'matched_reason' not in it:
+                it['matched_reason'] = ''
+            if 'matched_reason_raw' not in it:
+                it['matched_reason_raw'] = ''
+        return items
+
+    filtered = []
+    for it in items:
+        try:
+            keep, reason = matches_filters_debug(it, cfg)
+        except Exception:
+            keep, reason = False, None
+        if keep:
+            # normalizar reason
+            try:
+                it['matched_reason'] = reason or ''
+                it['matched_reason_raw'] = reason or ''
+            except Exception:
+                it['matched_reason'] = ''
+                it['matched_reason_raw'] = ''
+            filtered.append(it)
+
+    # sem fallback automático — se não houve matches devolve lista vazia
+    return filtered
+# -----------------------------------------------------------------------------
 
 def main():
     sites = load_sites()
@@ -988,22 +1030,14 @@ def main():
 
         print(f'Found {len(items)} items for {name} (raw)')
 
-        matched = []
         kw = cfg.get('filters', {}).get('keywords', []) or []
         print(f'Applying {len(kw)} keyword filters for {name}: {kw}')
-        for it in items:
-            keep, reason = matches_filters_debug(it, cfg)
-            if keep:
-                it['matched_reason'] = reason
-                matched.append(it)
+        # use helper to apply filters and annotate matched_reason
+        matched = apply_filters_and_mark(items, cfg)
         print(f'{len(matched)} items matched filters for {name}')
         # Novo comportamento: se não houve matches, NÃO fazemos fallback.
-        # Isso faz que o feed final fique sem entries (0 entries), e consequentemente
-        # o artifact .xlsx terá 0 rows para este site.
         if not matched:
             print(f'No items matched filters for {name}; writing empty feed (no fallback).')
-            matched = []
-
 
         deduped = dedupe_items(matched, cfg)
 
