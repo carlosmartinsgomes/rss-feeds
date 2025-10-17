@@ -25,9 +25,6 @@ try:
 except Exception:
     warnings.filterwarnings("ignore", message="tzname .* identified but not understood")
 
-OUT_XLSX = "feeds_summary.xlsx"
-FEEDS_DIR = "feeds"
-SITES_JSON_PATHS = ["scripts/sites.json", "rss-feeds/scripts/sites.json", "sites.json"]
 
 # --- adicionar mapping tzinfos básico para evitar UnknownTimezoneWarning ---
 _DEFAULT_TZINFOS = {
@@ -64,23 +61,58 @@ def strip_html_short(html_text, max_len=300):
     return s
 
 
-def load_sites_item_container():
-    for p in SITES_JSON_PATHS:
-        if os.path.exists(p):
-            try:
-                with open(p, "r", encoding="utf-8") as fh:
-                    raw = fh.read()
-                obj = json.loads(raw)
-                sites = obj.get("sites", obj if isinstance(obj, list) else [])
-                mapping = {}
-                for s in sites:
-                    name = s.get("name") if isinstance(s, dict) else None
-                    if name:
-                        mapping[name] = s.get("item_container", "") or ""
-                return mapping
-            except Exception:
-                continue
-    return {}
+# --- para filtragem consistente com generate_feeds.py ---
+def load_sites_config_map(sites_json_path='sites.json'):
+    try:
+        with open(sites_json_path, 'r', encoding='utf-8') as fh:
+            j = json.load(fh)
+        sites = j.get('sites', []) if isinstance(j, dict) else j
+        cfg_map = {s.get('name'): s for s in sites if isinstance(s, dict) and s.get('name')}
+        return cfg_map
+    except Exception:
+        return {}
+# carrega uma vez (path relativo ao working dir)
+SITES_CFG_MAP = load_sites_config_map(os.path.join(ROOT, 'sites.json')) if 'ROOT' in globals() else load_sites_config_map('sites.json')
+
+def matches_filters_for_row(row, site_cfg):
+    """
+    Mesmo comportamento do generate_feeds.matches_filters_debug,
+    mas recebe row (dict) e site_cfg (dict). Retorna matched_reason or None.
+    """
+    if not site_cfg:
+        return None
+    kw_list = site_cfg.get('filters', {}).get('keywords', []) or []
+    exclude_list = site_cfg.get('filters', {}).get('exclude', []) or []
+    if not kw_list and not exclude_list:
+        return None  # sem filtros -> sinal para aceitar tudo
+
+    # prepara os textos
+    text_map = {
+        'title': (row.get('title','') or '').lower(),
+        'description': (row.get('description','') or row.get('description (short)','') or '').lower(),
+        'full_text': (row.get('full_text','') or '').lower(),
+        'link': (row.get('link (source)','') or row.get('link','') or '').lower(),
+        'topic': (row.get('topic','') or '').lower()
+    }
+
+    # keywords
+    if kw_list:
+        for k in kw_list:
+            if not k: continue
+            kl = str(k).lower()
+            for field in ('title','description','full_text','link','topic'):
+                if kl in text_map.get(field,''):
+                    return f"{kl}@{field}"
+        return None
+
+    # excludes
+    for ex in exclude_list:
+        if not ex: continue
+        el = str(ex).lower()
+        for field in ('title','description','full_text','link','topic'):
+            if el in text_map.get(field,''):
+                return f"exclude:{el}@{field}"
+    return None
 
 
 def find_date_in_text(text):
@@ -1481,12 +1513,14 @@ def main():
             if site_name == "mediapost":
                 try:
                     mp_items = scrape_mediapost_listing(base_url="https://www.mediapost.com/news/", max_items=30)
+                    site_cfg = SITES_CFG_MAP.get(site_name, {})
+                    added = 0
                     for it in mp_items:
                         t = it.get('title', '').strip()
                         link = it.get('link', '').strip()
                         if not t or t.lower() in ("no title", "return to homepage", "category"):
                             continue
-                        all_rows.append({
+                        rows = {
                             "site": site_name,
                             "title": t,
                             "link (source)": link,
@@ -1494,12 +1528,25 @@ def main():
                             "description (short)": strip_html_short(it.get('description', ''), max_len=300),
                             "item_container": ic,
                             "topic": "N/A"
-                        })
+                        }
+                        # aplica filtros
+                        has_filters = bool(site_cfg.get('filters', {}).get('keywords') or site_cfg.get('filters', {}).get('exclude'))
+                        match = matches_filters_for_row(rows, site_cfg)
+                        if has_filters:
+                            if not match:
+                                continue
+                            rows['match'] = match
+                        else:
+                            rows['match'] = ''
+                        all_rows.append(rows)
+                        added += 1
                     # skip parsing XML for mediapost
+                    print(f"Added {added} mediapost items (scraped live)")
                     continue
                 except Exception as e:
                     print("Error scraping mediapost listing:", e)
                     # fall through to XML parsing as fallback
+
     
             # --- special: modernhealthcare - prefer rendered HTML (if present) ---
             if site_name == "modernhealthcare":
@@ -1507,12 +1554,14 @@ def main():
                 try:
                     if os.path.exists(rendered_path):
                         mh_items = scrape_modern_rendered(rendered_path, base_url="https://www.modernhealthcare.com/latest-news/", max_items=11)
+                        site_cfg = SITES_CFG_MAP.get(site_name, {})
+                        added = 0
                         for it in mh_items:
                             t = it.get('title', '').strip()
                             link = it.get('link', '').strip()
                             if not t or t.lower() in ("no title", "return to homepage", "category"):
                                 continue
-                            all_rows.append({
+                            rows = {
                                 "site": site_name,
                                 "title": t,
                                 "link (source)": link,
@@ -1520,50 +1569,30 @@ def main():
                                 "description (short)": strip_html_short(it.get('description', ''), max_len=300),
                                 "item_container": ic,
                                 "topic": "N/A"
-                            })
-                        # skip parsing XML feed for this site
-                        print(f"Using rendered HTML for {site_name}: added {len(mh_items)} items")
+                            }
+                            has_filters = bool(site_cfg.get('filters', {}).get('keywords') or site_cfg.get('filters', {}).get('exclude'))
+                            match = matches_filters_for_row(rows, site_cfg)
+                            if has_filters:
+                                if not match:
+                                    continue
+                                rows['match'] = match
+                            else:
+                                rows['match'] = ''
+                            all_rows.append(rows)
+                            added += 1
+                        print(f"Using rendered HTML for {site_name}: added {added} items")
                         continue
                 except Exception as e:
                     print("Error scraping modernhealthcare rendered html (per-file):", e)
                     # fallthrough to XML parsing fallback below
+
     
             # --- special: medtechdive homepage (hero) ---
             if site_name == "medtechdive":
                 med_items = scrape_medtech_home(base_url="https://www.medtechdive.com/", timeout=10)
+                site_cfg = SITES_CFG_MAP.get(site_name, {})
+                added = 0
                 for it in med_items:
-                    all_rows.append({
-                        "site": site_name,
-                        "title": it.get("title", "") or "",
-                        "link (source)": it.get("link", "") or "",
-                        "pubDate": it.get("date", "") or "",
-                        "description (short)": strip_html_short(it.get("description", "") or "", max_len=300),
-                        "item_container": ic,
-                        "topic": "N/A"
-                    })
-                print(f"Added {len(med_items)} medtechdive (home hero) items")
-                continue
-    
-            # --- special: medtechdive topic medical-devices (first 7) ---
-            if site_name == "medtechdive-devices":
-                med_items = scrape_medtech_topic(base_url="https://www.medtechdive.com/topic/medical-devices/", max_items=7, timeout=10)
-                for it in med_items:
-                    all_rows.append({
-                        "site": site_name,
-                        "title": it.get("title", "") or "",
-                        "link (source)": it.get("link", "") or "",
-                        "pubDate": it.get("date", "") or "",
-                        "description (short)": strip_html_short(it.get("description", "") or "", max_len=300),
-                        "item_container": ic,
-                        "topic": "N/A"
-                    })
-                print(f"Added {len(med_items)} medtechdive-devices items")
-                continue
-    
-            # --- special: mobihealthnews (scraped live) ---
-            if site_name == "mobihealthnews":
-                mobi_items = scrape_mobihealth_listing(base_url="https://www.mobihealthnews.com/", max_items=11, timeout=10)
-                for it in mobi_items:
                     rows = {
                         "site": site_name,
                         "title": it.get("title", "") or "",
@@ -1573,9 +1602,79 @@ def main():
                         "item_container": ic,
                         "topic": "N/A"
                     }
+                    has_filters = bool(site_cfg.get('filters', {}).get('keywords') or site_cfg.get('filters', {}).get('exclude'))
+                    match = matches_filters_for_row(rows, site_cfg)
+                    if has_filters:
+                        if not match:
+                            continue
+                        rows['match'] = match
+                    else:
+                        rows['match'] = ''
                     all_rows.append(rows)
-                print(f"Added {len(mobi_items)} mobihealthnews items (scraped live)")
+                    added += 1
+                print(f"Added {added} medtechdive (home hero) items")
                 continue
+
+    
+            # --- special: medtechdive topic medical-devices (first 7) ---
+            if site_name == "medtechdive-devices":
+                med_items = scrape_medtech_topic(base_url="https://www.medtechdive.com/topic/medical-devices/", max_items=7, timeout=10)
+                site_cfg = SITES_CFG_MAP.get(site_name, {})
+                added = 0
+                for it in med_items:
+                    rows = {
+                        "site": site_name,
+                        "title": it.get("title", "") or "",
+                        "link (source)": it.get("link", "") or "",
+                        "pubDate": it.get("date", "") or "",
+                        "description (short)": strip_html_short(it.get("description", "") or "", max_len=300),
+                        "item_container": ic,
+                        "topic": "N/A"
+                    }
+                    has_filters = bool(site_cfg.get('filters', {}).get('keywords') or site_cfg.get('filters', {}).get('exclude'))
+                    match = matches_filters_for_row(rows, site_cfg)
+                    if has_filters:
+                        if not match:
+                            continue
+                        rows['match'] = match
+                    else:
+                        rows['match'] = ''
+                    all_rows.append(rows)
+                    added += 1
+                print(f"Added {added} medtechdive-devices items")
+                continue
+
+    
+            # --- special: mobihealthnews (scraped live) ---
+            if site_name == "mobihealthnews":
+            mobi_items = scrape_mobihealth_listing(base_url="https://www.mobihealthnews.com/", max_items=11, timeout=10)
+            site_cfg = SITES_CFG_MAP.get(site_name, {})
+            added = 0
+            for it in mobi_items:
+                rows = {
+                    "site": site_name,
+                    "title": it.get("title", "") or "",
+                    "link (source)": it.get("link", "") or "",
+                    "pubDate": it.get("date", "") or "",
+                    "description (short)": strip_html_short(it.get("description", "") or "", max_len=300),
+                    "item_container": ic,
+                    "topic": "N/A"
+                }
+                # aplica filtros (se existirem)
+                match = matches_filters_for_row(rows, site_cfg)
+                if site_cfg.get('filters', {}).get('keywords') or site_cfg.get('filters', {}).get('exclude'):
+                    # se filtro definido, só adiciona se houver match (não queremos fallback)
+                    if not match:
+                        continue
+                    rows['match'] = match
+                else:
+                    # sem filtros -> mantém (mas preenche match vazia)
+                    rows['match'] = ''
+                all_rows.append(rows)
+                added += 1
+            print(f"Added {added} mobihealthnews items (scraped live)")
+            continue
+
     
             # --- special: semiengineering -> use page scraper (rendered if available, else live fetch) ---
             if site_name == "semiengineering":
@@ -1586,8 +1685,10 @@ def main():
                     else:
                         # try site homepage
                         se_items = scrape_semiengineering_listing(None, base_url="https://semiengineering.com/", max_items=36)
+                    site_cfg = SITES_CFG_MAP.get(site_name, {})
+                    added = 0
                     for it in se_items:
-                        all_rows.append({
+                        rows = {
                             "site": site_name,
                             "title": it.get("title","") or "",
                             "link (source)": it.get("link","") or "",
@@ -1595,11 +1696,23 @@ def main():
                             "description (short)": strip_html_short(it.get("description","") or "", max_len=300),
                             "item_container": ic,
                             "topic": "N/A"
-                        })
+                        }
+                        has_filters = bool(site_cfg.get('filters', {}).get('keywords') or site_cfg.get('filters', {}).get('exclude'))
+                        match = matches_filters_for_row(rows, site_cfg)
+                        if has_filters:
+                            if not match:
+                                continue
+                            rows['match'] = match
+                        else:
+                            rows['match'] = ''
+                        all_rows.append(rows)
+                        added += 1
                     # skip XML parsing for semiengineering
+                    print(f"Added {added} semiengineering items")
                     continue
                 except Exception as e:
                     print("Error scraping semiengineering:", e)
+
 
             # --- fallback: parse feed XML com fallback ---
             rows = parse_feed_file_with_fallback(ff)
