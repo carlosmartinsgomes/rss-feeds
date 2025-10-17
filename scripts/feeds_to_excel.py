@@ -1468,7 +1468,13 @@ def scrape_thedrum_profile(base_url, max_items=5, timeout=10):
 
 def main():
     
+    site_item_map = load_sites_item_container()
     all_rows = []
+
+
+    feed_files = sorted(glob.glob(os.path.join(FEEDS_DIR, "*.xml")))
+    if not feed_files:
+        print("No feed files found in", FEEDS_DIR)
 
 
     # --- loop pelos feeds (o teu código aqui deve permanecer tal como o tens) ---
