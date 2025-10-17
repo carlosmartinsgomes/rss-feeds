@@ -871,37 +871,50 @@ def build_feed(name, cfg, items):
 
 def matches_filters_debug(item, cfg):
     """
+    Verifica keywords/excludes do cfg nos campos do item.
     Retorna (keep:bool, reason:str_or_None)
-    - reason será o termo exacto que deu match (p.ex. 'inmode') ou
-      'exclude:<term>' se o exclude corresponder.
-    - Se não houver filtros (keywords/exclude) devolve (True, None).
+      - reason -> formato 'keyword@field' (ex: 'inmode@title') ou 'exclude:term@field'
+      - Se não houver filtros no cfg devolve (True, None)
+    Campos verificados (ordem): title, description, full_text, link, topic
     """
-    kw = cfg.get('filters', {}).get('keywords', []) or []
-    exclude = cfg.get('filters', {}).get('exclude', []) or []
-    # sem filtros -> keep tudo (comportamento existente)
-    if not kw and not exclude:
+    kw_list = cfg.get('filters', {}).get('keywords', []) or []
+    exclude_list = cfg.get('filters', {}).get('exclude', []) or []
+
+    # sem filtros -> mantém (comportamento antigo)
+    if not kw_list and not exclude_list:
         return True, None
 
-    text_title = (item.get('title','') or '').lower()
-    text_desc = (item.get('description','') or '').lower()
-    text_full = (item.get('full_text','') or '').lower()
-    text_link = (item.get('link','') or '').lower()
+    # prepara textos (lowercase)
+    text_map = {
+        'title': (item.get('title','') or '').lower(),
+        'description': (item.get('description','') or item.get('description (short)','') or '').lower(),
+        'full_text': (item.get('full_text','') or '').lower(),
+        'link': (item.get('link','') or item.get('link (source)','') or '').lower(),
+        'topic': (item.get('topic','') or '').lower()
+    }
 
-    # keywords: devolve o termo exacto que bateu (primeiro match)
-    if kw:
-        for k in kw:
-            kl = k.lower()
-            if kl and (kl in text_title or kl in text_desc or kl in text_full or kl in text_link):
-                return True, kl  # devolvemos só o termo
+    # keywords: primeiro match (por campo na ordem definida)
+    if kw_list:
+        for k in kw_list:
+            if not k:
+                continue
+            kl = str(k).lower()
+            for field in ('title','description','full_text','link','topic'):
+                if kl in text_map.get(field,''):
+                    return True, f"{kl}@{field}"
         return False, None
 
-    # excludes: se qualquer exclude bate, rejeita e fornece razão
-    for ex in exclude:
-        el = ex.lower() if ex else ''
-        if el and (el in text_title or el in text_desc or el in text_full or el in text_link):
-            return False, f"exclude:{el}"
+    # excludes: se bater, rejeita e dá razão
+    for ex in exclude_list:
+        if not ex:
+            continue
+        el = str(ex).lower()
+        for field in ('title','description','full_text','link','topic'):
+            if el in text_map.get(field,''):
+                return False, f"exclude:{el}@{field}"
 
     return True, None
+
 
 
 def main():
