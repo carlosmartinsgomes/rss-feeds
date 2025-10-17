@@ -24,7 +24,17 @@ try:
     warnings.filterwarnings("ignore", category=UnknownTimezoneWarning)
 except Exception:
     warnings.filterwarnings("ignore", message="tzname .* identified but not understood")
+    
+ROOT = os.path.dirname(os.path.abspath(__file__))  # scripts/ (ajusta se o ficheiro estiver noutro local)
 
+OUT_XLSX = "feeds_summary.xlsx"
+FEEDS_DIR = "feeds"
+# procuramos sites.json em vários lugares (mantém compatibilidade com CI / runner)
+SITES_JSON_PATHS = [
+    os.path.join('scripts', 'sites.json'),
+    os.path.join('rss-feeds', 'scripts', 'sites.json'),
+    'sites.json'
+]
 
 # --- adicionar mapping tzinfos básico para evitar UnknownTimezoneWarning ---
 _DEFAULT_TZINFOS = {
@@ -61,18 +71,58 @@ def strip_html_short(html_text, max_len=300):
     return s
 
 
-# --- para filtragem consistente com generate_feeds.py ---
-def load_sites_config_map(sites_json_path='sites.json'):
-    try:
-        with open(sites_json_path, 'r', encoding='utf-8') as fh:
-            j = json.load(fh)
-        sites = j.get('sites', []) if isinstance(j, dict) else j
-        cfg_map = {s.get('name'): s for s in sites if isinstance(s, dict) and s.get('name')}
-        return cfg_map
-    except Exception:
-        return {}
-# carrega uma vez (path relativo ao working dir)
-SITES_CFG_MAP = load_sites_config_map(os.path.join(ROOT, 'sites.json')) if 'ROOT' in globals() else load_sites_config_map('sites.json')
+def load_sites_item_container():
+    """
+    Retorna mapping site_name -> item_container (usado no feeds_to_excel para preencher item_container).
+    Procura sites.json nas paths SITES_JSON_PATHS.
+    """
+    for p in SITES_JSON_PATHS:
+        try:
+            if not os.path.exists(p):
+                continue
+            with open(p, 'r', encoding='utf-8') as fh:
+                raw = fh.read()
+            obj = json.loads(raw)
+            sites = obj.get('sites', obj if isinstance(obj, list) else [])
+            mapping = {}
+            for s in sites:
+                if not isinstance(s, dict):
+                    continue
+                name = s.get('name')
+                if not name:
+                    continue
+                mapping[name] = s.get('item_container', '') or ''
+            return mapping
+        except Exception:
+            # continua para o próximo path
+            continue
+    return {}
+
+def load_sites_config_map(sites_json_path=None):
+    """
+    Carrega o sites.json e devolve dict { site_name: site_cfg }.
+    Se sites_json_path for None, tenta as SITES_JSON_PATHS.
+    """
+    paths = [sites_json_path] if sites_json_path else SITES_JSON_PATHS
+    for p in paths:
+        try:
+            if not p or not os.path.exists(p):
+                continue
+            with open(p, 'r', encoding='utf-8') as fh:
+                j = json.load(fh)
+            sites = j.get('sites', []) if isinstance(j, dict) else j
+            cfg_map = {s.get('name'): s for s in sites if isinstance(s, dict) and s.get('name')}
+            return cfg_map
+        except Exception:
+            continue
+    return {}
+
+# carrega o mapa de configuração uma vez (usa ROOT se necessário)
+# tenta primeiro os paths relativos já definidos; manter compatibilidade com código que usa 'ROOT'
+try:
+    SITES_CFG_MAP = load_sites_config_map()
+except Exception:
+    SITES_CFG_MAP = {}
 
 def matches_filters_for_row(row, site_cfg):
     """
