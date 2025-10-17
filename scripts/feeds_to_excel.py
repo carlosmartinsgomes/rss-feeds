@@ -1647,33 +1647,33 @@ def main():
     
             # --- special: mobihealthnews (scraped live) ---
             if site_name == "mobihealthnews":
-            mobi_items = scrape_mobihealth_listing(base_url="https://www.mobihealthnews.com/", max_items=11, timeout=10)
-            site_cfg = SITES_CFG_MAP.get(site_name, {})
-            added = 0
-            for it in mobi_items:
-                rows = {
-                    "site": site_name,
-                    "title": it.get("title", "") or "",
-                    "link (source)": it.get("link", "") or "",
-                    "pubDate": it.get("date", "") or "",
-                    "description (short)": strip_html_short(it.get("description", "") or "", max_len=300),
-                    "item_container": ic,
-                    "topic": "N/A"
-                }
-                # aplica filtros (se existirem)
-                match = matches_filters_for_row(rows, site_cfg)
-                if site_cfg.get('filters', {}).get('keywords') or site_cfg.get('filters', {}).get('exclude'):
-                    # se filtro definido, só adiciona se houver match (não queremos fallback)
-                    if not match:
-                        continue
-                    rows['match'] = match
-                else:
-                    # sem filtros -> mantém (mas preenche match vazia)
-                    rows['match'] = ''
-                all_rows.append(rows)
-                added += 1
-            print(f"Added {added} mobihealthnews items (scraped live)")
-            continue
+                mobi_items = scrape_mobihealth_listing(base_url="https://www.mobihealthnews.com/", max_items=11, timeout=10)
+                site_cfg = SITES_CFG_MAP.get(site_name, {})
+                added = 0
+                for it in mobi_items:
+                    rows = {
+                        "site": site_name,
+                        "title": it.get("title", "") or "",
+                        "link (source)": it.get("link", "") or "",
+                        "pubDate": it.get("date", "") or "",
+                        "description (short)": strip_html_short(it.get("description", "") or "", max_len=300),
+                        "item_container": ic,
+                        "topic": "N/A"
+                    }
+                    # aplica filtros (se existirem)
+                    match = matches_filters_for_row(rows, site_cfg)
+                    if site_cfg.get('filters', {}).get('keywords') or site_cfg.get('filters', {}).get('exclude'):
+                        # se filtro definido, só adiciona se houver match (não queremos fallback)
+                        if not match:
+                            continue
+                        rows['match'] = match
+                    else:
+                        # sem filtros -> mantém (mas preenche match vazia)
+                        rows['match'] = ''
+                    all_rows.append(rows)
+                    added += 1
+                print(f"Added {added} mobihealthnews items (scraped live)")
+                continue
 
     
             # --- special: semiengineering -> use page scraper (rendered if available, else live fetch) ---
