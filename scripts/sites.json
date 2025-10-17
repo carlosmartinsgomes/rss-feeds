@@ -108,7 +108,7 @@
       "link": "link",
       "date": "pubDate",
       "description": "description",
-      "filters": { "keywords": ["Trade Desk, PubMatic, InMode, CrowdStrike Holdings, Fortinet, Datadog, Pinterest, monday.com, HubSpot, Etsy, On Holding, Samsara, Rubrik, Arista Networks, Duolingo, GitLab, Astera Labs, Axon Enterprise, Endava, EPAM Systems, Hims & Hers Health, Southwest Airlines, Paycom Software"TTD","PUBM","INMD","CRWD","FTNT","DDOG","PINS","MNDY","HUBS","ETSY","IOT","RBRK","ANET","DUOL","GTLB","ALAB","AXON","DAVA","EPAM","HIMS","LUV","PAYC","ONON","on holding","on holdings","running"] }
+      "filters": { "keywords": ["Trade Desk","PubMatic","InMode","CrowdStrike","Fortinet","Datadog","Pinterest","monday.com","HubSpot","Etsy","Samsara","Rubrik","Arista","Duolingo","GitLab","Astera","Axon","Endava","Hers","Southwest","Paycom","TTD","PUBM","INMD","CRWD","FTNT","DDOG","PINS","MNDY","HUBS","ETSY","IOT","RBRK","ANET","DUOL","GTLB","ALAB","AXON","DAVA","EPAM","HIMS","LUV","PAYC","ONON","on holding","on holdings","running"] }
     },
     {
       "name": "globenewswire",
@@ -118,7 +118,7 @@
       "link": "link",
       "date": "pubDate",
       "description": "description",
-      "filters": { "keywords": ["TTD","PUBM","INMD","CRWD","FTNT","DDOG","PINS","MNDY","HUBS","ETSY","IOT","RBRK","ANET","DUOL","GTLB","ALAB","AXON","DAVA","EPAM","HIMS","LUV","PAYC","ONON","on holding","on holdings","running"] }
+      "filters": { "keywords": ["Trade Desk","PubMatic","InMode","CrowdStrike","Fortinet","Datadog","Pinterest","monday.com","HubSpot","Etsy","Samsara","Rubrik","Arista","Duolingo","GitLab","Astera","Axon","Endava","Hers","Southwest","Paycom","TTD","PUBM","INMD","CRWD","FTNT","DDOG","PINS","MNDY","HUBS","ETSY","IOT","RBRK","ANET","DUOL","GTLB","ALAB","AXON","DAVA","EPAM","HIMS","LUV","PAYC","ONON","on holding","on holdings","running"] }
     },
     {
       "name": "yahoo-multiquote-news",
@@ -140,7 +140,7 @@
       "date": "span.day_list, span.time_list, .time_list, time",
       "description": "div.body_list, .content-list-meta + p, p",
       "render_file": "scripts/rendered/mobihealthnews.html",
-      "filters": { "keywords": ["hims","hers","hims&hers"] }
+      "filters": { "keywords": ["hims","hers"] }
     },
     
     {
@@ -426,7 +426,7 @@
       "link": "link",
       "date": "pubDate",
       "description": "description",
-      "filters": { "keywords": ["hims","hers","hims&hers"] }
+      "filters": { "keywords": ["hims","hers"] }
     },
     
     {
