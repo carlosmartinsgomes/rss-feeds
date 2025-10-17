@@ -1417,7 +1417,7 @@ def scrape_thedrum_profile(base_url, max_items=5, timeout=10):
 # ---------------------------
 
 def main():
-    site_item_map = load_sites_item_container()
+    
     all_rows = []
 
 
@@ -1430,7 +1430,7 @@ def main():
         try:
             base = os.path.basename(ff)
             site_name = os.path.splitext(base)[0]
-            ic = site_item_map.get(site_name, "")
+            
 
             # --- DETECÇÃO AUTOMÁTICA ROBUSTA: procurar TheDrum profile/url dentro do feed ---
             try:
