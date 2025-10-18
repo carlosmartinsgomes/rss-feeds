@@ -9,7 +9,7 @@
       "date": ".ArticlePreview-Footer .ArticlePreview-Date, .ContentCard-Footer .ContentCard-Date, .ListPreview-Footer .ListPreview-Date, time, .CardTime span, span",
       "description": "p.ArticlePreview-Summary, .ArticlePreview-Summary, .card-text, .excerpt, p",
       "render_file": "scripts/rendered/aibusiness.html",
-      "filters": { "keywords": ["iot","samsara"] }
+      "filters": { "keywords": ["samsara"] }
     },
     {
       "name": "darkreading",
@@ -108,7 +108,7 @@
       "link": "link",
       "date": "pubDate",
       "description": "description",
-      "filters": { "keywords": ["Trade Desk","PubMatic","InMode","CrowdStrike","Fortinet","Datadog","Pinterest","monday.com","HubSpot","Etsy","Samsara","Rubrik","Arista","Duolingo","GitLab","Astera","Axon","Endava","Hers","Southwest","Paycom","TTD","PUBM","INMD","CRWD","FTNT","DDOG","PINS","MNDY","HUBS","ETSY","IOT","RBRK","ANET","DUOL","GTLB","ALAB","AXON","DAVA","EPAM","HIMS","LUV","PAYC","ONON","on holding","on holdings","running"] }
+      "filters": { "keywords": ["iot","Trade Desk","PubMatic","InMode","CrowdStrike","Fortinet","Datadog","Pinterest","monday.com","HubSpot","Etsy","Samsara","Rubrik","Arista","Duolingo","GitLab","Astera","Axon","Endava","Hers","Southwest","Paycom","TTD","PUBM","INMD","CRWD","FTNT","DDOG","PINS","MNDY","HUBS","ETSY","RBRK","ANET","DUOL","GTLB","ALAB","AXON","DAVA","EPAM","HIMS","LUV","PAYC","ONON","on holding","on holdings","running"] }
     },
     {
       "name": "globenewswire",
@@ -118,11 +118,11 @@
       "link": "link",
       "date": "pubDate",
       "description": "description",
-      "filters": { "keywords": ["Trade Desk","PubMatic","InMode","CrowdStrike","Fortinet","Datadog","Pinterest","monday.com","HubSpot","Etsy","Samsara","Rubrik","Arista","Duolingo","GitLab","Astera","Axon","Endava","Hers","Southwest","Paycom","TTD","PUBM","INMD","CRWD","FTNT","DDOG","PINS","MNDY","HUBS","ETSY","IOT","RBRK","ANET","DUOL","GTLB","ALAB","AXON","DAVA","EPAM","HIMS","LUV","PAYC","ONON","on holding","on holdings","running"] }
+      "filters": { "keywords": ["Trade Desk","PubMatic","InMode","CrowdStrike","Fortinet","Datadog","Pinterest","monday.com","HubSpot","Etsy","Samsara","Rubrik","Arista","Duolingo","GitLab","Astera","Axon","Endava","Hers","Southwest","Paycom","TTD","PUBM","INMD","CRWD","FTNT","DDOG","PINS","MNDY","HUBS","ETSY","RBRK","ANET","DUOL","GTLB","ALAB","AXON","DAVA","EPAM","HIMS","LUV","PAYC","ONON","on holding","on holdings","running"] }
     },
     {
       "name": "yahoo-multiquote-news",
-      "url": "https://finance.yahoo.com/quotes/TTD,PUBM,INMD,CRWD,FTNT,DDOG,PINS,MNDY,HUBS,ETSY,ONON,IOT,RBRK,ANET,DUOL,GTLB,ALAB,AXON,DAVA,EPAM,HIMS,LUV,PAYC/",
+      "url": "https://finance.yahoo.com/quotes/TTD,PUBM,INMD,CRWD,FTNT,DDOG,PINS,MNDY,HUBS,ETSY,ONON,RBRK,ANET,DUOL,GTLB,ALAB,AXON,DAVA,EPAM,HIMS,LUV,PAYC/",
       "item_container": "section[data-test='qsp-news'] ul li, ul[data-test='quoteNewsStream'] li, li.stream-item.story-item, li.js-stream-content",
       "title": "h3 a, h3, a span, a",
       "link": "a[href*='/news/']@href, a[href*='/articles/']@href, a@href",
