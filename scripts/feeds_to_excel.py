@@ -1822,49 +1822,96 @@ def main():
             if 'description' not in r or not r.get('description'):
                 r['description'] = r.get('description (short)', '') or r.get('description', '') or ''
     
-            # Procurar matched reason por várias vias
+            # -------------------------------------------------
+            # Procurar matched reason por várias vias (robusto)
+            # -------------------------------------------------
             r_match = ''
     
-            # 1) procurar [MatchedReason: ...] em description/short/title
-            combined_search = " ".join([
-                str(r.get('description','') or ''),
-                str(r.get('description (short)','') or ''),
-                str(r.get('title','') or '')
-            ])
-            m = mr_re.search(combined_search)
-            if m:
-                r_match = m.group(1).strip()
-                # limpar description (remover sufixo)
+            # campos a procurar (ordem de prioridade)
+            fields_to_search = [
+                ('description', r.get('description','') or ''),
+                ('description (short)', r.get('description (short)','') or ''),
+                ('title', r.get('title','') or ''),
+                ('full_text', r.get('full_text','') or ''),
+                ('link (source)', r.get('link (source)','') or ''),
+                ('link', r.get('link','') or ''),
+                ('topic', r.get('topic','') or '')
+            ]
+    
+            # 1) se existir matched_reason / matched_reason_raw já preenchido pelo feed, usa-o
+            mr_direct = r.get('matched_reason') or r.get('matched_reason_raw')
+            if mr_direct:
                 try:
-                    r['description'] = mr_re.sub('', r.get('description','')).strip()
-                    r['description (short)'] = strip_html_short(r['description'], max_len=300)
+                    if isinstance(mr_direct, (list, tuple)) and mr_direct:
+                        r_match = str(mr_direct[0])
+                    else:
+                        r_match = str(mr_direct)
                 except Exception:
-                    pass
+                    r_match = ''
     
-            # 2) campos explícitos vindos do generate_feeds.py
+            # 2) procurar padrão entre colchetes [MatchedReason: ...] nos campos mais relevantes
             if not r_match:
-                r_match = (r.get('matched_reason') or r.get('matched_reason_raw') or '') or ''
+                for fname, ftext in fields_to_search:
+                    try:
+                        m = mr_re.search(str(ftext) or '')
+                        if m:
+                            r_match = m.group(1).strip()
+                            # se encontrar na description, remove o sufixo para não poluir a preview
+                            if fname.startswith('description'):
+                                try:
+                                    r['description'] = mr_re.sub('', r.get('description','')).strip()
+                                    r['description (short)'] = strip_html_short(r['description'], max_len=300)
+                                except Exception:
+                                    pass
+                            break
+                    except Exception:
+                        continue
     
-            # 3) procurar variantes sem colchetes "MatchedReason: foo"
+            # 3) procurar variantes sem colchetes: "MatchedReason: foo" ou "MatchedReason=foo"
             if not r_match:
-                m2 = re.search(r'MatchedReason[:\s]+([^\]\n\r]{1,200})', combined_search, re.I)
-                if m2:
-                    r_match = m2.group(1).strip()
+                for fname, ftext in fields_to_search:
+                    try:
+                        m2 = re.search(r'MatchedReason[:=\s]+([^\]\n\r]{1,200})', str(ftext) or '', re.I)
+                        if m2:
+                            r_match = m2.group(1).strip()
+                            break
+                    except Exception:
+                        continue
     
-            # 4) fallback: se tivermos configuração do site, calcular com matches_filters_for_row()
+            # 4) fallback: perguntar à função matches_filters_for_row() (usa a lógica dos filtros)
             if not r_match:
                 try:
                     site_key = (r.get('site') or '').strip()
                     site_cfg = SITES_CFG_MAP.get(site_key) if 'SITES_CFG_MAP' in globals() else None
                     if site_cfg:
-                        calc = matches_filters_for_row(r, site_cfg)  # devolve 'keyword@field' ou None
+                        calc = matches_filters_for_row(r, site_cfg)  # ex: 'inmode@title' ou 'exclude:term@field'
                         if calc:
                             r_match = calc
+                            # se for do tipo 'keyword@field', tenta recuperar a capitalização original do sites.json
+                            try:
+                                if '@' in r_match and not r_match.lower().startswith('exclude:'):
+                                    kw_part, field_part = r_match.split('@', 1)
+                                    orig_kw = None
+                                    for candidate in (site_cfg.get('filters', {}).get('keywords', []) or []):
+                                        if str(candidate).lower() == str(kw_part).lower():
+                                            orig_kw = str(candidate)
+                                            break
+                                    if orig_kw:
+                                        r_match = f"{orig_kw}@{field_part}"
+                            except Exception:
+                                pass
                 except Exception:
-                    r_match = r_match or ''
+                    pass
     
-            # grava no campo padrão 'match' (string vazia se nada)
-            r['match'] = r_match or ''
+            # 5) normalização final e assegura string
+            try:
+                if isinstance(r_match, (list, tuple)) and r_match:
+                    r_match = str(r_match[0])
+            except Exception:
+                pass
+            r_match = (r_match or '').strip()
+            r['match'] = r_match
+
     
             # garantir description (short) existe
             if 'description (short)' not in r or not r.get('description (short)'):
