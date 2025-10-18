@@ -1809,46 +1809,68 @@ def main():
     # ---------------------------------------------------------
     # Normalização dos rows: garantir chaves, extrair matched reason
     # ---------------------------------------------------------
-    # helper simples para gerar description (short) caso falte
-    def _strip_html_short_simple(text, max_len=300):
-        try:
-            s = _re.sub(r'<[^>]+>', '', text or '')
-            s = ' '.join(s.split())
-            return s[:max_len]
-        except Exception:
-            return (text or '')[:max_len]
-    
     try:
-        mr_re = _re.compile(r'\[MatchedReason:\s*(.+?)\]', _re.I)
+        # pattern para extrair o sufixo que generate_feeds.py adiciona: [MatchedReason: ...]
+        mr_re = re.compile(r'\[MatchedReason:\s*(.+?)\]', re.I)
+    
         for r in all_rows:
             # garantir topic
             if 'topic' not in r or r.get('topic') is None:
                 r['topic'] = r.get('topic', '') or ''
     
             # garantir description (campo usado por filtros)
-            if not r.get('description'):
+            if 'description' not in r or not r.get('description'):
                 r['description'] = r.get('description (short)', '') or r.get('description', '') or ''
     
-            # extrair matched reason se estiver embutido na description
-            if not r.get('match'):
-                src_desc = r.get('description','') or ''
-                m = mr_re.search(src_desc)
-                if m:
-                    reason = m.group(1).strip()
-                    r['match'] = reason
-                    # remover o sufixo da description (limpar)
-                    r['description'] = mr_re.sub('', src_desc).strip()
-                    # actualizar description (short)
-                    r['description (short)'] = _strip_html_short_simple(r['description'], max_len=300)
-                else:
-                    # usar matched_reason se existir sob outro nome
-                    r['match'] = (r.get('matched_reason') or r.get('matched_reason_raw') or '') or ''
+            # Procurar matched reason por várias vias
+            r_match = ''
+    
+            # 1) procurar [MatchedReason: ...] em description/short/title
+            combined_search = " ".join([
+                str(r.get('description','') or ''),
+                str(r.get('description (short)','') or ''),
+                str(r.get('title','') or '')
+            ])
+            m = mr_re.search(combined_search)
+            if m:
+                r_match = m.group(1).strip()
+                # limpar description (remover sufixo)
+                try:
+                    r['description'] = mr_re.sub('', r.get('description','')).strip()
+                    r['description (short)'] = strip_html_short(r['description'], max_len=300)
+                except Exception:
+                    pass
+    
+            # 2) campos explícitos vindos do generate_feeds.py
+            if not r_match:
+                r_match = (r.get('matched_reason') or r.get('matched_reason_raw') or '') or ''
+    
+            # 3) procurar variantes sem colchetes "MatchedReason: foo"
+            if not r_match:
+                m2 = re.search(r'MatchedReason[:\s]+([^\]\n\r]{1,200})', combined_search, re.I)
+                if m2:
+                    r_match = m2.group(1).strip()
+    
+            # 4) fallback: se tivermos configuração do site, calcular com matches_filters_for_row()
+            if not r_match:
+                try:
+                    site_key = (r.get('site') or '').strip()
+                    site_cfg = SITES_CFG_MAP.get(site_key) if 'SITES_CFG_MAP' in globals() else None
+                    if site_cfg:
+                        calc = matches_filters_for_row(r, site_cfg)  # devolve 'keyword@field' ou None
+                        if calc:
+                            r_match = calc
+                except Exception:
+                    r_match = r_match or ''
+    
+            # grava no campo padrão 'match' (string vazia se nada)
+            r['match'] = r_match or ''
     
             # garantir description (short) existe
-            if not r.get('description (short)'):
-                r['description (short)'] = _strip_html_short_simple(r.get('description',''), max_len=300)
+            if 'description (short)' not in r or not r.get('description (short)'):
+                r['description (short)'] = strip_html_short(r.get('description','') or '', max_len=300)
     
-            # garantir chaves base
+            # garantir outras chaves básicas para evitar KeyError no DataFrame
             if 'site' not in r:
                 r['site'] = r.get('site') or ''
             if 'title' not in r:
@@ -1859,6 +1881,25 @@ def main():
                 r['pubDate'] = r.get('pubDate') or r.get('date') or ''
     except Exception as _e:
         print("Normalization step failed:", _e)
+
+    # ---------------------------------------------------------
+    # Filtrar rows: se site tem filtros configurados e row['match'] está vazia -> descartar
+    # ---------------------------------------------------------
+    try:
+        kept = []
+        for r in all_rows:
+            site_key = (r.get('site') or '').strip()
+            site_cfg = SITES_CFG_MAP.get(site_key) if 'SITES_CFG_MAP' in globals() else None
+            if site_cfg:
+                kw = site_cfg.get('filters', {}).get('keywords', []) or []
+                exc = site_cfg.get('filters', {}).get('exclude', []) or []
+                if (kw or exc) and not r.get('match'):
+                    # site tem filtros mas esta row não correspondeu -> ignora
+                    continue
+            kept.append(r)
+        all_rows = kept
+    except Exception as _e:
+        print("Filtering step failed:", _e)
 
 
 
