@@ -1912,6 +1912,49 @@ def main():
             r_match = (r_match or '').strip()
             r['match'] = r_match
 
+            # --- Normalização final do campo 'match' para exibição segura no Excel ---
+            try:
+                mval = (r.get('match') or '').strip()
+                if mval:
+                    # se existirem vários matches concatenados por ';', fica só com o primeiro
+                    if ';' in mval:
+                        mval = mval.split(';', 1)[0].strip()
+    
+                    # se o formato for keyword@field ou exclude:term@field, normaliza este formato
+                    if '@' in mval:
+                        left, right = [p.strip() for p in mval.split('@', 1)]
+                        # tenta recuperar capitalização original da keyword a partir do sites config
+                        try:
+                            site_cfg = SITES_CFG_MAP.get(r.get('site','')) if 'SITES_CFG_MAP' in globals() else None
+                            if site_cfg and left:
+                                for cand in (site_cfg.get('filters', {}).get('keywords', []) or []):
+                                    if str(cand).strip().lower() == left.lower():
+                                        left = str(cand).strip()
+                                        break
+                        except Exception:
+                            pass
+                        # se left for absurdamente longo, corta para uma forma legível
+                        if len(left) > 80:
+                            left = left[:77].rstrip() + '...'
+                        # se right for muito longo, corta também
+                        if len(right) > 80:
+                            right = right[:77].rstrip() + '...'
+                        mval = f"{left}@{right}"
+                    else:
+                        # valor livre: limita comprimento a algo cómodo e evita caracter de elipse unicódigo
+                        if len(mval) > 120:
+                            mval = mval[:117].rstrip() + '...'
+    
+                # escreve de volta (sempre string)
+                r['match'] = mval or ''
+            except Exception:
+                # se algo falhar aqui, não fazer nada drástico — manter o valor original
+                try:
+                    r['match'] = str(r.get('match') or '')
+                except Exception:
+                    r['match'] = ''
+
+
     
             # garantir description (short) existe
             if 'description (short)' not in r or not r.get('description (short)'):
