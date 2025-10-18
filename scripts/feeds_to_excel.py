@@ -35,6 +35,8 @@ SITES_JSON_PATHS = [
     os.path.join('rss-feeds', 'scripts', 'sites.json'),
     'sites.json'
 ]
+# carregar configuração de sites (usa a função load_sites_config_map que já tens)
+SITES_CFG_MAP = load_sites_config_map(os.path.join(ROOT, 'sites.json'))
 
 # --- adicionar mapping tzinfos básico para evitar UnknownTimezoneWarning ---
 _DEFAULT_TZINFOS = {
@@ -1591,7 +1593,11 @@ def main():
                             rows['match'] = match
                         else:
                             rows['match'] = ''
+                        # exemplo: depois de rows = {...}
+                        m = matches_filters_for_row(rows, SITES_CFG_MAP.get(site_name, {})) or ''
+                        rows['match'] = m
                         all_rows.append(rows)
+
                         added += 1
                     # skip parsing XML for mediapost
                     print(f"Added {added} mediapost items (scraped live)")
@@ -1631,6 +1637,9 @@ def main():
                                 rows['match'] = match
                             else:
                                 rows['match'] = ''
+                            # exemplo: depois de rows = {...}
+                            m = matches_filters_for_row(rows, SITES_CFG_MAP.get(site_name, {})) or ''
+                            rows['match'] = m
                             all_rows.append(rows)
                             added += 1
                         print(f"Using rendered HTML for {site_name}: added {added} items")
@@ -1663,6 +1672,9 @@ def main():
                         rows['match'] = match
                     else:
                         rows['match'] = ''
+                    # exemplo: depois de rows = {...}
+                    m = matches_filters_for_row(rows, SITES_CFG_MAP.get(site_name, {})) or ''
+                    rows['match'] = m
                     all_rows.append(rows)
                     added += 1
                 print(f"Added {added} medtechdive (home hero) items")
@@ -1692,6 +1704,9 @@ def main():
                         rows['match'] = match
                     else:
                         rows['match'] = ''
+                    # exemplo: depois de rows = {...}
+                    m = matches_filters_for_row(rows, SITES_CFG_MAP.get(site_name, {})) or ''
+                    rows['match'] = m
                     all_rows.append(rows)
                     added += 1
                 print(f"Added {added} medtechdive-devices items")
@@ -1723,6 +1738,9 @@ def main():
                     else:
                         # sem filtros -> mantém (mas preenche match vazia)
                         rows['match'] = ''
+                    # exemplo: depois de rows = {...}
+                    m = matches_filters_for_row(rows, SITES_CFG_MAP.get(site_name, {})) or ''
+                    rows['match'] = m
                     all_rows.append(rows)
                     added += 1
                 print(f"Added {added} mobihealthnews items (scraped live)")
@@ -1758,6 +1776,9 @@ def main():
                             rows['match'] = match
                         else:
                             rows['match'] = ''
+                        # exemplo: depois de rows = {...}
+                        m = matches_filters_for_row(rows, SITES_CFG_MAP.get(site_name, {})) or ''
+                        rows['match'] = m
                         all_rows.append(rows)
                         added += 1
                     # skip XML parsing for semiengineering
@@ -1794,6 +1815,18 @@ def main():
                         print(f"   entry[{i}] title='{t[:140]}' link='{l}' published='{p}' summary_preview='{s}'")
             except Exception as dd:
                 print("  Error debug printing feed contents:", dd)
+
+            # preencher a coluna 'match' para cada row (quando estiver vazia) usando SITES_CFG_MAP
+            site_cfg = SITES_CFG_MAP.get(site_name) or {}
+            for r in rows:
+                if not r.get('match'):
+                    # matches_filters_for_row devolve string do tipo 'keyword@field' ou None
+                    try:
+                        mr = matches_filters_for_row(r, site_cfg)
+                    except Exception:
+                        mr = None
+                    r['match'] = mr or ''
+
 
             for r in rows:
                 r["item_container"] = ic
