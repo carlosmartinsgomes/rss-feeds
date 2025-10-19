@@ -873,7 +873,7 @@ def matches_filters_debug(item, cfg):
     """
     Verifica keywords/excludes do cfg nos campos do item.
     Retorna (keep:bool, reason:str_or_None)
-      - reason -> formato 'keyword@field' (ex: 'inmode@title') ou 'exclude:term@field'
+      - reason -> formato 'kw1@field;kw2@field2' (todas as matches) ou 'exclude:term@field'
       - Se não houver filtros no cfg devolve (True, None)
     Campos verificados (ordem): title, description, full_text, link, topic
     """
@@ -884,7 +884,7 @@ def matches_filters_debug(item, cfg):
     if not kw_list and not exclude_list:
         return True, None
 
-    # prepara textos (lowercase)
+    # preparar textos (lowercase)
     text_map = {
         'title': (item.get('title','') or '').lower(),
         'description': (item.get('description','') or item.get('description (short)','') or '').lower(),
@@ -893,27 +893,37 @@ def matches_filters_debug(item, cfg):
         'topic': (item.get('topic','') or '').lower()
     }
 
-    # keywords: primeiro match (por campo na ordem definida)
+    # keywords: coleciona todas as matches (mantendo ordem keywords -> fields)
     if kw_list:
+        matches = []
         for k in kw_list:
             if not k:
                 continue
             kl = str(k).lower()
             for field in ('title','description','full_text','link','topic'):
                 if kl in text_map.get(field,''):
-                    return True, f"{kl}@{field}"
-        return False, None
+                    matches.append(f"{kl}@{field}")
+        if matches:
+            # devolve True e todas as matches separadas por ';'
+            return True, ";".join(matches)
+        else:
+            return False, None
 
-    # excludes: se bater, rejeita e dá razão
+    # excludes: se bater, rejeita (retorna False) e inclui a razão (pode haver múltiplos; junta-se por ';')
+    excl_matches = []
     for ex in exclude_list:
         if not ex:
             continue
         el = str(ex).lower()
         for field in ('title','description','full_text','link','topic'):
             if el in text_map.get(field,''):
-                return False, f"exclude:{el}@{field}"
+                excl_matches.append(f"exclude:{el}@{field}")
+    if excl_matches:
+        # qualquer exclude faz rejeição (mantemos essa regra)
+        return False, ";".join(excl_matches)
 
     return True, None
+
 
 # --- helper: aplicar filtros e garantir matched_reason -----------------------
 def apply_filters_and_mark(items, cfg):
