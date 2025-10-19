@@ -850,6 +850,18 @@ def build_feed(name, cfg, items):
             desc_to_use = it.get('description') or ''
             if it.get('matched_reason'):
                 desc_to_use = (desc_to_use + ' ').strip() + f" [MatchedReason: {it.get('matched_reason')}]"
+
+            # se houver matched_reason, adicionar também como category (evita perda por truncamento do description)
+            try:
+                mr = it.get('matched_reason')
+                if mr:
+                    # o feedgen aceita fe.category(term=...)
+                    # guardamos a string tal como veio (pode ser "kw@field;kw2@field2")
+                    fe.category(term=str(mr))
+            except Exception:
+                pass
+
+            
             fe.description(desc_to_use)
             if it.get('date'):
                 try:
