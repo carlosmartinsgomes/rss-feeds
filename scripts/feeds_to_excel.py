@@ -17,6 +17,14 @@ from dateutil import parser as dateparser
 from dateutil import tz as date_tz
 from urllib.parse import urljoin, urlparse
 
+# suprimir warning spúrio do BeautifulSoup quando uma string parece uma URL
+try:
+    from bs4 import MarkupResemblesLocatorWarning
+    warnings.filterwarnings("ignore", category=MarkupResemblesLocatorWarning)
+except Exception:
+    pass
+
+
 # evitar UnknownTimezoneWarning do dateutil (mensagem do runner)
 try:
     from dateutil import _parser as _dateutil__parser
@@ -307,6 +315,25 @@ def parse_feed_file_with_fallback(ff):
             except Exception:
                 topic = "N/A"
 
+        # --- nova parte: extrair matched_reason_raw das tags do entry (feedparser) ---
+        matched_reason_raw = ''
+        try:
+            tags = e.get('tags') or []
+            if tags:
+                terms = []
+                for tg in tags:
+                    if isinstance(tg, dict):
+                        tterm = tg.get('term') or tg.get('label') or tg.get('term')
+                        if tterm:
+                            terms.append(str(tterm))
+                    elif isinstance(tg, str):
+                        terms.append(tg)
+                if terms:
+                    # junta múltiplos termos por ';' (mantém consistência com o resto)
+                    matched_reason_raw = ";".join(terms)
+        except Exception:
+            matched_reason_raw = ''
+
         if not pub and xml_soup:
             fallback = find_date_from_xml_item(xml_soup, title, link)
             if fallback:
@@ -318,15 +345,18 @@ def parse_feed_file_with_fallback(ff):
             if maybe:
                 pub = maybe
 
-        rows.append({
+        row = {
             "site": site_name,
             "title": title,
             "link (source)": link,
             "pubDate": pub,
             "description (short)": desc_short,
             "item_container": "",
-            "topic": topic or "N/A"
-        })
+            "topic": topic or "N/A",
+            # adiciona matched_reason_raw para ser usado na normalização posterior
+            "matched_reason_raw": matched_reason_raw or ''
+        }
+        rows.append(row)
     return rows
 
 
@@ -1580,9 +1610,11 @@ def main():
                             "pubDate": it.get('date', ''),
                             "description (short)": strip_html_short(it.get('description', ''), max_len=300),
                             "item_container": ic,
-                            "topic": "N/A"
+                            "topic": "N/A",
+                            # para consistência com parse_feed_file_with_fallback: expõe campo matched_reason_raw (vazio aqui)
+                            "matched_reason_raw": ""
                         }
-                        # aplica filtros
+                        # aplica filtros usando a função matches_filters_for_row (compatível com generate_feeds)
                         has_filters = bool(site_cfg.get('filters', {}).get('keywords') or site_cfg.get('filters', {}).get('exclude'))
                         match = matches_filters_for_row(rows, site_cfg)
                         if has_filters:
@@ -1598,7 +1630,7 @@ def main():
                     continue
                 except Exception as e:
                     print("Error scraping mediapost listing:", e)
-                    # fall through to XML parsing as fallback
+
 
     
             # --- special: modernhealthcare - prefer rendered HTML (if present) ---
@@ -1811,18 +1843,17 @@ def main():
     # ---------------------------------------------------------
 
     try:
-        # --- Normalização + DIAGNÓSTICO robusto dos matched reasons ---
         # regex para token fechado e para token aberto/truncado no fim da string
         mr_re = _re.compile(r'\[MatchedReason:\s*(.+?)\]', _re.I)
         mr_re_unclosed = _re.compile(r'\[MatchedReason:\s*([^\]\n\r<]{1,400})(?:\]|$)', _re.I)
 
-        problem_rows = []   # coleção para relatório resumido
+        problem_rows = []
         total_rows = len(all_rows)
 
         for idx, r in enumerate(all_rows):
-            # salvar snapshot do que havia antes (útil para diagnóstico)
+            # snapshot dos campos originais
             orig_desc = r.get('description', '') or r.get('description (short)', '') or ''
-            orig_matched = r.get('matched_reason') or r.get('matched_reason_raw') or ''
+            orig_matched = r.get('matched_reason') or r.get('matched_reason_raw') or r.get('matched_reason_raw_alt','') or ''
 
             # garantir topic
             if 'topic' not in r or r.get('topic') is None:
@@ -1832,7 +1863,7 @@ def main():
             if not r.get('description'):
                 r['description'] = r.get('description (short)', '') or r.get('description', '') or ''
 
-            # preparar descrição limpa para regex (substituir entidades de elipse por '...')
+            # normalizar entidades elipse por '...'
             src_desc = str(r.get('description') or '')
             src_desc = _re.sub(r'(&#8230;|&hellip;)', '...', src_desc, flags=_re.I)
 
@@ -1844,57 +1875,48 @@ def main():
                 extracted = m.group(1).strip()
                 src_desc = mr_re.sub('', src_desc).strip()
             else:
-                # 2) token truncado (sem ']') - comum quando feed corta o summary
+                # 2) token truncado (sem ']')
                 m2 = mr_re_unclosed.search(src_desc)
                 if m2:
                     extracted = m2.group(1).strip()
                     src_desc = mr_re_unclosed.sub('', src_desc).strip()
 
-            # remover restos tipo "[MatchedReason:..." que possam persistir no fim
+            # limpar eventuais restos
             src_desc = _re.sub(r'\[MatchedReason[:=]?[^\]]*$', '', src_desc, flags=_re.I).strip()
-
-            # guarda a descrição limpa de volta
             r['description'] = src_desc
 
-            # se não extraiu nada, tentar usar campos já presentes
+            # 3) se nada extraído, usar matched_reason_raw (feed tags) ou matched_reason vindo do feed
             if not extracted:
-                extracted = str(orig_matched or '')
+                extracted = str(orig_matched or '').strip()
 
-            # normalizar HTML entities no extracted e strip
-            try:
-                import html as _htmlmod
-                extracted = _htmlmod.unescape(str(extracted or '')).strip()
-            except Exception:
-                extracted = (extracted or '').strip()
-
-            # heurística: se extracted for só elipses/pouco informativo, tentar recomputar match
-            if (not extracted) or extracted in ('...', '…') or _re.match(r'^[\.\s\W]{0,4}$', extracted) or len(extracted) < 2:
+            # 4) se extracted for apenas elipses ou curto, tentar recomputar via site cfg
+            if (not extracted) or extracted in ('...', '…') or _re.match(r'^[\.\s\W]{0,4}$', extracted):
                 try:
                     site_key = (r.get('site') or '').strip()
                     site_cfg = None
                     if 'SITES_CFG_MAP' in globals() and site_key:
                         site_cfg = SITES_CFG_MAP.get(site_key)
                         if not site_cfg:
-                            # heurística: procurar por chave que contenha/comece com site_key (case-insensitive)
                             sk_low = site_key.lower()
                             for k in (SITES_CFG_MAP.keys() or []):
                                 if k and (k.lower() == sk_low or k.lower().startswith(sk_low) or sk_low.startswith(k.lower())):
                                     site_cfg = SITES_CFG_MAP.get(k)
                                     break
                     if site_cfg:
-                        recomputed = matches_filters_for_row(r, site_cfg)
-                        if recomputed:
-                            extracted = recomputed
+                        recomputed_keep = matches_filters_for_row(r, site_cfg)
+                        # matches_filters_for_row devolve string (e.g., 'kw@field' ou 'kw1@f;kw2@f')
+                        if recomputed_keep:
+                            extracted = recomputed_keep
                 except Exception:
                     pass
 
-            # se houver vários matches separados por ';', ficar só com o primeiro
+            # se houver múltiplos matches separados por ';' -> manter todos (pedido teu)
             if extracted and ';' in extracted:
-                extracted = extracted.split(';', 1)[0].strip()
+                extracted = ";".join([p.strip() for p in extracted.split(';') if p.strip()])
 
             # truncar para um tamanho seguro para o Excel
-            if extracted and len(extracted) > 120:
-                extracted = extracted[:117].rstrip() + '...'
+            if extracted and len(extracted) > 240:
+                extracted = extracted[:237].rstrip() + '...'
 
             # gravar match saneado
             r['match'] = extracted or ''
@@ -1913,25 +1935,11 @@ def main():
             if 'pubDate' not in r:
                 r['pubDate'] = r.get('pubDate') or r.get('date') or ''
 
-            # ---------- DIAGNOSTIC checks ----------
-            # condicoes que queremos investigar: match vazio/'...' ou ainda aparece token no fim da description
+            # diagnóstico leve (apenas para logs) — colecta casos problemáticos
             desc_has_token = bool(_re.search(r'\[MatchedReason[:=]?', orig_desc, flags=_re.I))
             match_val = (r.get('match') or '').strip()
-            problem = False
-            reasons = []
-            if desc_has_token:
-                problem = True
-                reasons.append('orig_description_contains_MatchedReason_token')
-            if match_val in ('', '...', '…'):
-                problem = True
-                reasons.append(f'match_empty_or_ellipsis (value={repr(match_val)})')
-            # se a descrição original continha entidade &hellip; => pode ter truncamento
-            if _re.search(r'(&#8230;|&hellip;)', orig_desc or '', flags=_re.I):
-                problem = True
-                reasons.append('orig_description_contains_html_ellipsis')
-            # guarda dados úteis para debug se problema detectado
-            if problem:
-                # tentar detectar quais keywords do site bateram (para investigar casos multi-match)
+            if desc_has_token or match_val in ('', '...', '…'):
+                # detectar keywords do site que batem
                 kw_matches = []
                 try:
                     site_cfg = None
@@ -1957,7 +1965,6 @@ def main():
                 except Exception:
                     pass
 
-                # collect diagnostic record
                 problem_rows.append({
                     'idx': idx,
                     'site': r.get('site',''),
@@ -1967,32 +1974,28 @@ def main():
                     'post_description_tail': (r.get('description','')[-240:] if r.get('description') else '')[:240],
                     'orig_matched': orig_matched or '',
                     'match': r.get('match',''),
-                    'reasons': reasons,
                     'kw_matches': kw_matches
                 })
 
-        # --- printar relatório resumido de diagnóstico (marcadores fáceis de grepar) ---
+        # imprimir relatório light de diagnóstico (marcadores fáceis)
         if problem_rows:
             print("===DIAG_SUMMARY_START===")
             print(f"DIAG_TOTAL_ROWS={total_rows} DIAG_PROBLEM_ROWS={len(problem_rows)}")
-            # agrupar por site para facilidade de leitura
             by_site = {}
             for pr in problem_rows:
                 by_site.setdefault(pr['site'] or 'UNKNOWN', []).append(pr)
             for site_name, rows in by_site.items():
                 print(f"===DIAG_START_SITE={site_name}===")
                 print(f"DIAG_SITE_PROBLEMS={len(rows)}")
-                # limitar detalhes por site (não encher logs demais) — 50 por site max
                 for i, pr in enumerate(rows[:50]):
                     print(f"DIAG_ROW[{pr['idx']}] title='{pr['title'][:120]}' link='{pr['link'][:120]}'")
                     print(f"  DIAG_orig_description_tail='{pr['orig_description_tail']}'")
                     print(f"  DIAG_post_description_tail='{pr['post_description_tail']}'")
                     print(f"  DIAG_orig_matched='{pr['orig_matched']}' DIAG_final_match='{pr['match']}'")
-                    print(f"  DIAG_reasons={pr['reasons']} DIAG_kw_matches={pr['kw_matches']}")
+                    print(f"  DIAG_kw_matches={pr['kw_matches']}")
                 print(f"===DIAG_END_SITE={site_name}===")
             print("===DIAG_SUMMARY_END===")
         else:
-            # imprimir uma linha pequena para confirmar que rodou
             print("===DIAG_SUMMARY=== No problems detected in normalization step.")
     except Exception as _e:
         print("Normalization step failed:", _e)
