@@ -1810,7 +1810,7 @@ def main():
     # Normalização dos rows: garantir chaves, extrair matched reason
     # ---------------------------------------------------------
 
-        try:
+    try:
         # --- Normalização + DIAGNÓSTICO robusto dos matched reasons ---
         # regex para token fechado e para token aberto/truncado no fim da string
         mr_re = _re.compile(r'\[MatchedReason:\s*(.+?)\]', _re.I)
