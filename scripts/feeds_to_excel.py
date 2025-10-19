@@ -1809,6 +1809,170 @@ def main():
     # ---------------------------------------------------------
     # Normalização dos rows: garantir chaves, extrair matched reason
     # ---------------------------------------------------------
+
+    try:
+        # pattern para extrair o sufixo que generate_feeds.py adiciona: [MatchedReason: ...]
+        mr_re = re.compile(r'\[MatchedReason:\s*(.+?)\]', re.I)
+    
+        for r in all_rows:
+            # garantir topic
+            if 'topic' not in r or r.get('topic') is None:
+                r['topic'] = r.get('topic', '') or ''
+    
+            # garantir description (campo usado por filtros)
+            if 'description' not in r or not r.get('description'):
+                r['description'] = r.get('description (short)', '') or r.get('description', '') or ''
+    
+            # -------------------------------------------------
+            # Procurar matched reason por várias vias (robusto)
+            # -------------------------------------------------
+            r_match = ''
+    
+            # campos a procurar (ordem de prioridade)
+            fields_to_search = [
+                ('description', r.get('description','') or ''),
+                ('description (short)', r.get('description (short)','') or ''),
+                ('title', r.get('title','') or ''),
+                ('full_text', r.get('full_text','') or ''),
+                ('link (source)', r.get('link (source)','') or ''),
+                ('link', r.get('link','') or ''),
+                ('topic', r.get('topic','') or '')
+            ]
+    
+            # 1) se existir matched_reason / matched_reason_raw já preenchido pelo feed, usa-o
+            mr_direct = r.get('matched_reason') or r.get('matched_reason_raw')
+            if mr_direct:
+                try:
+                    if isinstance(mr_direct, (list, tuple)) and mr_direct:
+                        r_match = str(mr_direct[0])
+                    else:
+                        r_match = str(mr_direct)
+                except Exception:
+                    r_match = ''
+    
+            # 2) procurar padrão entre colchetes [MatchedReason: ...] nos campos mais relevantes
+            if not r_match:
+                for fname, ftext in fields_to_search:
+                    try:
+                        m = mr_re.search(str(ftext) or '')
+                        if m:
+                            r_match = m.group(1).strip()
+                            # se encontrar na description, remove o sufixo para não poluir a preview
+                            if fname.startswith('description'):
+                                try:
+                                    r['description'] = mr_re.sub('', r.get('description','')).strip()
+                                    r['description (short)'] = strip_html_short(r['description'], max_len=300)
+                                except Exception:
+                                    pass
+                            break
+                    except Exception:
+                        continue
+    
+            # 3) procurar variantes sem colchetes: "MatchedReason: foo" ou "MatchedReason=foo"
+            if not r_match:
+                for fname, ftext in fields_to_search:
+                    try:
+                        m2 = re.search(r'MatchedReason[:=\s]+([^\]\n\r]{1,200})', str(ftext) or '', re.I)
+                        if m2:
+                            r_match = m2.group(1).strip()
+                            break
+                    except Exception:
+                        continue
+    
+            # 4) fallback: perguntar à função matches_filters_for_row() (usa a lógica dos filtros)
+            if not r_match:
+                try:
+                    site_key = (r.get('site') or '').strip()
+                    site_cfg = SITES_CFG_MAP.get(site_key) if 'SITES_CFG_MAP' in globals() else None
+                    if site_cfg:
+                        calc = matches_filters_for_row(r, site_cfg)  # ex: 'inmode@title' ou 'exclude:term@field'
+                        if calc:
+                            r_match = calc
+                            # se for do tipo 'keyword@field', tenta recuperar a capitalização original do sites.json
+                            try:
+                                if '@' in r_match and not r_match.lower().startswith('exclude:'):
+                                    kw_part, field_part = r_match.split('@', 1)
+                                    orig_kw = None
+                                    for candidate in (site_cfg.get('filters', {}).get('keywords', []) or []):
+                                        if str(candidate).lower() == str(kw_part).lower():
+                                            orig_kw = str(candidate)
+                                            break
+                                    if orig_kw:
+                                        r_match = f"{orig_kw}@{field_part}"
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+    
+            # 5) normalização final e assegura string
+            try:
+                if isinstance(r_match, (list, tuple)) and r_match:
+                    r_match = str(r_match[0])
+            except Exception:
+                pass
+            r_match = (r_match or '').strip()
+            r['match'] = r_match
+
+            # --- Normalização final do campo 'match' para exibição segura no Excel ---
+            try:
+                mval = (r.get('match') or '').strip()
+                if mval:
+                    # se existirem vários matches concatenados por ';', fica só com o primeiro
+                    if ';' in mval:
+                        mval = mval.split(';', 1)[0].strip()
+    
+                    # se o formato for keyword@field ou exclude:term@field, normaliza este formato
+                    if '@' in mval:
+                        left, right = [p.strip() for p in mval.split('@', 1)]
+                        # tenta recuperar capitalização original da keyword a partir do sites config
+                        try:
+                            site_cfg = SITES_CFG_MAP.get(r.get('site','')) if 'SITES_CFG_MAP' in globals() else None
+                            if site_cfg and left:
+                                for cand in (site_cfg.get('filters', {}).get('keywords', []) or []):
+                                    if str(cand).strip().lower() == left.lower():
+                                        left = str(cand).strip()
+                                        break
+                        except Exception:
+                            pass
+                        # se left for absurdamente longo, corta para uma forma legível
+                        if len(left) > 80:
+                            left = left[:77].rstrip() + '...'
+                        # se right for muito longo, corta também
+                        if len(right) > 80:
+                            right = right[:77].rstrip() + '...'
+                        mval = f"{left}@{right}"
+                    else:
+                        # valor livre: limita comprimento a algo cómodo e evita caracter de elipse unicódigo
+                        if len(mval) > 120:
+                            mval = mval[:117].rstrip() + '...'
+    
+                # escreve de volta (sempre string)
+                r['match'] = mval or ''
+            except Exception:
+                # se algo falhar aqui, não fazer nada drástico — manter o valor original
+                try:
+                    r['match'] = str(r.get('match') or '')
+                except Exception:
+                    r['match'] = ''
+
+
+    
+            # garantir description (short) existe
+            if 'description (short)' not in r or not r.get('description (short)'):
+                r['description (short)'] = strip_html_short(r.get('description','') or '', max_len=300)
+    
+            # garantir outras chaves básicas para evitar KeyError no DataFrame
+            if 'site' not in r:
+                r['site'] = r.get('site') or ''
+            if 'title' not in r:
+                r['title'] = r.get('title') or ''
+            if 'link (source)' not in r:
+                r['link (source)'] = r.get('link') or r.get('link (source)') or ''
+            if 'pubDate' not in r:
+                r['pubDate'] = r.get('pubDate') or r.get('date') or ''
+    except Exception as _e:
+        print("Normalization step failed:", _e)
+    
     try:
         # regex para token fechado e para token aberto/truncado no fim da string
         mr_re = _re.compile(r'\[MatchedReason:\s*(.+?)\]', _re.I)
