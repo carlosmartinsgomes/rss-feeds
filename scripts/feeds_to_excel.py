@@ -1810,13 +1810,20 @@ def main():
     # Normalização dos rows: garantir chaves, extrair matched reason
     # ---------------------------------------------------------
 
-    try:
+        try:
+        # --- Normalização + DIAGNÓSTICO robusto dos matched reasons ---
         # regex para token fechado e para token aberto/truncado no fim da string
         mr_re = _re.compile(r'\[MatchedReason:\s*(.+?)\]', _re.I)
-        # captura se o feed cortou no fim (sem o ']'), permite entidades e elipses
         mr_re_unclosed = _re.compile(r'\[MatchedReason:\s*([^\]\n\r<]{1,400})(?:\]|$)', _re.I)
 
-        for r in all_rows:
+        problem_rows = []   # coleção para relatório resumido
+        total_rows = len(all_rows)
+
+        for idx, r in enumerate(all_rows):
+            # salvar snapshot do que havia antes (útil para diagnóstico)
+            orig_desc = r.get('description', '') or r.get('description (short)', '') or ''
+            orig_matched = r.get('matched_reason') or r.get('matched_reason_raw') or ''
+
             # garantir topic
             if 'topic' not in r or r.get('topic') is None:
                 r['topic'] = r.get('topic', '') or ''
@@ -1826,25 +1833,24 @@ def main():
                 r['description'] = r.get('description (short)', '') or r.get('description', '') or ''
 
             # preparar descrição limpa para regex (substituir entidades de elipse por '...')
-            src_desc = (r.get('description') or '')
+            src_desc = str(r.get('description') or '')
             src_desc = _re.sub(r'(&#8230;|&hellip;)', '...', src_desc, flags=_re.I)
 
             extracted = ''
 
-            # 1) tentar token fechado [MatchedReason: ...]
+            # 1) token fechado [MatchedReason: ...]
             m = mr_re.search(src_desc)
             if m:
                 extracted = m.group(1).strip()
-                # remover ocorrências fechadas
                 src_desc = mr_re.sub('', src_desc).strip()
             else:
-                # 2) tentar token truncado (sem ']') - comum quando feed corta o summary
+                # 2) token truncado (sem ']') - comum quando feed corta o summary
                 m2 = mr_re_unclosed.search(src_desc)
                 if m2:
                     extracted = m2.group(1).strip()
                     src_desc = mr_re_unclosed.sub('', src_desc).strip()
 
-            # 3) limpeza de restos tipo "[MatchedReason:..." que porventura ficaram
+            # remover restos tipo "[MatchedReason:..." que possam persistir no fim
             src_desc = _re.sub(r'\[MatchedReason[:=]?[^\]]*$', '', src_desc, flags=_re.I).strip()
 
             # guarda a descrição limpa de volta
@@ -1852,7 +1858,7 @@ def main():
 
             # se não extraiu nada, tentar usar campos já presentes
             if not extracted:
-                extracted = (r.get('matched_reason') or r.get('matched_reason_raw') or '') or ''
+                extracted = str(orig_matched or '')
 
             # normalizar HTML entities no extracted e strip
             try:
@@ -1861,10 +1867,9 @@ def main():
             except Exception:
                 extracted = (extracted or '').strip()
 
-            # se extracted for só elipses, pontuação ou muito curto, tentar recomputar match
-            if not extracted or extracted in ('...', '…') or _re.match(r'^[\.\s\W]{0,4}$', extracted) or len(extracted) < 2:
+            # heurística: se extracted for só elipses/pouco informativo, tentar recomputar match
+            if (not extracted) or extracted in ('...', '…') or _re.match(r'^[\.\s\W]{0,4}$', extracted) or len(extracted) < 2:
                 try:
-                    # tentar localizar site_cfg com chave directa ou heurística (fallback)
                     site_key = (r.get('site') or '').strip()
                     site_cfg = None
                     if 'SITES_CFG_MAP' in globals() and site_key:
@@ -1883,22 +1888,22 @@ def main():
                 except Exception:
                     pass
 
-            # se houver dezenas de matches concatenados, pegar só o primeiro (segurança)
+            # se houver vários matches separados por ';', ficar só com o primeiro
             if extracted and ';' in extracted:
                 extracted = extracted.split(';', 1)[0].strip()
 
-            # truncar para um tamanho seguro para Excel
+            # truncar para um tamanho seguro para o Excel
             if extracted and len(extracted) > 120:
                 extracted = extracted[:117].rstrip() + '...'
 
             # gravar match saneado
             r['match'] = extracted or ''
 
-            # garantir description (short) existe
+            # garantir description (short) exista
             if not r.get('description (short)'):
                 r['description (short)'] = _strip_html_short_simple(r.get('description',''), max_len=300)
 
-            # garantir outras chaves básicas
+            # garantir chaves base
             if 'site' not in r:
                 r['site'] = r.get('site') or ''
             if 'title' not in r:
@@ -1908,8 +1913,90 @@ def main():
             if 'pubDate' not in r:
                 r['pubDate'] = r.get('pubDate') or r.get('date') or ''
 
+            # ---------- DIAGNOSTIC checks ----------
+            # condicoes que queremos investigar: match vazio/'...' ou ainda aparece token no fim da description
+            desc_has_token = bool(_re.search(r'\[MatchedReason[:=]?', orig_desc, flags=_re.I))
+            match_val = (r.get('match') or '').strip()
+            problem = False
+            reasons = []
+            if desc_has_token:
+                problem = True
+                reasons.append('orig_description_contains_MatchedReason_token')
+            if match_val in ('', '...', '…'):
+                problem = True
+                reasons.append(f'match_empty_or_ellipsis (value={repr(match_val)})')
+            # se a descrição original continha entidade &hellip; => pode ter truncamento
+            if _re.search(r'(&#8230;|&hellip;)', orig_desc or '', flags=_re.I):
+                problem = True
+                reasons.append('orig_description_contains_html_ellipsis')
+            # guarda dados úteis para debug se problema detectado
+            if problem:
+                # tentar detectar quais keywords do site bateram (para investigar casos multi-match)
+                kw_matches = []
+                try:
+                    site_cfg = None
+                    site_key = (r.get('site') or '').strip()
+                    if 'SITES_CFG_MAP' in globals() and site_key:
+                        site_cfg = SITES_CFG_MAP.get(site_key)
+                        if not site_cfg:
+                            sk_low = site_key.lower()
+                            for k in (SITES_CFG_MAP.keys() or []):
+                                if k and (k.lower() == sk_low or k.lower().startswith(sk_low) or sk_low.startswith(k.lower())):
+                                    site_cfg = SITES_CFG_MAP.get(k)
+                                    break
+                    if site_cfg:
+                        kws = (site_cfg.get('filters', {}).get('keywords') or []) or []
+                        for kw in kws:
+                            if not kw: 
+                                continue
+                            kl = str(kw).lower()
+                            for field in ('title','description','full_text','link','topic'):
+                                txt = (r.get(field) or '').lower()
+                                if kl in txt:
+                                    kw_matches.append(f"{kw}@{field}")
+                except Exception:
+                    pass
+
+                # collect diagnostic record
+                problem_rows.append({
+                    'idx': idx,
+                    'site': r.get('site',''),
+                    'title': (r.get('title') or '')[:200],
+                    'link': (r.get('link (source)') or '')[:240],
+                    'orig_description_tail': (orig_desc[-240:] if orig_desc else '')[:240],
+                    'post_description_tail': (r.get('description','')[-240:] if r.get('description') else '')[:240],
+                    'orig_matched': orig_matched or '',
+                    'match': r.get('match',''),
+                    'reasons': reasons,
+                    'kw_matches': kw_matches
+                })
+
+        # --- printar relatório resumido de diagnóstico (marcadores fáceis de grepar) ---
+        if problem_rows:
+            print("===DIAG_SUMMARY_START===")
+            print(f"DIAG_TOTAL_ROWS={total_rows} DIAG_PROBLEM_ROWS={len(problem_rows)}")
+            # agrupar por site para facilidade de leitura
+            by_site = {}
+            for pr in problem_rows:
+                by_site.setdefault(pr['site'] or 'UNKNOWN', []).append(pr)
+            for site_name, rows in by_site.items():
+                print(f"===DIAG_START_SITE={site_name}===")
+                print(f"DIAG_SITE_PROBLEMS={len(rows)}")
+                # limitar detalhes por site (não encher logs demais) — 50 por site max
+                for i, pr in enumerate(rows[:50]):
+                    print(f"DIAG_ROW[{pr['idx']}] title='{pr['title'][:120]}' link='{pr['link'][:120]}'")
+                    print(f"  DIAG_orig_description_tail='{pr['orig_description_tail']}'")
+                    print(f"  DIAG_post_description_tail='{pr['post_description_tail']}'")
+                    print(f"  DIAG_orig_matched='{pr['orig_matched']}' DIAG_final_match='{pr['match']}'")
+                    print(f"  DIAG_reasons={pr['reasons']} DIAG_kw_matches={pr['kw_matches']}")
+                print(f"===DIAG_END_SITE={site_name}===")
+            print("===DIAG_SUMMARY_END===")
+        else:
+            # imprimir uma linha pequena para confirmar que rodou
+            print("===DIAG_SUMMARY=== No problems detected in normalization step.")
     except Exception as _e:
         print("Normalization step failed:", _e)
+
 
 
 
