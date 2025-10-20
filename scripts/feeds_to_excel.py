@@ -374,12 +374,15 @@ def parse_feed_file_with_fallback(ff):
             "title": title,
             "link (source)": link,
             "pubDate": pub,
+            # guarda a descrição completa (útil para detecção do token [MatchedReason:...])
+            "description": desc or '',
             "description (short)": desc_short,
             "item_container": "",
             "topic": topic or "N/A",
             # adiciona matched_reason_raw para ser usado na normalização posterior
             "matched_reason_raw": matched_reason_raw or ''
         }
+
         rows.append(row)
     return rows
 
@@ -1958,7 +1961,7 @@ def main():
     # ---------------------------------------------------------
 
     try:
-        # expressões robustas para token fechado e token truncado/no-end
+        # regex para token fechado [MatchedReason: ...] e para token truncado/no-end
         mr_re = _re.compile(r'\[MatchedReason:\s*([^\]]{1,400})\]', _re.I)
         mr_re_unclosed = _re.compile(r'\[MatchedReason:\s*([^\]\n\r<]{1,400})(?:\]|$)', _re.I)
 
@@ -1971,110 +1974,136 @@ def main():
             if not r.get('description'):
                 r['description'] = r.get('description (short)', '') or r.get('description', '') or ''
 
-            # --- remover e extrair qualquer token [MatchedReason: ...] presente na description ---
-            src_desc = r.get('description', '') or ''
+            # construir combined_search para procurar nos lugares mais prováveis
+            combined_search = " ".join([
+                str(r.get('description','') or ''),
+                str(r.get('description (short)','') or ''),
+                str(r.get('title','') or '')
+            ])
+
+            # --- extrair matchedreason do texto (prioridade para token explícito na description/short/title) ---
             extracted = ''
 
-            # tentar primeiro encontrar token fechado
-            m = mr_re.search(src_desc)
+            # 1) procurar token fechado em combined_search
+            m = mr_re.search(combined_search)
             if m:
                 extracted = m.group(1).strip()
-                # remover todas as ocorrências fechadas
+                # remover todas as ocorrências fechadas da description (e da short)
                 try:
-                    r['description'] = mr_re.sub('', src_desc).strip()
+                    r['description'] = mr_re.sub('', r.get('description','')).strip()
                 except Exception:
-                    r['description'] = src_desc
-            else:
-                # procurar token truncado (sem ']') e removê-lo
-                m2 = mr_re_unclosed.search(src_desc)
+                    pass
+
+            # 2) se não encontrado, procurar token truncado (no fim) em combined_search
+            if not extracted:
+                m2 = mr_re_unclosed.search(combined_search)
                 if m2:
                     extracted = m2.group(1).strip()
                     try:
-                        r['description'] = mr_re_unclosed.sub('', src_desc).strip()
+                        r['description'] = mr_re_unclosed.sub('', r.get('description','')).strip()
                     except Exception:
-                        r['description'] = src_desc
+                        pass
 
-            # se não extraiu nada da descrição, tentar usar matched_reason_raw (vindo do feed)
+            # 3) se não extraiu nada a partir do texto, usar matched_reason_raw / matched_reason directo
             if not extracted:
                 extracted = (r.get('matched_reason') or r.get('matched_reason_raw') or '') or ''
 
-            # se ainda vazio, tentar recomputar com a lógica dos filtros (SITES_CFG_MAP + matches_filters_for_row)
-            if not extracted:
-                try:
-                    site_key = (r.get('site') or '').strip()
-                    site_cfg = SITES_CFG_MAP.get(site_key) if 'SITES_CFG_MAP' in globals() else None
-                    if site_cfg:
-                        calc = matches_filters_for_row(r, site_cfg)
-                        if calc:
-                            extracted = calc
-                except Exception:
-                    pass
+            extracted = (extracted or '').strip()
 
-            # Normalizações:
-            try:
-                # se houver múltiplos tokens separados por ';', conservar todos (mas limitar tamanho)
-                if extracted and ';' in extracted:
-                    parts = [p.strip() for p in extracted.split(';') if p.strip()]
-                    extracted = ';'.join(parts) if parts else extracted.strip()
-
-                # mapear capitalização original das keywords, se possível
+            # 4) se extracted for apenas uma elipse ou vazio, tentar recomputar via site cfg (fallback)
+            if extracted in ('', '...', '…'):
                 try:
                     site_cfg = SITES_CFG_MAP.get(r.get('site','')) if 'SITES_CFG_MAP' in globals() else None
-                    if site_cfg and extracted:
-                        # para cada parte 'kw@field' tentar obter kw com capitalização original
-                        parts = []
-                        for part in str(extracted).split(';'):
-                            part = part.strip()
-                            if '@' in part:
-                                kw, fld = [p.strip() for p in part.split('@',1)]
-                                orig_kw = None
-                                for cand in (site_cfg.get('filters', {}).get('keywords', []) or []):
-                                    if str(cand).strip().lower() == kw.lower():
-                                        orig_kw = str(cand).strip()
-                                        break
-                                if orig_kw:
-                                    parts.append(f"{orig_kw}@{fld}")
-                                else:
-                                    parts.append(part)
-                            else:
-                                parts.append(part)
-                        extracted = ';'.join(parts)
+                    if site_cfg:
+                        recomputed = matches_filters_for_row(r, site_cfg)
+                        if recomputed:
+                            extracted = recomputed
                 except Exception:
                     pass
 
-                # truncar comprimento razoável para o Excel
-                if extracted and len(extracted) > 200:
-                    extracted = extracted[:197].rstrip() + '...'
-            except Exception:
-                # se algo falhar, garantir string vazia
-                try:
-                    extracted = str(extracted or '')
-                except Exception:
-                    extracted = ''
-
-            # escrever o match final
-            r['match'] = (extracted or '').strip()
-
-            # --- garantir description (short) existe (actualizar se removemos token)
-            if not r.get('description (short)'):
-                r['description (short)'] = _strip_html_short_simple(r.get('description',''), max_len=300)
-            else:
-                # se description foi alterada/removida pelo MR remoção, atualizar short
-                try:
-                    r['description (short)'] = strip_html_short(r.get('description','') or '', max_len=300)
-                except Exception:
-                    r['description (short)'] = _strip_html_short_simple(r.get('description',''), max_len=300)
-
-            # --- evitar que topic seja um token matched-reason (ex.: 'of@title;of@full_text')
+            # 5) limpeza: manter múltiplos tokens se existirem; normalizar espaços
             try:
-                tval = (r.get('topic') or '') or ''
-                if tval and (('@' in tval) or tval.lower().startswith('exclude:')):
-                    # limpar topic se parecer um matched token
-                    r['topic'] = ''  # fica vazio/N/A para o Excel
+                if extracted:
+                    # normalizar separadores ';' sem criar entradas vazias
+                    parts = [p.strip() for p in re.split(r'[;]+', str(extracted)) if p and p.strip()]
+                    if parts:
+                        extracted = ";".join(parts)
+                    else:
+                        extracted = extracted.strip()
+            except Exception:
+                extracted = (extracted or '').strip()
+
+            # 6) tentar recuperar capitalização original das keywords (se possível)
+            try:
+                site_cfg = SITES_CFG_MAP.get(r.get('site','')) if 'SITES_CFG_MAP' in globals() else None
+                if site_cfg and extracted:
+                    parts = []
+                    for part in extracted.split(';'):
+                        part = part.strip()
+                        if not part:
+                            continue
+                        if '@' in part:
+                            kw, fld = [p.strip() for p in part.split('@',1)]
+                            orig_kw = None
+                            for cand in (site_cfg.get('filters', {}).get('keywords', []) or []):
+                                if str(cand).strip().lower() == kw.lower():
+                                    orig_kw = str(cand).strip()
+                                    break
+                            if orig_kw:
+                                parts.append(f"{orig_kw}@{fld}")
+                            else:
+                                parts.append(part)
+                        else:
+                            parts.append(part)
+                    extracted = ";".join(parts)
             except Exception:
                 pass
 
-            # garantir chaves base
+            # 7) garantir que não ficamos com um match que seja apenas '...' por truncamento
+            if extracted and extracted.strip() in ('...', '…'):
+                # tentar usar o raw original se existir
+                raw_try = (r.get('matched_reason_raw') or r.get('matched_reason') or '')
+                if raw_try and raw_try.strip() not in ('', '...', '…'):
+                    extracted = raw_try.strip()
+                else:
+                    # fallback para recomputar
+                    try:
+                        site_cfg = SITES_CFG_MAP.get(r.get('site','')) if 'SITES_CFG_MAP' in globals() else None
+                        if site_cfg:
+                            rc = matches_filters_for_row(r, site_cfg)
+                            if rc:
+                                extracted = rc
+                    except Exception:
+                        pass
+
+            # 8) truncar para um tamanho seguro, mas não criar '...' sozinho
+            if extracted and len(extracted) > 240:
+                extracted = extracted[:237].rstrip() + '...'
+                if extracted.strip() in ('...', '…'):
+                    # preferir raw se o truncado ficou só elipse
+                    raw_try = (r.get('matched_reason_raw') or r.get('matched_reason') or '')
+                    if raw_try and raw_try.strip():
+                        extracted = raw_try.strip()[:240]
+
+            # gravar match final (pode conter múltiplos tokens separados por ';')
+            r['match'] = (extracted or '').strip()
+
+            # actualizar description (short) se necessário (removemos matched token da description)
+            try:
+                r['description (short)'] = strip_html_short(r.get('description','') or '', max_len=300)
+            except Exception:
+                # fallback simples
+                r['description (short)'] = _re.sub(r'<[^>]+>', '', r.get('description','') or '')[:300]
+
+            # evitar que topic seja um token matched-reason (ex.: 'of@title;of@full_text')
+            try:
+                tval = (r.get('topic') or '') or ''
+                if tval and (('@' in tval) or tval.lower().startswith('exclude:')):
+                    r['topic'] = ''
+            except Exception:
+                pass
+
+            # garantir chaves base para o DataFrame
             if 'site' not in r:
                 r['site'] = r.get('site') or ''
             if 'title' not in r:
