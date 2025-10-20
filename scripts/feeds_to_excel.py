@@ -302,10 +302,11 @@ def parse_feed_file_with_fallback(ff):
         desc = (e.get("summary", "") or e.get("description", "") or "")
         desc_short = strip_html_short(desc, max_len=300)
 
-        topic = "N/A"
         
+        # --- determinar topic sem usar tokens matched-reason (evitar tags do tipo 'kw@field') ---
+        topic = "N/A"
         try:
-            tags = e.get("tags") or []
+            tags = e.get('tags') or []
             candidate_terms = []
             for tg in tags:
                 if isinstance(tg, dict):
@@ -314,22 +315,28 @@ def parse_feed_file_with_fallback(ff):
                     term = str(tg).strip()
                 if not term:
                     continue
-                # ignore tag tokens that look like matched-reason tokens: contain '@' (e.g. 'inmode@title') or 'exclude:' prefix
+                # ignora tokens tipo matched-reason: contêm '@' (ex: inmode@title) ou começam por 'exclude:'
                 if re.search(r'@', term) or term.lower().startswith('exclude:'):
                     continue
                 candidate_terms.append(term)
             if candidate_terms:
                 topic = candidate_terms[0]
             else:
-                # fallback to first tag if no "clean" tags found
+                # fallback seguro: só usar o primeiro tag se não for um token (sem '@' e sem 'exclude:')
                 if tags:
                     first = tags[0]
                     if isinstance(first, dict):
-                        topic = (first.get('term') or first.get('label') or '') or "N/A"
+                        fterm = (first.get('term') or first.get('label') or '') or ''
                     else:
-                        topic = str(first) or "N/A"
+                        fterm = str(first) or ''
+                    if fterm and not (re.search(r'@', fterm) or fterm.lower().startswith('exclude:')):
+                        topic = fterm
+                    else:
+                        topic = "N/A"
         except Exception:
             topic = "N/A"
+
+        
 
 
         # --- nova parte: extrair matched_reason_raw das tags do entry (feedparser) ---
@@ -1951,87 +1958,121 @@ def main():
     # ---------------------------------------------------------
 
     try:
-        # regex para token fechado e para token aberto/truncado no fim da string
-        mr_re = _re.compile(r'\[MatchedReason:\s*(.+?)\]', _re.I)
+        # expressões robustas para token fechado e token truncado/no-end
+        mr_re = _re.compile(r'\[MatchedReason:\s*([^\]]{1,400})\]', _re.I)
         mr_re_unclosed = _re.compile(r'\[MatchedReason:\s*([^\]\n\r<]{1,400})(?:\]|$)', _re.I)
 
-        problem_rows = []
-        total_rows = len(all_rows)
-
-        for idx, r in enumerate(all_rows):
-            # snapshot dos campos originais
-            orig_desc = r.get('description', '') or r.get('description (short)', '') or ''
-            orig_matched = r.get('matched_reason') or r.get('matched_reason_raw') or r.get('matched_reason_raw_alt','') or ''
-
+        for r in all_rows:
             # garantir topic
             if 'topic' not in r or r.get('topic') is None:
                 r['topic'] = r.get('topic', '') or ''
 
-            # garantir description (campo usado por filtros)
+            # garantir description base (usar description(short) se description vazio)
             if not r.get('description'):
                 r['description'] = r.get('description (short)', '') or r.get('description', '') or ''
 
-            # normalizar entidades elipse por '...'
-            src_desc = str(r.get('description') or '')
-            src_desc = _re.sub(r'(&#8230;|&hellip;)', '...', src_desc, flags=_re.I)
-
+            # --- remover e extrair qualquer token [MatchedReason: ...] presente na description ---
+            src_desc = r.get('description', '') or ''
             extracted = ''
 
-            # 1) token fechado [MatchedReason: ...]
+            # tentar primeiro encontrar token fechado
             m = mr_re.search(src_desc)
             if m:
                 extracted = m.group(1).strip()
-                src_desc = mr_re.sub('', src_desc).strip()
+                # remover todas as ocorrências fechadas
+                try:
+                    r['description'] = mr_re.sub('', src_desc).strip()
+                except Exception:
+                    r['description'] = src_desc
             else:
-                # 2) token truncado (sem ']')
+                # procurar token truncado (sem ']') e removê-lo
                 m2 = mr_re_unclosed.search(src_desc)
                 if m2:
                     extracted = m2.group(1).strip()
-                    src_desc = mr_re_unclosed.sub('', src_desc).strip()
+                    try:
+                        r['description'] = mr_re_unclosed.sub('', src_desc).strip()
+                    except Exception:
+                        r['description'] = src_desc
 
-            # limpar eventuais restos
-            src_desc = _re.sub(r'\[MatchedReason[:=]?[^\]]*$', '', src_desc, flags=_re.I).strip()
-            r['description'] = src_desc
-
-            # 3) se nada extraído, usar matched_reason_raw (feed tags) ou matched_reason vindo do feed
+            # se não extraiu nada da descrição, tentar usar matched_reason_raw (vindo do feed)
             if not extracted:
-                extracted = str(orig_matched or '').strip()
+                extracted = (r.get('matched_reason') or r.get('matched_reason_raw') or '') or ''
 
-            # 4) se extracted for apenas elipses ou curto, tentar recomputar via site cfg
-            if (not extracted) or extracted in ('...', '…') or _re.match(r'^[\.\s\W]{0,4}$', extracted):
+            # se ainda vazio, tentar recomputar com a lógica dos filtros (SITES_CFG_MAP + matches_filters_for_row)
+            if not extracted:
                 try:
                     site_key = (r.get('site') or '').strip()
-                    site_cfg = None
-                    if 'SITES_CFG_MAP' in globals() and site_key:
-                        site_cfg = SITES_CFG_MAP.get(site_key)
-                        if not site_cfg:
-                            sk_low = site_key.lower()
-                            for k in (SITES_CFG_MAP.keys() or []):
-                                if k and (k.lower() == sk_low or k.lower().startswith(sk_low) or sk_low.startswith(k.lower())):
-                                    site_cfg = SITES_CFG_MAP.get(k)
-                                    break
+                    site_cfg = SITES_CFG_MAP.get(site_key) if 'SITES_CFG_MAP' in globals() else None
                     if site_cfg:
-                        recomputed_keep = matches_filters_for_row(r, site_cfg)
-                        # matches_filters_for_row devolve string (e.g., 'kw@field' ou 'kw1@f;kw2@f')
-                        if recomputed_keep:
-                            extracted = recomputed_keep
+                        calc = matches_filters_for_row(r, site_cfg)
+                        if calc:
+                            extracted = calc
                 except Exception:
                     pass
 
-            # se houver múltiplos matches separados por ';' -> manter todos (pedido teu)
-            if extracted and ';' in extracted:
-                extracted = ";".join([p.strip() for p in extracted.split(';') if p.strip()])
+            # Normalizações:
+            try:
+                # se houver múltiplos tokens separados por ';', conservar todos (mas limitar tamanho)
+                if extracted and ';' in extracted:
+                    parts = [p.strip() for p in extracted.split(';') if p.strip()]
+                    extracted = ';'.join(parts) if parts else extracted.strip()
 
-            # truncar para um tamanho seguro para o Excel
-            if extracted and len(extracted) > 240:
-                extracted = extracted[:237].rstrip() + '...'
+                # mapear capitalização original das keywords, se possível
+                try:
+                    site_cfg = SITES_CFG_MAP.get(r.get('site','')) if 'SITES_CFG_MAP' in globals() else None
+                    if site_cfg and extracted:
+                        # para cada parte 'kw@field' tentar obter kw com capitalização original
+                        parts = []
+                        for part in str(extracted).split(';'):
+                            part = part.strip()
+                            if '@' in part:
+                                kw, fld = [p.strip() for p in part.split('@',1)]
+                                orig_kw = None
+                                for cand in (site_cfg.get('filters', {}).get('keywords', []) or []):
+                                    if str(cand).strip().lower() == kw.lower():
+                                        orig_kw = str(cand).strip()
+                                        break
+                                if orig_kw:
+                                    parts.append(f"{orig_kw}@{fld}")
+                                else:
+                                    parts.append(part)
+                            else:
+                                parts.append(part)
+                        extracted = ';'.join(parts)
+                except Exception:
+                    pass
 
-            # gravar match saneado
-            r['match'] = extracted or ''
+                # truncar comprimento razoável para o Excel
+                if extracted and len(extracted) > 200:
+                    extracted = extracted[:197].rstrip() + '...'
+            except Exception:
+                # se algo falhar, garantir string vazia
+                try:
+                    extracted = str(extracted or '')
+                except Exception:
+                    extracted = ''
 
-            # garantir description (short) exista
+            # escrever o match final
+            r['match'] = (extracted or '').strip()
+
+            # --- garantir description (short) existe (actualizar se removemos token)
             if not r.get('description (short)'):
                 r['description (short)'] = _strip_html_short_simple(r.get('description',''), max_len=300)
+            else:
+                # se description foi alterada/removida pelo MR remoção, atualizar short
+                try:
+                    r['description (short)'] = strip_html_short(r.get('description','') or '', max_len=300)
+                except Exception:
+                    r['description (short)'] = _strip_html_short_simple(r.get('description',''), max_len=300)
+
+            # --- evitar que topic seja um token matched-reason (ex.: 'of@title;of@full_text')
+            try:
+                tval = (r.get('topic') or '') or ''
+                if tval and (('@' in tval) or tval.lower().startswith('exclude:')):
+                    # limpar topic se parecer um matched token
+                    r['topic'] = ''  # fica vazio/N/A para o Excel
+            except Exception:
+                pass
 
             # garantir chaves base
             if 'site' not in r:
@@ -2043,70 +2084,9 @@ def main():
             if 'pubDate' not in r:
                 r['pubDate'] = r.get('pubDate') or r.get('date') or ''
 
-            # diagnóstico leve (apenas para logs) — colecta casos problemáticos
-            desc_has_token = bool(_re.search(r'\[MatchedReason[:=]?', orig_desc, flags=_re.I))
-            match_val = (r.get('match') or '').strip()
-            if desc_has_token or match_val in ('', '...', '…'):
-                # detectar keywords do site que batem
-                kw_matches = []
-                try:
-                    site_cfg = None
-                    site_key = (r.get('site') or '').strip()
-                    if 'SITES_CFG_MAP' in globals() and site_key:
-                        site_cfg = SITES_CFG_MAP.get(site_key)
-                        if not site_cfg:
-                            sk_low = site_key.lower()
-                            for k in (SITES_CFG_MAP.keys() or []):
-                                if k and (k.lower() == sk_low or k.lower().startswith(sk_low) or sk_low.startswith(k.lower())):
-                                    site_cfg = SITES_CFG_MAP.get(k)
-                                    break
-                    if site_cfg:
-                        kws = (site_cfg.get('filters', {}).get('keywords') or []) or []
-                        for kw in kws:
-                            if not kw: 
-                                continue
-                            kl = str(kw).lower()
-                            for field in ('title','description','full_text','link','topic'):
-                                txt = (r.get(field) or '').lower()
-                                if kl in txt:
-                                    kw_matches.append(f"{kw}@{field}")
-                except Exception:
-                    pass
-
-                problem_rows.append({
-                    'idx': idx,
-                    'site': r.get('site',''),
-                    'title': (r.get('title') or '')[:200],
-                    'link': (r.get('link (source)') or '')[:240],
-                    'orig_description_tail': (orig_desc[-240:] if orig_desc else '')[:240],
-                    'post_description_tail': (r.get('description','')[-240:] if r.get('description') else '')[:240],
-                    'orig_matched': orig_matched or '',
-                    'match': r.get('match',''),
-                    'kw_matches': kw_matches
-                })
-
-        # imprimir relatório light de diagnóstico (marcadores fáceis)
-        if problem_rows:
-            print("===DIAG_SUMMARY_START===")
-            print(f"DIAG_TOTAL_ROWS={total_rows} DIAG_PROBLEM_ROWS={len(problem_rows)}")
-            by_site = {}
-            for pr in problem_rows:
-                by_site.setdefault(pr['site'] or 'UNKNOWN', []).append(pr)
-            for site_name, rows in by_site.items():
-                print(f"===DIAG_START_SITE={site_name}===")
-                print(f"DIAG_SITE_PROBLEMS={len(rows)}")
-                for i, pr in enumerate(rows[:50]):
-                    print(f"DIAG_ROW[{pr['idx']}] title='{pr['title'][:120]}' link='{pr['link'][:120]}'")
-                    print(f"  DIAG_orig_description_tail='{pr['orig_description_tail']}'")
-                    print(f"  DIAG_post_description_tail='{pr['post_description_tail']}'")
-                    print(f"  DIAG_orig_matched='{pr['orig_matched']}' DIAG_final_match='{pr['match']}'")
-                    print(f"  DIAG_kw_matches={pr['kw_matches']}")
-                print(f"===DIAG_END_SITE={site_name}===")
-            print("===DIAG_SUMMARY_END===")
-        else:
-            print("===DIAG_SUMMARY=== No problems detected in normalization step.")
     except Exception as _e:
         print("Normalization step failed:", _e)
+
 
     # ----------------------- DIAG PÓS-NORMALIZAÇÃO GLOBAL -----------------------
     try:
