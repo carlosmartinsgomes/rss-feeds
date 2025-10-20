@@ -1819,6 +1819,97 @@ def main():
             # --- fallback: parse feed XML com fallback ---
             rows = parse_feed_file_with_fallback(ff)
 
+            # ----------------------- DIAG PER-FEED (INSERIR AQUI) -----------------------
+            def _diag_inspect_feed_file(ff, rows, site_name):
+                try:
+                    print(f"===DIAG_START_SITE={site_name}===")
+                    print("="*79)
+                    # rendered info (consultar sites cfg se disponível)
+                    site_cfg = SITES_CFG_MAP.get(site_name, {}) if 'SITES_CFG_MAP' in globals() else {}
+                    rf = site_cfg.get('render_file') if site_cfg else None
+                    rendered_checked = "MISSING"
+                    if rf:
+                        rf_path = rf if os.path.isabs(rf) or rf.startswith('scripts') else os.path.join('scripts', rf)
+                        if os.path.exists(rf_path):
+                            rendered_checked = rf_path
+                        else:
+                            # also check scripts/rendered/*
+                            alt = os.path.join('scripts', 'rendered', rf)
+                            rendered_checked = alt if os.path.exists(alt) else "MISSING"
+                    print(f"rendered_path: {rendered_checked} (checked cfg.render_file and scripts/rendered/* )")
+                    print("-"*79)
+                    # raw file preview
+                    try:
+                        raw = open(ff, 'r', encoding='utf-8').read()
+                        head = (raw[:1200] or '').replace("\n"," ").replace("\r"," ")
+                        tail = (raw[-1200:] or '').replace("\n"," ").replace("\r"," ")
+                        print(f"raw_file_bytes: {len(raw)}")
+                        print("RAW_HEAD_PREVIEW:", head[:800])
+                        print("RAW_TAIL_PREVIEW:", tail[-800:])
+                    except Exception as _e:
+                        print("raw_file_read_failed:", _e)
+            
+                    # feedparser entries diagnostic
+                    try:
+                        parsed = feedparser.parse(ff)
+                        entries = getattr(parsed, 'entries', []) or []
+                        print(f"feedparser_entries_count: {len(entries)}")
+                        # inspect first 10 entries
+                        for i, ent in enumerate(entries[:10]):
+                            t = (ent.get('title') or '')[:140].replace("\n"," ")
+                            l = ent.get('link') or ent.get('id') or ''
+                            p = ent.get('published') or ent.get('updated') or ''
+                            summ = (ent.get('summary') or ent.get('description') or '')[:300].replace("\n"," ")
+                            # tags/categories
+                            tags = ent.get('tags') or []
+                            tag_terms = []
+                            for tg in tags:
+                                if isinstance(tg, dict):
+                                    tag_terms.append(tg.get('term') or tg.get('label') or str(tg))
+                                else:
+                                    tag_terms.append(str(tg))
+                            # checks
+                            has_matchedreason_pattern = bool(re.search(r'\[MatchedReason:', summ))
+                            truncated_matched = bool(re.search(r'\[MatchedReason:[^\]]*$', summ))
+                            print(f"ENTRY[{i}] title='{t}' link='{l[:120]}' pub='{p}' tags={tag_terms}")
+                            print(f"  summary_tail='{summ[-200:]}'")
+                            print(f"  MATCHEDREASON_IN_SUMMARY={has_matchedreason_pattern} TRUNCATED_MATCHEDREASON={truncated_matched}")
+                        # summary stats
+                        cnt_has_desc_matched = sum(1 for e in entries if (e.get('summary') or e.get('description') or '').find('[MatchedReason:') >= 0)
+                        cnt_empty_links = sum(1 for e in entries if not (e.get('link') or ''))
+                        cnt_tags_like_matched = 0
+                        for e in entries:
+                            for tg in (e.get('tags') or []):
+                                tterm = tg.get('term') if isinstance(tg, dict) else str(tg)
+                                if tterm and (('@' in str(tterm)) or str(tterm).lower().startswith('exclude:')):
+                                    cnt_tags_like_matched += 1
+                                    break
+                        print(f"SUMMARY_STATS: desc_with_matchedreason={cnt_has_desc_matched} entries_with_empty_link={cnt_empty_links} tags_like_matched_tokens={cnt_tags_like_matched}")
+                    except Exception as _e:
+                        print("feedparser_inspect_failed:", _e)
+            
+                    # rows parsed by parse_feed_file_with_fallback (your function output)
+                    try:
+                        print(f"PARSED_ROWS_COUNT (parse_feed_file_with_fallback) = {len(rows)}")
+                        for i, r in enumerate(rows[:8]):
+                            t = (r.get('title') or '')[:140].replace("\n"," ")
+                            l = (r.get('link (source)') or '')[:140]
+                            desc = (r.get('description (short)') or '')[:200].replace("\n"," ")
+                            mr_raw = (r.get('matched_reason_raw') or '')[:200]
+                            print(f"  ROW[{i}] title='{t}' link='{l}' desc_preview='{desc}' matched_reason_raw='{mr_raw}'")
+                    except Exception as _e:
+                        print("rows_preview_failed:", _e)
+            
+                    print("="*79)
+                    print(f"===DIAG_END_SITE={site_name}===")
+                except Exception as _e:
+                    print("DIAG per-feed failed:", _e)
+            
+            # chama o diag (não altera rows)
+            _diag_inspect_feed_file(ff, rows, site_name)
+            # --------------------- FIM DIAG PER-FEED ---------------------------------
+
+
             # DEBUG: mostrar quantas rows devolvidas e primeiras entradas (ajuda a diagnosticar porque o xlsx pode não conter o esperado)
             try:
                 print(f"PARSING FEEDS_TO_EXCEL DEBUG -> file={ff} | site={site_name} | rows_returned={len(rows)}")
@@ -2017,8 +2108,53 @@ def main():
     except Exception as _e:
         print("Normalization step failed:", _e)
 
+    # ----------------------- DIAG PÓS-NORMALIZAÇÃO GLOBAL -----------------------
+    try:
+        print("===DIAG_SUMMARY_START===")
+        total_rows = len(all_rows)
+        print(f"DIAG_TOTAL_ROWS={total_rows}")
+    
+        by_site = {}
+        for idx, r in enumerate(all_rows):
+            site = (r.get('site') or 'UNKNOWN')
+            r['_diag_idx'] = idx
+            by_site.setdefault(site, []).append(r)
+    
+        for site_name, rows in by_site.items():
+            tot = len(rows)
+            count_with_match = sum(1 for rr in rows if rr.get('match'))
+            count_desc_with_matched_token = sum(1 for rr in rows if rr.get('description') and '[MatchedReason:' in rr.get('description'))
+            count_match_is_topic = sum(1 for rr in rows if (rr.get('match') or '') and ((rr.get('topic') or '').strip() == (rr.get('match') or '').strip()))
+            count_link_empty = sum(1 for rr in rows if not (rr.get('link (source)') or rr.get('link')))
+            print(f"===DIAG_START_SITE={site_name}===")
+            print(f"DIAG_SITE_TOTAL_ROWS={tot} DIAG_SITE_WITH_MATCH={count_with_match} DIAG_DESC_HAS_MATCHEDTOKEN={count_desc_with_matched_token} DIAG_MATCH_EQUALS_TOPIC={count_match_is_topic} DIAG_EMPTY_LINKS={count_link_empty}")
+            # imprimir até 40 linhas problemáticas para este site
+            problems = []
+            for rr in rows:
+                # condições que consideramos 'problemáticas' / interessantes:
+                cond_desc_has_token = bool(rr.get('description') and '[MatchedReason:' in rr.get('description'))
+                cond_match_empty_but_raw = (not rr.get('match')) and (rr.get('matched_reason_raw') or '')
+                cond_match_truncated = bool(rr.get('match') and rr.get('match').strip() in ('...', '…'))
+                cond_topic_equals_match = (rr.get('match') and rr.get('topic') and rr.get('topic').strip() == rr.get('match').strip())
+                if cond_desc_has_token or cond_match_empty_but_raw or cond_match_truncated or cond_topic_equals_match:
+                    problems.append(rr)
+            for i, pr in enumerate(problems[:50]):
+                idx = pr.get('_diag_idx')
+                print(f"DIAG_ROW[{idx}] title='{(pr.get('title') or '')[:140]}' link='{(pr.get('link (source)') or '')[:140]}'")
+                print(f"  DIAG_orig_matched_raw='{(pr.get('matched_reason_raw') or '')[:300]}'")
+                print(f"  DIAG_final_match='{(pr.get('match') or '')}'")
+                print(f"  DIAG_topic='{(pr.get('topic') or '')}'")
+                # show tail of description and whether token remains
+                desc_tail = (pr.get('description') or '')[-300:].replace("\n"," ").replace("\r"," ")
+                print(f"  DIAG_orig_description_tail='{desc_tail}'")
+                print(f"  DIAG_has_MatchedReason_in_desc={('[MatchedReason:' in (pr.get('description') or ''))}")
+            print(f"===DIAG_END_SITE={site_name}===")
+        print("===DIAG_SUMMARY_END===")
+    except Exception as _e:
+        print("DIAG post-normalization failed:", _e)
+    # ----------------------- FIM DIAG PÓS-NORMALIZAÇÃO ---------------------------
 
-
+    
 
     # ---------------------------------------------------------
     # Filtrar rows: se site tem filtros configurados e row['match'] está vazia -> descartar
