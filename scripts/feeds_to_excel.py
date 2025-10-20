@@ -303,17 +303,34 @@ def parse_feed_file_with_fallback(ff):
         desc_short = strip_html_short(desc, max_len=300)
 
         topic = "N/A"
-        if e.get("tags"):
-            try:
-                t = e.get("tags")
-                if isinstance(t, list) and len(t) > 0:
-                    first = t[0]
-                    if isinstance(first, dict) and first.get('term'):
-                        topic = first.get('term')
-                    elif isinstance(first, str):
-                        topic = first
-            except Exception:
-                topic = "N/A"
+        
+        try:
+            tags = e.get("tags") or []
+            candidate_terms = []
+            for tg in tags:
+                if isinstance(tg, dict):
+                    term = (tg.get('term') or tg.get('label') or '').strip()
+                else:
+                    term = str(tg).strip()
+                if not term:
+                    continue
+                # ignore tag tokens that look like matched-reason tokens: contain '@' (e.g. 'inmode@title') or 'exclude:' prefix
+                if re.search(r'@', term) or term.lower().startswith('exclude:'):
+                    continue
+                candidate_terms.append(term)
+            if candidate_terms:
+                topic = candidate_terms[0]
+            else:
+                # fallback to first tag if no "clean" tags found
+                if tags:
+                    first = tags[0]
+                    if isinstance(first, dict):
+                        topic = (first.get('term') or first.get('label') or '') or "N/A"
+                    else:
+                        topic = str(first) or "N/A"
+        except Exception:
+            topic = "N/A"
+
 
         # --- nova parte: extrair matched_reason_raw das tags do entry (feedparser) ---
         matched_reason_raw = ''
