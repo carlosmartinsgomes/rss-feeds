@@ -29,7 +29,7 @@ jobs:
         shell: bash
         run: |
           if [ -d "./scripts" ]; then sd="scripts";
-          elif [ -d "./rss-feeds/scripts" ]; then sd="rss-feeds/scripts";
+          elif [ -d "./scripts" ]; then sd="scripts";
           else sd=$(find . -type d -name scripts | head -n 1); sd="${sd#./}";
           fi
           echo "scripts_dir=$sd" >> $GITHUB_OUTPUT
@@ -176,7 +176,7 @@ jobs:
         id: detect
         run: |
           if [ -d "./scripts" ]; then sd="scripts";
-          elif [ -d "./rss-feeds/scripts" ]; then sd="rss-feeds/scripts";
+          elif [ -d "./scripts" ]; then sd="scripts";
           else sd=$(find . -type d -name scripts | head -n 1); sd="${sd#./}";
           fi
           echo "scripts_dir=$sd" >> $GITHUB_OUTPUT
@@ -319,10 +319,10 @@ jobs:
 
       - name: Ensure compare script exists (debug)
         run: |
-          echo "Listing rss-feeds/scripts:"
-          ls -la rss-feeds/scripts || true
+          echo "Listing scripts:"
+          ls -la scripts || true
           echo "Show compare script head if present:"
-          test -f rss-feeds/scripts/compare_and_email.py && sed -n '1,160p' rss-feeds/scripts/compare_and_email.py || echo "rss-feeds/scripts/compare_and_email.py missing"
+          test -f scripts/compare_and_email.py && sed -n '1,160p' scripts/compare_and_email.py || echo "scripts/compare_and_email.py missing"
 
       - name: Run compare & email (compare_and_email.py)
         env:
