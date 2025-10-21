@@ -1,8 +1,6 @@
 name: Generate RSS feeds (stable + businesswire)
 
 on:
-  push:
-    branches: [ main ]
   workflow_dispatch:
 
 env:
