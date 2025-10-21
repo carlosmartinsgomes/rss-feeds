@@ -337,35 +337,7 @@ jobs:
           echo "zipname=$ZIPNAME" >> $GITHUB_OUTPUT
         shell: bash
 
-      - name: Merge feeds (generate dist/merged-feed.xml)
-        run: |
-          python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then
-            pip install -r requirements.txt
-          else
-            pip install feedparser feedgen python-dateutil
-          fi
-          python3 scripts/merge_feeds.py
-
-      - name: Commit merged feed
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "actions@github.com"
-          git add dist/merged-feed.xml || echo "no merged feed to add"
-          # commit if there are staged changes
-          if ! git diff --cached --quiet; then
-            git commit -m "Update merged feed" || echo "commit failed"
-            # fetch remote and rebase onto origin/main to avoid non-fast-forward
-            git fetch origin main --depth=1 || true
-            if git rebase origin/main; then
-              git push origin HEAD:main || echo "git push failed"
-            else
-              echo "Rebase failed; aborting push"
-              git rebase --abort || true
-            fi
-          else
-            echo "no changes to commit"
-          fi
+      
           
       - name: Show produced feeds
         run: |
