@@ -331,27 +331,43 @@ def parse_feed_file_with_fallback(ff):
             full_text = (title or '') + ' ' + (desc or '')
 
         
-        # --- nova parte: extrair matched_reason_raw das tags do entry (feedparser) ---
+        # --- nova parte: extrair matched_reason_raw das tags do entry (feedparser)
+        #         e detectar topic inserido como token "topic:VALUE" pelo generate_feeds.py ---
         matched_reason_raw = ''
         try:
             tags = e.get('tags') or []
+            topic_from_tags = ''
             if tags:
                 terms = []
                 for tg in tags:
                     if isinstance(tg, dict):
-                        # feedparser usa { 'term': '...', 'scheme': ... } em muitos casos
                         tterm = tg.get('term') or tg.get('label') or ''
-                        if tterm:
-                            terms.append(str(tterm).strip())
+                        tterm = (str(tterm) or '').strip()
                     else:
-                        # se for uma string simples
-                        if tg:
-                            terms.append(str(tg).strip())
+                        tterm = (str(tg) or '').strip()
+                    if not tterm:
+                        continue
+                    # token especial `topic:...` (inserido pelo generate_feeds) — recolher e não colocar em matched_reason_raw
+                    if tterm.lower().startswith('topic:'):
+                        if not topic_from_tags:
+                            # extrair parte depois dos dois pontos
+                            topic_from_tags = tterm.split(':', 1)[1].strip()
+                        # não adicionar ao terms (evita confusão match/topic)
+                        continue
+                    # manter outros tokens (por exemplo matched_reason tokens como 'kw@field' ou outros categories)
+                    terms.append(tterm)
                 if terms:
-                    # junta múltiplos termos por ';' (mantém consistência com o resto)
                     matched_reason_raw = ";".join([t for t in terms if t])
         except Exception:
             matched_reason_raw = ''
+
+        # se detectámos um topic via tags, usar essa versão (sobrescreve o topic anterior)
+        try:
+            if topic_from_tags:
+                topic = topic_from_tags or (topic or "N/A")
+        except Exception:
+            pass
+
 
 
         # --- determinar topic: prioridade para selector no sites.json, depois tags, depois category/dc:subject ---
