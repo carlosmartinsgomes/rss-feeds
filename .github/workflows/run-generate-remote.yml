@@ -23,7 +23,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          python3 -m pip install --upgrade pip
+          python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then
             pip install -r requirements.txt
           else
@@ -39,7 +39,7 @@ jobs:
       - name: Install Playwright (Chromium) for rendering
         run: |
           # instala playwright (pequeno) e o browser chromium
-          python3 -m pip install --upgrade pip || true
+          python -m pip install --upgrade pip || true
           npm install playwright@1.40.0 || npm install playwright || true
           npx playwright install chromium
         shell: bash
@@ -105,7 +105,7 @@ jobs:
 
       - name: Install tiny extras for Excel export
         run: |
-          python3 -m pip install --upgrade pip
+          python -m pip install --upgrade pip
           pip install pandas openpyxl feedparser beautifulsoup4
 
       - name: Generate Excel summary of feeds
@@ -116,7 +116,7 @@ jobs:
       
       - name: Install email helper deps
         run: |
-          python3 -m pip install --upgrade pip
+          python -m pip install --upgrade pip
           pip install pandas openpyxl
 
       
@@ -132,8 +132,8 @@ jobs:
 
       - name: Install email helper deps
         run: |
-          python3 -m pip install --upgrade pip
-          python3 -m pip install pandas openpyxl
+          python -m pip install --upgrade pip
+          python -m pip install pandas openpyxl
 
       - name: Run compare & email (compare_and_email.py)
         env:
