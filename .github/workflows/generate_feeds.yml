@@ -334,9 +334,9 @@ jobs:
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
           SMTP_USE_SSL: ${{ secrets.SMTP_USE_SSL }}
           FEEDS_XLSX: feeds_summary.xlsx
-          SENT_IDS_FILE: rss-feeds/.github/data/sent_ids.json
+          SENT_IDS_FILE: .github/data/sent_ids.json
         run: |
-          python3 rss-feeds/scripts/compare_and_email.py
+          python3 scripts/compare_and_email.py
 
       - name: Commit & push sent ids (if changed)
         if: ${{ always() }}
@@ -345,8 +345,8 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          mkdir -p rss-feeds/.github/data
-          git add rss-feeds/.github/data/sent_ids.json || true
+          mkdir -p .github/data
+          git add .github/data/sent_ids.json || true
           if git diff --staged --quiet; then
             echo "No changes to commit"
           else
