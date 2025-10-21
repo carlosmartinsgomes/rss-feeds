@@ -302,72 +302,156 @@ def parse_feed_file_with_fallback(ff):
         desc = (e.get("summary", "") or e.get("description", "") or "")
         desc_short = strip_html_short(desc, max_len=300)
 
-        
-        # --- determinar topic sem usar tokens matched-reason (evitar tags do tipo 'kw@field') ---
+        # construir full_text (útil para filtros que procuram em full_text)
+        full_text = ''
+        try:
+            # feedparser pode expor 'content' como lista de dicts
+            cnt = e.get('content') or e.get('contents') or None
+            if cnt:
+                if isinstance(cnt, list):
+                    pieces = []
+                    for c in cnt:
+                        try:
+                            if isinstance(c, dict):
+                                pieces.append(str(c.get('value') or c.get('content') or ''))
+                            else:
+                                pieces.append(str(c))
+                        except Exception:
+                            continue
+                    full_text = " ".join([p for p in pieces if p])
+                else:
+                    full_text = str(cnt)
+        except Exception:
+            full_text = ''
+
+        # garantir que full_text tem pelo menos title + desc
+        try:
+            full_text = " ".join([p for p in ((title or ''), (desc or ''), (full_text or '')) if p]).strip()
+        except Exception:
+            full_text = (title or '') + ' ' + (desc or '')
+
+        # --- determinar topic: prioridade para selector no sites.json, depois tags, depois category/dc:subject ---
         topic = "N/A"
         try:
-            tags = e.get('tags') or []
-            candidate_terms = []
-            for tg in tags:
-                if isinstance(tg, dict):
-                    term = (tg.get('term') or tg.get('label') or '').strip()
-                else:
-                    term = str(tg).strip()
-                if not term:
-                    continue
-                # ignora tokens tipo matched-reason: contêm '@' (ex: inmode@title) ou começam por 'exclude:'
-                if re.search(r'@', term) or term.lower().startswith('exclude:'):
-                    continue
-                candidate_terms.append(term)
-            if candidate_terms:
-                topic = candidate_terms[0]
-            else:
-                # fallback seguro: só usar o primeiro tag se não for um token (sem '@' e sem 'exclude:')
-                if tags:
-                    first = tags[0]
-                    if isinstance(first, dict):
-                        fterm = (first.get('term') or first.get('label') or '') or ''
+            site_cfg = SITES_CFG_MAP.get(site_name, {}) if 'SITES_CFG_MAP' in globals() else {}
+            topic_sel = site_cfg.get('topic') if isinstance(site_cfg, dict) else None
+
+            # pequeno helper local para selectors com '@attr'
+            def _sel_get(node, selector_with_attr):
+                if not selector_with_attr or node is None:
+                    return None
+                try:
+                    if '@' in selector_with_attr:
+                        sel, attr = selector_with_attr.split('@', 1)
+                        sel = sel.strip(); attr = attr.strip()
                     else:
-                        fterm = str(first) or ''
-                    if fterm and not (re.search(r'@', fterm) or fterm.lower().startswith('exclude:')):
-                        topic = fterm
+                        sel = selector_with_attr.strip(); attr = 'text'
+                    # try CSS select (works for xml/HTML)
+                    found = None
+                    try:
+                        found = node.select_one(sel)
+                    except Exception:
+                        # fallback: try find by tag name
+                        try:
+                            found = node.find(sel)
+                        except Exception:
+                            found = None
+                    if not found:
+                        return None
+                    if attr == 'text':
+                        return found.get_text(" ", strip=True) or None
+                    return found.get(attr) or None
+                except Exception:
+                    return None
+
+            # 1) se houver selector & xml_soup, procurar o item correspondente no xml e aplicar selector
+            selected_topic = None
+            if topic_sel and xml_soup:
+                # localizar node do item no xml que corresponda ao entry actual (por título ou link)
+                candidate = None
+                try:
+                    for node in xml_soup.find_all(['item', 'entry']):
+                        try:
+                            tnode = node.find('title')
+                            lnode = node.find('link')
+                            tstr = (tnode.string or '').strip() if tnode and getattr(tnode, 'string', None) else ''
+                            # link node pode estar em <link>href</link> ou como atributo href
+                            lstr = ''
+                            if lnode:
+                                if getattr(lnode, 'string', None):
+                                    lstr = (lnode.string or '').strip()
+                                else:
+                                    lstr = lnode.get('href') or lnode.get('HREF') or ''
+                                lstr = (lstr or '').strip()
+                            # comparar por título (preferível) ou por parte do link
+                            if tstr and title and tstr == title:
+                                candidate = node
+                                break
+                            if lstr and link and (link in lstr or lstr in link):
+                                candidate = node
+                                break
+                        except Exception:
+                            continue
+                except Exception:
+                    candidate = None
+
+                if candidate:
+                    try:
+                        val = _sel_get(candidate, topic_sel)
+                        if val:
+                            selected_topic = val
+                    except Exception:
+                        selected_topic = None
+
+            # 2) se não obteve por selector, tentar tags do entry (feedparser)
+            if not selected_topic:
+                try:
+                    tags = e.get('tags') or []
+                    candidate_terms = []
+                    for tg in tags:
+                        if isinstance(tg, dict):
+                            term = (tg.get('term') or tg.get('label') or '').strip()
+                        else:
+                            term = str(tg).strip()
+                        if not term:
+                            continue
+                        # ignorar tokens tipo matched-reason
+                        if re.search(r'@', term) or term.lower().startswith('exclude:'):
+                            continue
+                        candidate_terms.append(term)
+                    if candidate_terms:
+                        selected_topic = candidate_terms[0]
+                except Exception:
+                    selected_topic = None
+
+            # 3) fallback: procurar <category> ou dc:subject dentro do item (xml)
+            if not selected_topic and xml_soup:
+                try:
+                    # se candidate conhecido, procurar category lá; se não, buscar no item atual por título/link
+                    node_for_cat = None
+                    if 'candidate' in locals() and candidate:
+                        node_for_cat = candidate
                     else:
-                        topic = "N/A"
+                        # tentar achar item por título/link de novo (mais seguro)
+                        for node in xml_soup.find_all(['item', 'entry']):
+                            try:
+                                tnode = node.find('title')
+                                if tnode and getattr(tnode,'string',None) and title and tnode.string.strip() == title:
+                                    node_for_cat = node
+                                    break
+                            except Exception:
+                                continue
+                    if node_for_cat:
+                        cnode = node_for_cat.find('category') or node_for_cat.find('topic') or node_for_cat.find('dc:subject')
+                        if cnode and getattr(cnode,'string',None):
+                            selected_topic = (cnode.string or '').strip()
+                except Exception:
+                    selected_topic = None
+
+            if selected_topic:
+                topic = selected_topic
         except Exception:
             topic = "N/A"
-
-        
-
-
-        # --- nova parte: extrair matched_reason_raw das tags do entry (feedparser) ---
-        matched_reason_raw = ''
-        try:
-            tags = e.get('tags') or []
-            if tags:
-                terms = []
-                for tg in tags:
-                    if isinstance(tg, dict):
-                        tterm = tg.get('term') or tg.get('label') or tg.get('term')
-                        if tterm:
-                            terms.append(str(tterm))
-                    elif isinstance(tg, str):
-                        terms.append(tg)
-                if terms:
-                    # junta múltiplos termos por ';' (mantém consistência com o resto)
-                    matched_reason_raw = ";".join(terms)
-        except Exception:
-            matched_reason_raw = ''
-
-        if not pub and xml_soup:
-            fallback = find_date_from_xml_item(xml_soup, title, link)
-            if fallback:
-                pub = fallback
-
-        if not pub:
-            combined = " ".join([title or "", desc or ""])
-            maybe = find_date_in_text(combined)
-            if maybe:
-                pub = maybe
 
         row = {
             "site": site_name,
@@ -377,11 +461,13 @@ def parse_feed_file_with_fallback(ff):
             # guarda a descrição completa (útil para detecção do token [MatchedReason:...])
             "description": desc or '',
             "description (short)": desc_short,
+            "full_text": full_text or '',
             "item_container": "",
             "topic": topic or "N/A",
             # adiciona matched_reason_raw para ser usado na normalização posterior
             "matched_reason_raw": matched_reason_raw or ''
         }
+
 
         rows.append(row)
     return rows
