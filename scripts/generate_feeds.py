@@ -898,6 +898,15 @@ def build_feed(name, cfg, items):
             except Exception:
                 pass
 
+            # se houver topic no item, adiciona-o como category com prefixo 'topic:' para ser recuperável pelo parser
+            try:
+                tval = it.get('topic')
+                if tval:
+                    # guardamos como "topic:VALUE" para ser facilmente identificado no parsing posterior
+                    fe.category(term=f"topic:{tval}")
+            except Exception:
+                pass
+
             
             fe.description(desc_to_use)
             if it.get('date'):
