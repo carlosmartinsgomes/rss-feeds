@@ -112,6 +112,50 @@ jobs:
           python3 scripts/feeds_to_excel.py
         shell: bash
 
+      
+      - name: Install email helper deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas openpyxl
+
+      - name: Ensure compare script exists (debug)
+        run: |
+          echo "Listing .github/scripts:"
+          ls -la .github/scripts || true
+          echo "Show compare script head if present:"
+          test -f .github/scripts/compare_and_email.py && sed -n '1,120p' .github/scripts/compare_and_email.py || echo "compare_and_email.py missing"
+
+      - name: Run compare & email (compare_and_email.py)
+        env:
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          SMTP_USE_SSL: ${{ secrets.SMTP_USE_SSL }}
+          FEEDS_XLSX: feeds_summary.xlsx
+          SENT_IDS_FILE: .github/data/sent_ids.json
+        run: |
+          python3 .github/scripts/compare_and_email.py
+
+      - name: Commit & push sent ids (if changed)
+        if: ${{ always() }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          mkdir -p .github/data
+          git add .github/data/sent_ids.json || true
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "chore: update sent_ids from workflow run $GITHUB_RUN_ID" || true
+            git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:${GITHUB_REF#refs/heads/} || true
+          fi
+
+
       - name: Upload feeds Excel artifact
         uses: actions/upload-artifact@v4
         with:
