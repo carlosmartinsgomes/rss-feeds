@@ -29,7 +29,7 @@ jobs:
         shell: bash
         run: |
           if [ -d "./scripts" ]; then sd="scripts";
-          elif [ -d "./scripts" ]; then sd="scripts";
+          elif [ -d "./rss-feeds/scripts" ]; then sd="rss-feeds/scripts";
           else sd=$(find . -type d -name scripts | head -n 1); sd="${sd#./}";
           fi
           echo "scripts_dir=$sd" >> $GITHUB_OUTPUT
@@ -176,7 +176,7 @@ jobs:
         id: detect
         run: |
           if [ -d "./scripts" ]; then sd="scripts";
-          elif [ -d "./scripts" ]; then sd="scripts";
+          elif [ -d "./rss-feeds/scripts" ]; then sd="rss-feeds/scripts";
           else sd=$(find . -type d -name scripts | head -n 1); sd="${sd#./}";
           fi
           echo "scripts_dir=$sd" >> $GITHUB_OUTPUT
