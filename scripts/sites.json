@@ -569,7 +569,7 @@
       "date": "pubDate",
       "description": "description",
       "render_file": "scripts/rendered/journals_lww_latest.html",
-      "filters": { "keywords": ["inmode","morpheus8","facetite","bodytite","accutite","rfal","clinical study","trial","abstract","presentation","podium"] }
+      "filters": { "keywords": ["nasal tip","inmode","morpheus8","facetite","bodytite","accutite","rfal","clinical study","trial","abstract","presentation","podium"] }
     },
     {
       "name": "plasticsurgery-currentissue",
