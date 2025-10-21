@@ -1,0 +1,57 @@
+# .github/workflows/feeds-hourly.yml
+name: Hourly feeds -> email new items
+
+on:
+  schedule:
+    - cron: '0 * * * *'   # run at minute 0 every hour
+  workflow_dispatch:
+
+jobs:
+  build-and-notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Download previous feeds_summary artifact (if any)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          python .github/scripts/download_prev_artifact.py feeds_summary || true
+
+      - name: Run generate_feeds.py
+        run: |
+          python scripts/generate_feeds.py
+
+      - name: Run feeds_to_excel.py
+        run: |
+          python scripts/feeds_to_excel.py
+
+      - name: Compare current vs previous and send email (if new)
+        env:
+          SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          EMAIL_TO: carlosmartins.gomes@hotmail.com
+        run: |
+          python .github/scripts/compare_and_email.py
+
+      - name: Upload current feeds_summary.xlsx as artifact (to be used next run)
+        uses: actions/upload-artifact@v4
+        with:
+          name: feeds_summary
+          path: feeds_summary.xlsx
+
