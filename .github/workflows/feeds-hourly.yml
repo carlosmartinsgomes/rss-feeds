@@ -28,7 +28,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
-          python .github/scripts/download_prev_artifact.py feeds_summary || true
+          python scripts/download_prev_artifact.py feeds_summary || true
 
       - name: Run generate_feeds.py
         run: |
@@ -47,7 +47,7 @@ jobs:
           EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
           EMAIL_TO: carlosmartins.gomes@hotmail.com
         run: |
-          python .github/scripts/compare_and_email.py
+          python scripts/compare_and_email.py
 
       - name: Upload current feeds_summary.xlsx as artifact (to be used next run)
         uses: actions/upload-artifact@v4
