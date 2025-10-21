@@ -2096,6 +2096,37 @@ def main():
             if 'topic' not in r or r.get('topic') is None:
                 r['topic'] = r.get('topic', '') or ''
 
+            
+            # --- Normalizar topic: remover prefixo literal "topic:" caso exista (insensível a maiúsc/minúsc)
+            try:
+                tval = (r.get('topic') or '') or ''
+                if tval:
+                    # separar múltiplos tokens por ';' e escolher o primeiro token "válido"
+                    parts = [p.strip() for p in re.split(r'[;]+', str(tval)) if p and p.strip()]
+                    if parts:
+                        first = parts[0]
+                        # se vier no formato "topic:valor", remover o prefixo (insensível a case)
+                        if first.lower().startswith('topic:'):
+                            # manter só a parte após os dois-pontos
+                            first = first.split(':', 1)[1].strip()
+                        # garantir que não ficamos com um token tipo 'exclude:...' ou 'kw@field' como topic
+                        if first.lower().startswith('exclude:') or '@' in first:
+                            # preferimos string vazia para topic nesses casos
+                            r['topic'] = ''
+                        else:
+                            r['topic'] = first
+                    else:
+                        r['topic'] = ''
+                else:
+                    r['topic'] = ''
+            except Exception:
+                # se algo falhar, não interromper o loop — deixar topic como estava (ou vazio)
+                try:
+                    r['topic'] = str(r.get('topic') or '') or ''
+                except Exception:
+                    r['topic'] = ''
+
+
             # garantir description base (usar description(short) se description vazio)
             if not r.get('description'):
                 r['description'] = r.get('description (short)', '') or r.get('description', '') or ''
