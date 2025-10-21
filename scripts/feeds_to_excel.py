@@ -330,6 +330,30 @@ def parse_feed_file_with_fallback(ff):
         except Exception:
             full_text = (title or '') + ' ' + (desc or '')
 
+        
+        # --- nova parte: extrair matched_reason_raw das tags do entry (feedparser) ---
+        matched_reason_raw = ''
+        try:
+            tags = e.get('tags') or []
+            if tags:
+                terms = []
+                for tg in tags:
+                    if isinstance(tg, dict):
+                        # feedparser usa { 'term': '...', 'scheme': ... } em muitos casos
+                        tterm = tg.get('term') or tg.get('label') or ''
+                        if tterm:
+                            terms.append(str(tterm).strip())
+                    else:
+                        # se for uma string simples
+                        if tg:
+                            terms.append(str(tg).strip())
+                if terms:
+                    # junta múltiplos termos por ';' (mantém consistência com o resto)
+                    matched_reason_raw = ";".join([t for t in terms if t])
+        except Exception:
+            matched_reason_raw = ''
+
+
         # --- determinar topic: prioridade para selector no sites.json, depois tags, depois category/dc:subject ---
         topic = "N/A"
         try:
