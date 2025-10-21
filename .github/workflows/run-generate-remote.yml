@@ -30,6 +30,7 @@ jobs:
             pip install requests beautifulsoup4 feedgen lxml python-dateutil
           fi
 
+      
       - name: Ensure output dir exists
         run: |
           mkdir -p feeds
@@ -118,15 +119,25 @@ jobs:
           python3 -m pip install --upgrade pip
           pip install pandas openpyxl
 
-      - name: Ensure compare script exists (debug)
+      
+      - name: Debug: quais variáveis SMTP/EMAIL existem (não mostra valores)
         run: |
-          echo "Listing scripts directory:"
-          ls -la scripts || true
-          echo "Show compare script head if present:"
-          test -f scripts/compare_and_email.py && sed -n '1,160p' scripts/compare_and_email.py || echo "scripts/compare_and_email.py missing"
+          for v in SMTP_HOST SMTP_SERVER SMTP_PORT SMTP_USER SMTP_USERNAME SMTP_PASS SMTP_PASSWORD EMAIL_FROM EMAIL_TO SMTP_USE_SSL; do
+            if [ -n "${!v:-}" ]; then
+              echo "$v = SET"
+            else
+              echo "$v = UNSET"
+            fi
+          done
+
+      - name: Install email helper deps
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install pandas openpyxl
 
       - name: Run compare & email (compare_and_email.py)
         env:
+          # preferimos os nomes canonical que definiste nos Secrets
           SMTP_HOST: ${{ secrets.SMTP_HOST }}
           SMTP_PORT: ${{ secrets.SMTP_PORT }}
           SMTP_USER: ${{ secrets.SMTP_USER }}
@@ -134,10 +145,18 @@ jobs:
           EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
           SMTP_USE_SSL: ${{ secrets.SMTP_USE_SSL }}
+
+          # dobrar nomes (compatibilidade com scripts que esperam SMTP_SERVER / SMTP_USERNAME / SMTP_PASSWORD)
+          SMTP_SERVER: ${{ secrets.SMTP_HOST }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASS }}
+
+          # parametros para o script
           FEEDS_XLSX: feeds_summary.xlsx
           SENT_IDS_FILE: .github/data/sent_ids.json
         run: |
           python3 scripts/compare_and_email.py
+
 
       - name: Commit & push sent ids (if changed)
         if: ${{ always() }}
