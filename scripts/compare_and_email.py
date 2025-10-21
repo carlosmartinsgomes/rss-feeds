@@ -1,82 +1,104 @@
-#!/usr/bin/env python3
-# .github/scripts/compare_and_email.py
-# Lê feeds_summary.xlsx, compara com .github/data/sent_ids.json e envia email com novas rows.
-# Requisitos: pandas, openpyxl
-
-import os
-import json
-import hashlib
-import smtplib
-import sys
+# --- início do bloco de diagnóstico / leitura robusta de env vars ---
+import os, sys
 from email.message import EmailMessage
-from typing import List
-import pandas as pd
+import smtplib
 
-# Config via env (coloca nos Secrets do GitHub)
-SMTP_HOST = os.getenv("SMTP_HOST")
-SMTP_PORT = int(os.getenv("SMTP_PORT") or 0)
-SMTP_USER = os.getenv("SMTP_USER")
-SMTP_PASS = os.getenv("SMTP_PASS")
-EMAIL_FROM = os.getenv("EMAIL_FROM")           # ex: "RSS Bot <bot@example.com>"
-EMAIL_TO = os.getenv("EMAIL_TO")               # ex: "carlosmartins.gomes@hotmail.com"
-USE_SSL = os.getenv("SMTP_USE_SSL", "true").lower() in ("1","true","yes")
+# Função utilitária: ler env com vários nomes possíveis
+def getenv_first(*names, default=''):
+    for n in names:
+        v = os.environ.get(n)
+        if v is not None and str(v).strip() != '':
+            return v
+    return default
 
-# paths
-FEEDS_XLSX = os.getenv("FEEDS_XLSX", "feeds_summary.xlsx")
-SENT_IDS_FILE = os.getenv("SENT_IDS_FILE", ".github/data/sent_ids.json")
+# Lê variantes (compatibilidade)
+SMTP_HOST = getenv_first('SMTP_HOST', 'SMTP_SERVER', '')
+SMTP_PORT = getenv_first('SMTP_PORT', '')
+SMTP_USER = getenv_first('SMTP_USER', 'SMTP_USERNAME', '')
+SMTP_PASS = getenv_first('SMTP_PASS', 'SMTP_PASSWORD', '')
+EMAIL_FROM = getenv_first('EMAIL_FROM', '')
+EMAIL_TO = getenv_first('EMAIL_TO', '')
+SMTP_USE_SSL = getenv_first('SMTP_USE_SSL', '').lower() in ('1','true','yes','on')
 
-def make_id(link: str, title: str, pubdate: str) -> str:
-    key = ( (link or "") + "||" + (title or "") + "||" + (pubdate or "") ).encode("utf-8")
-    return hashlib.sha1(key).hexdigest()
+# Variáveis de ficheiro (padrões)
+FEEDS_XLSX = os.environ.get('FEEDS_XLSX', 'feeds_summary.xlsx')
+SENT_IDS_FILE = os.environ.get('SENT_IDS_FILE', '.github/data/sent_ids.json')
 
-def load_sent_ids(path: str) -> set:
-    if not os.path.exists(path):
-        return set()
+# Debug seguro: diz se var está definida sem mostrar valor
+print("SMTP/EMAIL environment presence (not values):")
+for (k, v) in [
+    ('SMTP_HOST', SMTP_HOST),
+    ('SMTP_PORT', SMTP_PORT),
+    ('SMTP_USER', SMTP_USER),
+    ('SMTP_PASS', '***' if SMTP_PASS else ''),
+    ('EMAIL_FROM', EMAIL_FROM),
+    ('EMAIL_TO', EMAIL_TO),
+]:
+    print(f"  {k}: {'SET' if v else 'UNSET'}")
+
+# Verificação mínima: se faltar o essencial, não tentamos enviar e saímos limpo
+essential_missing = False
+missing = []
+if not SMTP_HOST or not SMTP_PORT or not EMAIL_FROM or not EMAIL_TO:
+    essential_missing = True
+    if not SMTP_HOST: missing.append('SMTP_HOST')
+    if not SMTP_PORT: missing.append('SMTP_PORT')
+    if not EMAIL_FROM: missing.append('EMAIL_FROM')
+    if not EMAIL_TO: missing.append('EMAIL_TO')
+
+if essential_missing:
+    print("Email not sent: missing required env vars:", ",".join(missing))
+    # aqui o script pode continuar a executar a lógica de comparação sem enviar email
+    # para evitar comportamento inesperado, definimos uma flag que o resto do script pode verificar:
+    os.environ['EMAIL_READY'] = '0'
+else:
+    os.environ['EMAIL_READY'] = '1'
+
+# função simples de envio (o resto do script pode chamar)
+def send_email(subject, body_text, attach_path=None):
+    # só envia se EMAIL_READY == '1'
+    if os.environ.get('EMAIL_READY') != '1':
+        print("send_email() chamado mas EMAIL_READY != 1 -> não enviar")
+        return False
+
+    port = int(SMTP_PORT or 0)
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            arr = json.load(f)
-            if isinstance(arr, list):
-                return set(arr)
-    except Exception:
-        pass
-    return set()
-
-def save_sent_ids(path: str, ids: List[str]) -> None:
-    ddir = os.path.dirname(path)
-    if ddir and not os.path.exists(ddir):
-        os.makedirs(ddir, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(list(ids), f, indent=2, ensure_ascii=False)
-
-def send_email(subject: str, plain: str, html: str) -> None:
-    if not SMTP_HOST or not SMTP_PORT or not EMAIL_FROM or not EMAIL_TO:
-        print("Email not sent: missing SMTP_HOST/SMTP_PORT/EMAIL_FROM/EMAIL_TO env vars")
-        return
-
-    msg = EmailMessage()
-    msg["From"] = EMAIL_FROM
-    msg["To"] = EMAIL_TO
-    msg["Subject"] = subject
-    msg.set_content(plain)
-    if html:
-        msg.add_alternative(html, subtype="html")
-
-    print("Sending email to", EMAIL_TO, "via", SMTP_HOST, SMTP_PORT, "ssl:", USE_SSL)
-    if USE_SSL:
-        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT) as s:
-            if SMTP_USER and SMTP_PASS:
-                s.login(SMTP_USER, SMTP_PASS)
-            s.send_message(msg)
-    else:
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
-            s.ehlo()
+        if SMTP_USE_SSL or port == 465:
+            server = smtplib.SMTP_SSL(SMTP_HOST, port, timeout=30)
+        else:
+            server = smtplib.SMTP(SMTP_HOST, port, timeout=30)
+            server.ehlo()
+            # tenta STARTTLS se porta 587
             try:
-                s.starttls()
+                server.starttls()
+                server.ehlo()
             except Exception:
                 pass
-            if SMTP_USER and SMTP_PASS:
-                s.login(SMTP_USER, SMTP_PASS)
-            s.send_message(msg)
+
+        if SMTP_USER and SMTP_PASS:
+            server.login(SMTP_USER, SMTP_PASS)
+
+        msg = EmailMessage()
+        msg['From'] = EMAIL_FROM
+        msg['To'] = EMAIL_TO
+        msg['Subject'] = subject
+        msg.set_content(body_text)
+
+        if attach_path and os.path.exists(attach_path):
+            with open(attach_path, 'rb') as f:
+                data = f.read()
+            msg.add_attachment(data, maintype='application', subtype='octet-stream', filename=os.path.basename(attach_path))
+
+        server.send_message(msg)
+        server.quit()
+        print("Email sent successfully.")
+        return True
+    except Exception as e:
+        print("Email sending failed:", str(e))
+        return False
+
+# --- fim do bloco diagnóstico ---
+
 
 def rows_to_html_table(rows) -> str:
     html = "<table border='1' cellpadding='6' cellspacing='0'>"
