@@ -319,10 +319,10 @@ jobs:
 
       - name: Ensure compare script exists (debug)
         run: |
-          echo "Listing .github/scripts:"
-          ls -la .github/scripts || true
+          echo "Listing rss-feeds/scripts:"
+          ls -la rss-feeds/scripts || true
           echo "Show compare script head if present:"
-          test -f .github/scripts/compare_and_email.py && sed -n '1,120p' .github/scripts/compare_and_email.py || echo "compare_and_email.py missing"
+          test -f rss-feeds/scripts/compare_and_email.py && sed -n '1,160p' rss-feeds/scripts/compare_and_email.py || echo "rss-feeds/scripts/compare_and_email.py missing"
 
       - name: Run compare & email (compare_and_email.py)
         env:
@@ -334,9 +334,9 @@ jobs:
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
           SMTP_USE_SSL: ${{ secrets.SMTP_USE_SSL }}
           FEEDS_XLSX: feeds_summary.xlsx
-          SENT_IDS_FILE: .github/data/sent_ids.json
+          SENT_IDS_FILE: rss-feeds/.github/data/sent_ids.json
         run: |
-          python3 .github/scripts/compare_and_email.py
+          python3 rss-feeds/scripts/compare_and_email.py
 
       - name: Commit & push sent ids (if changed)
         if: ${{ always() }}
@@ -345,14 +345,15 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          mkdir -p .github/data
-          git add .github/data/sent_ids.json || true
+          mkdir -p rss-feeds/.github/data
+          git add rss-feeds/.github/data/sent_ids.json || true
           if git diff --staged --quiet; then
             echo "No changes to commit"
           else
             git commit -m "chore: update sent_ids from workflow run $GITHUB_RUN_ID" || true
             git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:${GITHUB_REF#refs/heads/} || true
           fi
+
 
 
       - name: Upload feeds Excel artifact
