@@ -1,9 +1,7 @@
 name: Run feed generator (remote)
 
 on:
- push: 
-  branches: [ main ]
- workflow_dispatch:
+  workflow_dispatch:
   
 
 jobs:
