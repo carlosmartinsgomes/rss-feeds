@@ -311,7 +311,7 @@ jobs:
           python3 scripts/feeds_to_excel.py
         shell: bash
 
-      
+      a
       - name: Install email helper deps
         run: |
           python -m pip install --upgrade pip
@@ -319,7 +319,7 @@ jobs:
 
       - name: Ensure compare script exists (debug)
         run: |
-          echo "Listing scripts:"
+          echo "Listing scripts directory:"
           ls -la scripts || true
           echo "Show compare script head if present:"
           test -f scripts/compare_and_email.py && sed -n '1,160p' scripts/compare_and_email.py || echo "scripts/compare_and_email.py missing"
