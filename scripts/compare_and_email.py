@@ -1,146 +1,166 @@
+#!/usr/bin/env python3
 # .github/scripts/compare_and_email.py
+# Lê feeds_summary.xlsx, compara com .github/data/sent_ids.json e envia email com novas rows.
+# Requisitos: pandas, openpyxl
+
 import os
-import sys
-import pandas as pd
-from email.message import EmailMessage
+import json
+import hashlib
 import smtplib
-import ssl
-import traceback
+import sys
+from email.message import EmailMessage
+from typing import List
+import pandas as pd
 
-"""
-Env expected:
- EMAIL_TO (single address)
- SMTP_SERVER
- SMTP_PORT
- SMTP_USERNAME
- SMTP_PASSWORD
- EMAIL_FROM
-"""
+# Config via env (coloca nos Secrets do GitHub)
+SMTP_HOST = os.getenv("SMTP_HOST")
+SMTP_PORT = int(os.getenv("SMTP_PORT") or 0)
+SMTP_USER = os.getenv("SMTP_USER")
+SMTP_PASS = os.getenv("SMTP_PASS")
+EMAIL_FROM = os.getenv("EMAIL_FROM")           # ex: "RSS Bot <bot@example.com>"
+EMAIL_TO = os.getenv("EMAIL_TO")               # ex: "carlosmartins.gomes@hotmail.com"
+USE_SSL = os.getenv("SMTP_USE_SSL", "true").lower() in ("1","true","yes")
 
-CUR_FILE = "feeds_summary.xlsx"
-PREV_FILE = "prev_feeds_summary.xlsx"
+# paths
+FEEDS_XLSX = os.getenv("FEEDS_XLSX", "feeds_summary.xlsx")
+SENT_IDS_FILE = os.getenv("SENT_IDS_FILE", ".github/data/sent_ids.json")
 
-def load_df(path):
+def make_id(link: str, title: str, pubdate: str) -> str:
+    key = ( (link or "") + "||" + (title or "") + "||" + (pubdate or "") ).encode("utf-8")
+    return hashlib.sha1(key).hexdigest()
+
+def load_sent_ids(path: str) -> set:
+    if not os.path.exists(path):
+        return set()
     try:
-        df = pd.read_excel(path, engine="openpyxl")
-        return df
-    except Exception as e:
-        print("Failed to read", path, ":", e)
-        return None
+        with open(path, "r", encoding="utf-8") as f:
+            arr = json.load(f)
+            if isinstance(arr, list):
+                return set(arr)
+    except Exception:
+        pass
+    return set()
 
-def make_key(row):
-    # prefer link (source), fallback to title+pubDate
-    link = (row.get('link (source)') or row.get('link') or "")
-    link = str(link).strip()
-    if link:
-        return "L:" + link
-    title = str(row.get('title') or "").strip()
-    pub = str(row.get('pubDate') or row.get('date') or "").strip()
-    return "T:" + title + "||" + pub
+def save_sent_ids(path: str, ids: List[str]) -> None:
+    ddir = os.path.dirname(path)
+    if ddir and not os.path.exists(ddir):
+        os.makedirs(ddir, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(list(ids), f, indent=2, ensure_ascii=False)
 
-def build_email_body(new_rows):
-    # HTML body with simple table
-    rows_html = ""
-    for _, r in new_rows.iterrows():
-        title = str(r.get('title') or '')[:400]
-        link = str(r.get('link (source)') or r.get('link') or '')
-        site = str(r.get('site') or '')
-        pub = str(r.get('pubDate') or r.get('date') or '')
-        desc = str(r.get('description (short)') or '')[:800]
-        rows_html += f"<tr><td><a href='{link}'>{title}</a></td><td>{site}</td><td>{pub}</td><td>{desc}</td></tr>\n"
-    html = f"""<html><body>
-<h2>Novas notícias detectadas: {len(new_rows)}</h2>
-<table border="1" cellpadding="4" cellspacing="0">
-<tr><th>Title</th><th>Site</th><th>PubDate</th><th>Summary</th></tr>
-{rows_html}
-</table>
-</body></html>
-"""
-    return html
-
-def send_email(subject, html_body, to_addr):
-    smtp_server = os.environ.get("SMTP_SERVER")
-    smtp_port = int(os.environ.get("SMTP_PORT") or 587)
-    smtp_user = os.environ.get("SMTP_USERNAME")
-    smtp_pass = os.environ.get("SMTP_PASSWORD")
-    from_addr = os.environ.get("EMAIL_FROM") or smtp_user
-    if not smtp_server or not smtp_user or not smtp_pass:
-        print("SMTP config missing. Skipping email send.")
-        return False, "missing-smtp-config"
+def send_email(subject: str, plain: str, html: str) -> None:
+    if not SMTP_HOST or not SMTP_PORT or not EMAIL_FROM or not EMAIL_TO:
+        print("Email not sent: missing SMTP_HOST/SMTP_PORT/EMAIL_FROM/EMAIL_TO env vars")
+        return
 
     msg = EmailMessage()
+    msg["From"] = EMAIL_FROM
+    msg["To"] = EMAIL_TO
     msg["Subject"] = subject
-    msg["From"] = from_addr
-    msg["To"] = to_addr
-    msg.set_content("Novas notícias no feed (ver HTML).")
-    msg.add_alternative(html_body, subtype="html")
+    msg.set_content(plain)
+    if html:
+        msg.add_alternative(html, subtype="html")
 
+    print("Sending email to", EMAIL_TO, "via", SMTP_HOST, SMTP_PORT, "ssl:", USE_SSL)
+    if USE_SSL:
+        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT) as s:
+            if SMTP_USER and SMTP_PASS:
+                s.login(SMTP_USER, SMTP_PASS)
+            s.send_message(msg)
+    else:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
+            s.ehlo()
+            try:
+                s.starttls()
+            except Exception:
+                pass
+            if SMTP_USER and SMTP_PASS:
+                s.login(SMTP_USER, SMTP_PASS)
+            s.send_message(msg)
+
+def rows_to_html_table(rows) -> str:
+    html = "<table border='1' cellpadding='6' cellspacing='0'>"
+    html += "<tr><th>site</th><th>title</th><th>pubDate</th><th>link</th><th>match</th></tr>"
+    for r in rows:
+        html += "<tr>"
+        html += "<td>{}</td>".format((r.get("site") or "")[:100])
+        html += "<td>{}</td>".format((r.get("title") or "")[:400])
+        html += "<td>{}</td>".format((r.get("pubDate") or "")[:60])
+        html += "<td><a href='{0}'>{0}</a></td>".format((r.get("link (source)") or r.get("link") or ""))
+        html += "<td>{}</td>".format((r.get("match") or "")[:300])
+        html += "</tr>"
+    html += "</table>"
+    return html
+
+def read_feed_summary(path: str):
+    if not os.path.exists(path):
+        print("feeds_summary.xlsx not found at", path)
+        return []
     try:
-        # use SSL for 465, otherwise STARTTLS
-        if smtp_port == 465:
-            context = ssl.create_default_context()
-            with smtplib.SMTP_SSL(smtp_server, smtp_port, context=context) as s:
-                s.login(smtp_user, smtp_pass)
-                s.send_message(msg)
-        else:
-            with smtplib.SMTP(smtp_server, smtp_port, timeout=60) as s:
-                s.ehlo()
-                try:
-                    s.starttls()
-                except Exception:
-                    pass
-                s.login(smtp_user, smtp_pass)
-                s.send_message(msg)
-        print("Email sent to", to_addr)
-        return True, None
+        df = pd.read_excel(path, engine="openpyxl")
     except Exception as e:
-        print("Failed to send email:", e)
-        traceback.print_exc()
-        return False, str(e)
+        print("Error reading Excel:", e)
+        return []
+    rows = []
+    for _, r in df.iterrows():
+        rows.append({
+            "site": str(r.get("site") or ""),
+            "title": str(r.get("title") or ""),
+            "pubDate": str(r.get("pubDate") or ""),
+            "link (source)": str(r.get("link (source)") or ""),
+            "match": str(r.get("match") or "")
+        })
+    return rows
 
 def main():
-    to_addr = os.environ.get("EMAIL_TO") or os.environ.get("EMAIL_RECIPIENT") or "carlosmartins.gomes@hotmail.com"
-    df_cur = load_df(CUR_FILE)
-    if df_cur is None:
-        print("Current file not found or invalid:", CUR_FILE)
+    rows = read_feed_summary(FEEDS_XLSX)
+    if not rows:
+        print("No rows found in feed summary -> nothing to send")
         return 0
 
-    df_prev = None
-    if os.path.exists(PREV_FILE):
-        df_prev = load_df(PREV_FILE)
+    sent_ids = load_sent_ids(SENT_IDS_FILE)
+    all_ids = set(sent_ids)
+    new_rows = []
+    new_ids = []
 
-    # ensure columns exist
-    for col in ["site", "title", "link (source)", "pubDate", "description (short)"]:
-        if col not in df_cur.columns:
-            df_cur[col] = ""
+    for r in rows:
+        uid = make_id(r.get("link (source)"), r.get("title"), r.get("pubDate"))
+        if uid not in sent_ids:
+            new_rows.append(r)
+            new_ids.append(uid)
+            all_ids.add(uid)
 
-    df_cur['_key'] = df_cur.apply(make_key, axis=1)
-    prev_keys = set()
-    if df_prev is not None:
-        # guard against different column names
-        if "link (source)" not in df_prev.columns and "link" in df_prev.columns:
-            df_prev["link (source)"] = df_prev["link"]
-        df_prev['_key'] = df_prev.apply(make_key, axis=1)
-        prev_keys = set(df_prev['_key'].astype(str).tolist())
-
-    # determine new rows
-    new_mask = ~df_cur['_key'].isin(prev_keys)
-    new_rows = df_cur[new_mask].copy()
-
-    if new_rows.empty:
-        print("No new items to notify.")
+    if not new_rows:
+        print("No new rows to email (all already sent previously).")
+        # still ensure file exists
+        save_sent_ids(SENT_IDS_FILE, sorted(list(all_ids)))
         return 0
 
-    # Build email
-    subj = f"[Feeds] {len(new_rows)} novas notícias"
-    html = build_email_body(new_rows)
+    # Compose email
+    subj = f"[RSS FEEDS] {len(new_rows)} new item(s)"
+    plain_lines = []
+    for r in new_rows:
+        plain_lines.append(f"- {r.get('title')} ({r.get('site')})\n  {r.get('link (source)')}\n  match: {r.get('match')}\n")
+    plain = "\n".join(plain_lines)
+    html = "<html><body>"
+    html += f"<p>{len(new_rows)} new item(s) detected:</p>"
+    html += rows_to_html_table(new_rows)
+    html += "</body></html>"
 
-    ok, err = send_email(subj, html, to_addr)
-    if not ok:
-        print("Email failed:", err)
-        return 1
+    try:
+        send_email(subj, plain, html)
+        print("Email sent successfully.")
+    except Exception as e:
+        print("Error sending email:", e)
+        return 2
 
-    print(f"Notified {len(new_rows)} new items to {to_addr}")
+    # update sent ids
+    try:
+        save_sent_ids(SENT_IDS_FILE, sorted(list(all_ids)))
+    except Exception as e:
+        print("Error saving sent ids file:", e)
+        return 3
+
     return 0
 
 if __name__ == "__main__":
