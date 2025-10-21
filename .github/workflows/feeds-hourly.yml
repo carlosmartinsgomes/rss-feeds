@@ -28,15 +28,15 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
-          python scripts/download_prev_artifact.py feeds_summary || true
+          python3 scripts/download_prev_artifact.py feeds_summary || true
 
       - name: Run generate_feeds.py
         run: |
-          python scripts/generate_feeds.py
+          python3 scripts/generate_feeds.py
 
       - name: Run feeds_to_excel.py
         run: |
-          python scripts/feeds_to_excel.py
+          python3 scripts/feeds_to_excel.py
 
       - name: Compare current vs previous and send email (if new)
         env:
@@ -47,7 +47,7 @@ jobs:
           EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
           EMAIL_TO: carlosmartins.gomes@hotmail.com
         run: |
-          python scripts/compare_and_email.py
+          python3 scripts/compare_and_email.py
 
       - name: Upload current feeds_summary.xlsx as artifact (to be used next run)
         uses: actions/upload-artifact@v4
