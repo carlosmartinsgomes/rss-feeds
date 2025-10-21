@@ -596,10 +596,12 @@ def extract_items_from_html(html, cfg):
                 link = ''
                 date = ''
                 desc = ''
+                topic = ''
 
                 title_sel = cfg.get('title')
                 link_sel = cfg.get('link')
                 desc_sel = cfg.get('description')
+                topic_sel = cfg.get('topic')
 
                 # ------------- TITLE -------------
                 if title_sel:
@@ -694,6 +696,40 @@ def extract_items_from_html(html, cfg):
                     except Exception:
                         pass
 
+                
+                # ------------- TOPIC -------------
+                topic = ''
+                try:
+                    topic_sel = cfg.get('topic')
+                    if topic_sel:
+                        for s in [t.strip() for t in str(topic_sel).split(',') if t.strip()]:
+                            try:
+                                val = select_and_get(node, s)
+                            except Exception:
+                                val = None
+                            if val:
+                                topic = val
+                                break
+                    # fallbacks comuns: meta keywords, tag classes, category elements
+                    if not topic:
+                        try:
+                            meta = node.select_one('meta[name="keywords"], meta[property="article:tag"], .tag, .tags, .category')
+                            if meta:
+                                topic = (meta.get('content') or meta.get_text(" ", strip=True) or '').strip()
+                        except Exception:
+                            topic = topic or ''
+                    # última tentativa: procurar um .category/.tag dentro do node
+                    if not topic:
+                        try:
+                            tag_el = node.select_one('.category, .tag, .tags, .topic')
+                            if tag_el:
+                                topic = tag_el.get_text(" ", strip=True) or ''
+                        except Exception:
+                            pass
+                except Exception:
+                    topic = topic or ''
+
+                
                 # ------------- DATE -------------
                 date = ''
                 if cfg.get('date'):
@@ -793,7 +829,8 @@ def extract_items_from_html(html, cfg):
                 except Exception:
                     pass
 
-                items.append({'title': title or '', 'link': link or '', 'description': desc or '', 'date': date or '', 'full_text': full_text or ''})
+                items.append({'title': title or '', 'link': link or '', 'description': desc or '', 'date': date or '', 'full_text': full_text or '', 'topic': topic or ''})
+
             except Exception:
                 # não deixes um node problemático bloquear todo o resto
                 continue
