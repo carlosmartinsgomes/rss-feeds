@@ -172,19 +172,4 @@ jobs:
           path: run_generate.log
           retention-days: 7
 
-      - name: Optional commit merged feed back to repo
-        run: |
-          if [ -f dist/merged-feed.xml ]; then
-            git config user.name "github-actions[bot]"
-            git config user.email "actions@github.com"
-            git add dist/merged-feed.xml || true
-            if git diff --cached --quiet; then
-              echo "No changes to commit for dist/merged-feed.xml"
-            else
-              git commit -m "Update merged feed (auto)" || true
-              git push || echo "git push failed (maybe token/permission?)"
-            fi
-          else
-            echo "No dist/merged-feed.xml found -> skipping commit"
-          fi
-        shell: bash
+      
