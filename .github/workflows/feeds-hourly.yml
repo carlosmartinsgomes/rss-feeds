@@ -3,7 +3,7 @@ name: Hourly feeds -> email new items
 
 on:
   schedule:
-    - cron: '0 * * * *'   # run at minute 0 every hour
+    - cron: '*/15 * * * *'   # run every 15 minutes
   workflow_dispatch:
 
 jobs:
