@@ -3,7 +3,7 @@ name: Hourly feeds -> email new items
 
 on:
   schedule:
-    - cron: '*/59 * * * *'   # run every 15 minutes
+    - cron: '*/6 * * * *'   # run every 15 minutes
   workflow_dispatch:
 
 jobs:
@@ -38,16 +38,34 @@ jobs:
         run: |
           python3 scripts/feeds_to_excel.py
 
+      
       - name: Compare current vs previous and send email (if new)
+        # não queremos que um problema de email faça o job inteiro falhar
+        continue-on-error: false   # opcional: podes colocar true para nunca falhar o job
         env:
-          SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+          # canonical names (preferidos)
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
           SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+
+          # legacy/alternate secret names (se tens secrets com estes nomes)
+          SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
           SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+
+          # dobrar nomes para compatibilidade (garante que o script encontra pelo menos um)
+          # Se só existe um dos nomes acima, esse será passado (o outro fica vazio).
           EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
-          EMAIL_TO: carlosmartins.gomes@hotmail.com
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+
+          # parâmetros para o script
+          FEEDS_XLSX: feeds_summary.xlsx
+          SENT_IDS_FILE: .github/data/sent_ids.json
+
         run: |
           python3 scripts/compare_and_email.py
+
 
       - name: Upload current feeds_summary.xlsx as artifact (to be used next run)
         uses: actions/upload-artifact@v4
