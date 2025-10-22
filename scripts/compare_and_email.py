@@ -1,9 +1,22 @@
-# --- início do bloco de diagnóstico / leitura robusta de env vars ---
-import os, sys
+#!/usr/bin/env python3
+# compare_and_email.py
+import os
+import sys
+import json
+import hashlib
+import mimetypes
 from email.message import EmailMessage
 import smtplib
+from datetime import datetime
 
-# Função utilitária: ler env com vários nomes possíveis
+# dependências
+try:
+    import pandas as pd
+except Exception as e:
+    print("Missing python dependency pandas. Install with: pip install pandas openpyxl")
+    raise
+
+# --- util ---
 def getenv_first(*names, default=''):
     for n in names:
         v = os.environ.get(n)
@@ -11,7 +24,7 @@ def getenv_first(*names, default=''):
             return v
     return default
 
-# Lê variantes (compatibilidade)
+# --- leitura vars SMTP/EMAIL (aceita variantes) ---
 SMTP_HOST = getenv_first('SMTP_HOST', 'SMTP_SERVER', '')
 SMTP_PORT = getenv_first('SMTP_PORT', '')
 SMTP_USER = getenv_first('SMTP_USER', 'SMTP_USERNAME', '')
@@ -20,11 +33,10 @@ EMAIL_FROM = getenv_first('EMAIL_FROM', '')
 EMAIL_TO = getenv_first('EMAIL_TO', '')
 SMTP_USE_SSL = getenv_first('SMTP_USE_SSL', '').lower() in ('1','true','yes','on')
 
-# Variáveis de ficheiro (padrões)
 FEEDS_XLSX = os.environ.get('FEEDS_XLSX', 'feeds_summary.xlsx')
 SENT_IDS_FILE = os.environ.get('SENT_IDS_FILE', '.github/data/sent_ids.json')
 
-# Debug seguro: diz se var está definida sem mostrar valor
+# debug seguro
 print("SMTP/EMAIL environment presence (not values):")
 for (k, v) in [
     ('SMTP_HOST', SMTP_HOST),
@@ -36,29 +48,55 @@ for (k, v) in [
 ]:
     print(f"  {k}: {'SET' if v else 'UNSET'}")
 
-# Verificação mínima: se faltar o essencial, não tentamos enviar e saímos limpo
-essential_missing = False
-missing = []
-if not SMTP_HOST or not SMTP_PORT or not EMAIL_FROM or not EMAIL_TO:
-    essential_missing = True
-    if not SMTP_HOST: missing.append('SMTP_HOST')
-    if not SMTP_PORT: missing.append('SMTP_PORT')
-    if not EMAIL_FROM: missing.append('EMAIL_FROM')
-    if not EMAIL_TO: missing.append('EMAIL_TO')
+# só tentamos enviar se existirem as variáveis mínimas
+EMAIL_READY = True
+_missing = []
+if not SMTP_HOST:
+    _missing.append('SMTP_HOST')
+if not SMTP_PORT:
+    _missing.append('SMTP_PORT')
+if not EMAIL_FROM:
+    _missing.append('EMAIL_FROM')
+if not EMAIL_TO:
+    _missing.append('EMAIL_TO')
+if _missing:
+    print("Email not sent: missing required env vars:", ",".join(_missing))
+    EMAIL_READY = False
 
-if essential_missing:
-    print("Email not sent: missing required env vars:", ",".join(missing))
-    # aqui o script pode continuar a executar a lógica de comparação sem enviar email
-    # para evitar comportamento inesperado, definimos uma flag que o resto do script pode verificar:
-    os.environ['EMAIL_READY'] = '0'
-else:
-    os.environ['EMAIL_READY'] = '1'
+# --- helpers para sent ids ---
+def load_sent_ids(path):
+    try:
+        if not os.path.exists(path):
+            return []
+        with open(path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            if isinstance(data, list):
+                return data
+            return []
+    except Exception as e:
+        print("Error loading sent ids:", e)
+        return []
 
-# função simples de envio (o resto do script pode chamar)
-def send_email(subject, body_text, attach_path=None):
-    # só envia se EMAIL_READY == '1'
-    if os.environ.get('EMAIL_READY') != '1':
-        print("send_email() chamado mas EMAIL_READY != 1 -> não enviar")
+def save_sent_ids(path, ids_list):
+    try:
+        d = os.path.dirname(path)
+        if d and not os.path.exists(d):
+            os.makedirs(d, exist_ok=True)
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(ids_list, f, indent=2, ensure_ascii=False)
+        return True
+    except Exception as e:
+        print("Error saving sent ids:", e)
+        return False
+
+def make_id(link, title, pubDate):
+    base = (str(link or '') + '||' + str(title or '') + '||' + str(pubDate or ''))
+    return hashlib.sha256(base.encode('utf-8')).hexdigest()
+
+# --- email sender (robusto) ---
+def send_email(subject, plain_text, html_text=None, attach_path=None):
+    if not EMAIL_READY:
+        print("send_email() called but EMAIL_READY is False -> skipping send")
         return False
 
     port = int(SMTP_PORT or 0)
@@ -68,7 +106,7 @@ def send_email(subject, body_text, attach_path=None):
         else:
             server = smtplib.SMTP(SMTP_HOST, port, timeout=30)
             server.ehlo()
-            # tenta STARTTLS se porta 587
+            # tenta STARTTLS quando porta 587 ou quando não SSL
             try:
                 server.starttls()
                 server.ehlo()
@@ -76,45 +114,61 @@ def send_email(subject, body_text, attach_path=None):
                 pass
 
         if SMTP_USER and SMTP_PASS:
-            server.login(SMTP_USER, SMTP_PASS)
+            try:
+                server.login(SMTP_USER, SMTP_PASS)
+            except Exception as e:
+                print("SMTP login failed:", e)
+                server.quit()
+                return False
 
         msg = EmailMessage()
         msg['From'] = EMAIL_FROM
         msg['To'] = EMAIL_TO
         msg['Subject'] = subject
-        msg.set_content(body_text)
+        msg.set_content(plain_text or '')
+
+        if html_text:
+            msg.add_alternative(html_text, subtype='html')
 
         if attach_path and os.path.exists(attach_path):
+            ctype, encoding = mimetypes.guess_type(attach_path)
+            if ctype is None:
+                ctype = 'application/octet-stream'
+            maintype, subtype = ctype.split('/', 1)
             with open(attach_path, 'rb') as f:
                 data = f.read()
-            msg.add_attachment(data, maintype='application', subtype='octet-stream', filename=os.path.basename(attach_path))
+            msg.add_attachment(data, maintype=maintype, subtype=subtype, filename=os.path.basename(attach_path))
 
         server.send_message(msg)
         server.quit()
-        print("Email sent successfully.")
+        print("Email sending succeeded.")
         return True
     except Exception as e:
-        print("Email sending failed:", str(e))
+        print("Email sending failed:", e)
         return False
 
-# --- fim do bloco diagnóstico ---
-
-
-def rows_to_html_table(rows) -> str:
-    html = "<table border='1' cellpadding='6' cellspacing='0'>"
+# --- helpers para montar o corpo do email ---
+def rows_to_html_table(rows):
+    html = "<table border='1' cellpadding='6' cellspacing='0' style='border-collapse:collapse;'>"
     html += "<tr><th>site</th><th>title</th><th>pubDate</th><th>link</th><th>match</th></tr>"
     for r in rows:
+        site = (r.get("site") or "")[:120]
+        title = (r.get("title") or "")[:400]
+        pub = (r.get("pubDate") or "")[:60]
+        link = (r.get("link (source)") or r.get("link") or "")
+        match = (r.get("match") or "")[:300]
         html += "<tr>"
-        html += "<td>{}</td>".format((r.get("site") or "")[:100])
-        html += "<td>{}</td>".format((r.get("title") or "")[:400])
-        html += "<td>{}</td>".format((r.get("pubDate") or "")[:60])
-        html += "<td><a href='{0}'>{0}</a></td>".format((r.get("link (source)") or r.get("link") or ""))
-        html += "<td>{}</td>".format((r.get("match") or "")[:300])
+        html += f"<td>{site}</td>"
+        html += f"<td>{title}</td>"
+        html += f"<td>{pub}</td>"
+        html += f"<td><a href=\"{link}\">{link}</a></td>"
+        html += f"<td>{match}</td>"
         html += "</tr>"
     html += "</table>"
     return html
 
-def read_feed_summary(path: str):
+# --- leitura do ficheiro Excel de resumo ---
+def read_feed_summary(path):
     if not os.path.exists(path):
         print("feeds_summary.xlsx not found at", path)
         return []
@@ -134,14 +188,14 @@ def read_feed_summary(path: str):
         })
     return rows
 
+# --- main ---
 def main():
     rows = read_feed_summary(FEEDS_XLSX)
     if not rows:
         print("No rows found in feed summary -> nothing to send")
         return 0
 
-    sent_ids = load_sent_ids(SENT_IDS_FILE)
-    all_ids = set(sent_ids)
+    sent_ids = set(load_sent_ids(SENT_IDS_FILE) or [])
     new_rows = []
     new_ids = []
 
@@ -150,16 +204,15 @@ def main():
         if uid not in sent_ids:
             new_rows.append(r)
             new_ids.append(uid)
-            all_ids.add(uid)
+            sent_ids.add(uid)
 
     if not new_rows:
         print("No new rows to email (all already sent previously).")
-        # still ensure file exists
-        save_sent_ids(SENT_IDS_FILE, sorted(list(all_ids)))
+        # still save the file to ensure existence
+        save_sent_ids(SENT_IDS_FILE, sorted(list(sent_ids)))
         return 0
 
-    # Compose email
-    subj = f"[RSS FEEDS] {len(new_rows)} new item(s)"
+    subj = f"[RSS FEEDS] {len(new_rows)} new item(s) [{datetime.utcnow().isoformat()}]"
     plain_lines = []
     for r in new_rows:
         plain_lines.append(f"- {r.get('title')} ({r.get('site')})\n  {r.get('link (source)')}\n  match: {r.get('match')}\n")
@@ -169,20 +222,21 @@ def main():
     html += rows_to_html_table(new_rows)
     html += "</body></html>"
 
-    try:
-        send_email(subj, plain, html)
-        print("Email sent successfully.")
-    except Exception as e:
-        print("Error sending email:", e)
+    # send with attachment (the Excel)
+    ok = send_email(subj, plain, html_text=html, attach_path=FEEDS_XLSX)
+    if not ok:
+        print("Failed to send email (see logs above).")
+        # still update sent ids to not spam? — mantemos que não atualizamos se falhou
         return 2
 
-    # update sent ids
+    # update sent ids file
     try:
-        save_sent_ids(SENT_IDS_FILE, sorted(list(all_ids)))
+        save_sent_ids(SENT_IDS_FILE, sorted(list(sent_ids)))
     except Exception as e:
         print("Error saving sent ids file:", e)
         return 3
 
+    print(f"Done: emailed {len(new_rows)} new items and updated sent ids.")
     return 0
 
 if __name__ == "__main__":
