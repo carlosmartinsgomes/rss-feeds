@@ -8,6 +8,7 @@ import json
 import hashlib
 from email.message import EmailMessage
 import smtplib
+from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
 
 # Import pandas somente quando necessário
 try:
@@ -63,32 +64,56 @@ if essential_missing:
 else:
     os.environ['EMAIL_READY'] = '1'
 
-def normalize_link(link):
-    if not link:
-        return ""
-    link = str(link).strip()
-    # se for um link real, usa esse (preferível)
-    if link.startswith("http://") or link.startswith("https://"):
-        return link
-    # se for urn:node:..., devolve empty string (não confiável)
-    if link.startswith("urn:node:"):
-        return ""
-    # fallback: devolve raw link
-    return link
+# Remove parâmetros de tracking óbvios, normaliza host -> lower, remove fragment.
+TRACKING_PARAMS = {
+    "utm_source","utm_medium","utm_campaign","utm_term","utm_content",
+    "fbclid","gclid","mc_cid","mc_eid"
+}
 
-def make_id(link, title, pubDate, site=None):
+def normalize_url(url: str) -> str:
+    """Retorna URL canónica ou '' se não for um http/https válido."""
+    if not url:
+        return ""
+    url = str(url).strip()
+    if not (url.startswith("http://") or url.startswith("https://")):
+        return ""
+    try:
+        p = urlparse(url)
+        scheme = p.scheme.lower()
+        netloc = p.netloc.lower()
+        path = p.path or ""
+        # normalizar query: remover tracking params
+        qs = parse_qsl(p.query, keep_blank_values=True)
+        qs = [(k, v) for (k, v) in qs if k not in TRACKING_PARAMS]
+        qs_sorted = sorted(qs)  # ordena para estabilidade
+        query = urlencode(qs_sorted, doseq=True)
+        # rebuild without fragment
+        return urlunparse((scheme, netloc, path, "", query, ""))
+    except Exception:
+        return url
+
+def content_hash(*parts) -> str:
+    """Gera hash SHA1 de texto(s) (usado quando não há link confiável)."""
+    txt = "||".join([str(p or "") for p in parts])
+    return hashlib.sha1(txt.encode("utf-8", errors="ignore")).hexdigest()
+
+def make_id(link, title, pubDate, site=None, desc=None):
     """
-    Normaliza a entrada para gerar um id estável:
-      - se existir um link HTTP use-o (mais consistente)
-      - se link for urn:node -> usa title + site + pubDate (fallback)
+    Gera um id estável:
+      1) se existir link http canonical -> usa normalized url
+      2) senão, usa title + site + pubDate
+      3) se title/pubDate vazios, inclui hash de description (desc) como fallback
     """
-    lnk = normalize_link(link)
-    if lnk:
-        base = lnk
-    else:
-        # se não há link real -> usa title + site + pubDate
+    norm = normalize_url(link or "")
+    if norm:
+        return hashlib.sha1(norm.encode("utf-8")).hexdigest()
+    # fallback
+    if (title or "").strip() or (pubDate or "").strip():
         base = "{}|{}|{}".format((title or "").strip(), (site or "").strip(), (pubDate or "").strip())
-    return hashlib.sha1(base.encode("utf-8")).hexdigest()
+        return hashlib.sha1(base.encode("utf-8")).hexdigest()
+    # último recurso: usa descrição hash
+    return content_hash(site, title, pubDate, desc)
+# --- fim bloco make_id ---
 
 def send_email(subject, plain_text, html_text=None, attach_path=None):
     if os.environ.get('EMAIL_READY') != '1':
@@ -208,7 +233,8 @@ def main():
     new_ids = []
 
     for r in rows:
-        uid = make_id(r.get("link (source)") or r.get("link"), r.get("title"), r.get("pubDate"), r.get("site"))
+        uid = make_id(r.get("link (source)") or r.get("link"), r.get("title"), r.get("pubDate"), r.get("site"), r.get("desc_preview") or r.get("description",""))
+
 
         if uid not in sent_ids:
             new_rows.append(r)
