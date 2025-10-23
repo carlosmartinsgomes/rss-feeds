@@ -63,6 +63,33 @@ if essential_missing:
 else:
     os.environ['EMAIL_READY'] = '1'
 
+def normalize_link(link):
+    if not link:
+        return ""
+    link = str(link).strip()
+    # se for um link real, usa esse (preferível)
+    if link.startswith("http://") or link.startswith("https://"):
+        return link
+    # se for urn:node:..., devolve empty string (não confiável)
+    if link.startswith("urn:node:"):
+        return ""
+    # fallback: devolve raw link
+    return link
+
+def make_id(link, title, pubDate, site=None):
+    """
+    Normaliza a entrada para gerar um id estável:
+      - se existir um link HTTP use-o (mais consistente)
+      - se link for urn:node -> usa title + site + pubDate (fallback)
+    """
+    lnk = normalize_link(link)
+    if lnk:
+        base = lnk
+    else:
+        # se não há link real -> usa title + site + pubDate
+        base = "{}|{}|{}".format((title or "").strip(), (site or "").strip(), (pubDate or "").strip())
+    return hashlib.sha1(base.encode("utf-8")).hexdigest()
+
 def send_email(subject, plain_text, html_text=None, attach_path=None):
     if os.environ.get('EMAIL_READY') != '1':
         print("send_email() called but EMAIL_READY != 1 -> skipping send")
@@ -110,10 +137,6 @@ def send_email(subject, plain_text, html_text=None, attach_path=None):
         print("SMTP login/send failed:", repr(e))
         return False
 
-# --- helpers para ids ---
-def make_id(link, title, pubDate):
-    raw = (str(link or "") + "|" + str(title or "") + "|" + str(pubDate or ""))
-    return hashlib.sha1(raw.encode('utf-8')).hexdigest()
 
 def load_sent_ids(path):
     try:
@@ -185,7 +208,8 @@ def main():
     new_ids = []
 
     for r in rows:
-        uid = make_id(r.get("link (source)"), r.get("title"), r.get("pubDate"))
+        uid = make_id(r.get("link (source)") or r.get("link"), r.get("title"), r.get("pubDate"), r.get("site"))
+
         if uid not in sent_ids:
             new_rows.append(r)
             new_ids.append(uid)
