@@ -29,6 +29,34 @@ jobs:
         run: |
           python3 scripts/download_prev_artifact.py feeds_summary || true
 
+      - name: Install Node & Playwright (for rendering)
+        run: |
+          # instala node (setup-node action não usado aqui por simplicidade)
+          curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash - || true
+          sudo apt-get install -y nodejs build-essential || true
+          # instala playwright package e browsers (rápido)
+          if [ -f "scripts/package.json" ]; then
+            npm ci --prefix scripts || npm install --prefix scripts --no-audit --no-fund || true
+          else
+            npm install --prefix scripts playwright --no-audit --no-fund --silent || true
+          fi
+          npx --yes --prefix scripts playwright install chromium || true
+
+      - name: Render pages into scripts/rendered (if script exists)
+        shell: bash
+        run: |
+          mkdir -p scripts/rendered
+          if [ -f "scripts/run_renders.js" ]; then
+            echo "Running scripts/run_renders.js"
+            node scripts/run_renders.js || echo "run_renders.js failed"
+          else
+            echo "run_renders.js not found -> running sample render_page.js for some sites (adjust as needed)"
+            # exemplo (ajusta/expande se quiseres): 
+            node scripts/render_page.js "https://www.exchangewire.com/?s=pubmatic" "scripts/rendered/exchangewire.html" || echo "render exchangewire failed"
+            node scripts/render_page.js "https://finance.yahoo.com/quotes/TTD,PUBM,INMD,CRWD,FTNT,DDOG,PINS,MNDY,HUBS,ETSY,ONON,RBRK,ANET,DUOL,GTLB,ALAB,AXON,DAVA,EPAM,HIMS,LUV,PAYC/" "scripts/rendered/yahoo.html" || echo "render yahoo failed"
+          fi
+
+      
       - name: Run generate_feeds.py
         run: |
           python3 scripts/generate_feeds.py
