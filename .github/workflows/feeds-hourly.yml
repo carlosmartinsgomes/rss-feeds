@@ -30,7 +30,7 @@ jobs:
           python3 scripts/download_prev_artifact.py feeds_summary || true
 
       
-      - name: Debug: show scripts dir & rendered files (before generate)
+      - name: "Debug: show scripts dir & rendered files (before generate)"
         run: |
           echo "PWD: $(pwd)"
           echo "ls -la scripts:"
@@ -75,7 +75,7 @@ jobs:
             fi
           fi
 
-      - name: Diagnostic: check sites config render_file mapping (quick python)
+      - name: "Diagnostic: check sites config render_file mapping (quick python)"
         shell: bash
         run: |
           python3 - <<'PY'
