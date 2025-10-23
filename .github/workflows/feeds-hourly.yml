@@ -30,71 +30,33 @@ jobs:
           python3 scripts/download_prev_artifact.py feeds_summary || true
 
       
-      - name: "Debug: show scripts dir & rendered files (before generate)"
+      - name: Install Node & Playwright (for rendering)
         run: |
-          echo "PWD: $(pwd)"
-          echo "ls -la scripts:"
-          ls -la scripts || true
-          echo "ls -la scripts/rendered (if exists):"
-          ls -la scripts/rendered || true
-          echo "Show first 60 lines of a couple of rendered files (if present):"
-          test -f scripts/rendered/exchangewire.html && head -n 60 scripts/rendered/exchangewire.html || echo "exchangewire.html missing"
-          test -f scripts/rendered/yahoo.html && head -n 60 scripts/rendered/yahoo.html || echo "yahoo.html missing"
+          # instala node (setup-node action não usado aqui por simplicidade)
+          curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash - || true
+          sudo apt-get install -y nodejs build-essential || true
+          # instala playwright package e browsers (rápido)
+          if [ -f "scripts/package.json" ]; then
+            npm ci --prefix scripts || npm install --prefix scripts --no-audit --no-fund || true
+          else
+            npm install --prefix scripts playwright --no-audit --no-fund --silent || true
+          fi
+          npx --yes --prefix scripts playwright install chromium || true
 
-      - name: Install Node & Playwright (only if needed) and run renders
+      - name: Render pages into scripts/rendered (if script exists)
         shell: bash
         run: |
-          set -e
           mkdir -p scripts/rendered
-          # if run_renders.js present, favour it (parallel render)
           if [ -f "scripts/run_renders.js" ]; then
-            echo "Found run_renders.js -> running it"
-            # install node only if node is missing
-            if ! command -v node >/dev/null 2>&1; then
-              curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash - || true
-              sudo apt-get install -y nodejs build-essential || true
-            fi
-            if [ ! -d "scripts/node_modules/playwright" ]; then
-              npm install --prefix scripts playwright --no-audit --no-fund --silent || true
-            fi
-            npx --yes --prefix scripts playwright install chromium || true
-            node scripts/run_renders.js || echo "run_renders.js returned non-zero"
+            echo "Running scripts/run_renders.js"
+            node scripts/run_renders.js || echo "run_renders.js failed"
           else
-            echo "No run_renders.js: running selected render_page.js for exchangewire & yahoo (adjust if needed)"
-            if [ -f "scripts/render_page.js" ]; then
-              if ! command -v node >/dev/null 2>&1; then
-                curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash - || true
-                sudo apt-get install -y nodejs build-essential || true
-              fi
-              npm install --prefix scripts playwright --no-audit --no-fund --silent || true
-              npx --yes --prefix scripts playwright install chromium || true
-              node scripts/render_page.js "https://www.exchangewire.com/?s=pubmatic" "scripts/rendered/exchangewire.html" || echo "render exchangewire failed"
-              node scripts/render_page.js "https://finance.yahoo.com/quotes/TTD,PUBM,INMD,CRWD,FTNT,DDOG,PINS,MNDY,HUBS,ETSY,ONON,RBRK,ANET,DUOL,GTLB,ALAB,AXON,DAVA,EPAM,HIMS,LUV,PAYC/" "scripts/rendered/yahoo.html" || echo "render yahoo failed"
-            else
-              echo "render_page.js missing -> skipping render"
-            fi
+            echo "run_renders.js not found -> running sample render_page.js for some sites (adjust as needed)"
+            # exemplo (ajusta/expande se quiseres): 
+            node scripts/render_page.js "https://www.exchangewire.com/?s=pubmatic" "scripts/rendered/exchangewire.html" || echo "render exchangewire failed"
+            node scripts/render_page.js "https://finance.yahoo.com/quotes/TTD,PUBM,INMD,CRWD,FTNT,DDOG,PINS,MNDY,HUBS,ETSY,ONON,RBRK,ANET,DUOL,GTLB,ALAB,AXON,DAVA,EPAM,HIMS,LUV,PAYC/" "scripts/rendered/yahoo.html" || echo "render yahoo failed"
           fi
 
-      - name: "Diagnostic: check sites config render_file mapping (quick python)"
-        shell: bash
-        run: |
-          python3 - <<'PY'
-import json, os, sys
-cfg_path = "scripts/sites.json"
-if not os.path.exists(cfg_path):
-    print("sites.json not found at scripts/sites.json")
-    sys.exit(0)
-cfg = json.load(open(cfg_path))
-for s in cfg:
-    name = s.get("name","<noname>")
-    rf = s.get("render_file")
-    if not rf:
-        print(f"{name}: NO render_file")
-    else:
-        exists = os.path.exists(rf)
-        size = os.path.getsize(rf) if exists else 0
-        print(f"{name}: render_file={rf} exists={exists} size={size}")
-PY
 
       
       - name: Run generate_feeds.py
