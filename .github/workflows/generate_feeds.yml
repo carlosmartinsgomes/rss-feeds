@@ -318,7 +318,7 @@ jobs:
           pip install pandas openpyxl
 
       
-      - name: Debug: quais variáveis SMTP/EMAIL existem (não mostra valores)
+      - name: "Debug: quais variáveis SMTP/EMAIL existem (não mostra valores)"
         run: |
           for v in SMTP_HOST SMTP_SERVER SMTP_PORT SMTP_USER SMTP_USERNAME SMTP_PASS SMTP_PASSWORD EMAIL_FROM EMAIL_TO SMTP_USE_SSL; do
             if [ -n "${!v:-}" ]; then
