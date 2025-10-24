@@ -2,40 +2,44 @@
 name: Hourly feeds -> email new items
 
 on:
-  
   workflow_dispatch:
 
 jobs:
   build-and-notify:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repo
+      - name: 'Checkout repo'
         uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: 'Setup Python'
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
+      - name: 'Install Python dependencies'
         run: |
-          pip install --upgrade pip
-          pip install -r requirements.txt
+          python3 -m pip install --upgrade pip
+          if [ -f "requirements.txt" ]; then
+            pip install -r requirements.txt
+          else
+            pip install requests beautifulsoup4 feedgen lxml feedparser python-dateutil pandas openpyxl
+          fi
 
-      - name: Download previous feeds_summary artifact (if any)
+      - name: 'Download previous feeds_summary artifact (if any)'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           python3 scripts/download_prev_artifact.py feeds_summary || true
 
-      
-      - name: Install Node & Playwright (for rendering)
+      - name: 'Setup Node.js (for rendering)'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: 'Install playwright in scripts (if needed) and browsers'
         run: |
-          # instala node (setup-node action não usado aqui por simplicidade)
-          curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash - || true
-          sudo apt-get install -y nodejs build-essential || true
-          # instala playwright package e browsers (rápido)
+          mkdir -p scripts
           if [ -f "scripts/package.json" ]; then
             npm ci --prefix scripts || npm install --prefix scripts --no-audit --no-fund || true
           else
@@ -43,62 +47,66 @@ jobs:
           fi
           npx --yes --prefix scripts playwright install chromium || true
 
-      - name: Render pages into scripts/rendered (if script exists)
+      - name: 'Render pages into scripts/rendered (if script exists)'
         shell: bash
         run: |
           mkdir -p scripts/rendered
           if [ -f "scripts/run_renders.js" ]; then
             echo "Running scripts/run_renders.js"
-            node scripts/run_renders.js || echo "run_renders.js failed"
+            node scripts/run_renders.js || echo "run_renders.js returned non-zero"
           else
             echo "run_renders.js not found -> running sample render_page.js for some sites (adjust as needed)"
-            # exemplo (ajusta/expande se quiseres): 
-            node scripts/render_page.js "https://www.exchangewire.com/?s=pubmatic" "scripts/rendered/exchangewire.html" || echo "render exchangewire failed"
-            node scripts/render_page.js "https://finance.yahoo.com/quotes/TTD,PUBM,INMD,CRWD,FTNT,DDOG,PINS,MNDY,HUBS,ETSY,ONON,RBRK,ANET,DUOL,GTLB,ALAB,AXON,DAVA,EPAM,HIMS,LUV,PAYC/" "scripts/rendered/yahoo.html" || echo "render yahoo failed"
+            if [ -f "scripts/render_page.js" ]; then
+              node scripts/render_page.js "https://www.exchangewire.com/?s=pubmatic" "scripts/rendered/exchangewire.html" || echo "render exchangewire failed"
+              node scripts/render_page.js "https://finance.yahoo.com/quotes/TTD,PUBM,INMD,CRWD,FTNT,DDOG,PINS,MNDY,HUBS,ETSY,ONON,RBRK,ANET,DUOL,GTLB,ALAB,AXON,DAVA,EPAM,HIMS,LUV,PAYC/" "scripts/rendered/yahoo.html" || echo "render yahoo failed"
+            else
+              echo "scripts/render_page.js missing -> skipping per-site renders"
+            fi
           fi
 
+      - name: 'Show rendered files (debug)'
+        run: |
+          echo "PWD: $(pwd)"
+          echo "--- scripts dir ---"
+          ls -la scripts || true
+          echo "--- scripts/rendered dir ---"
+          ls -la scripts/rendered || true
+          echo "--- head of scripts/rendered/exchangewire.html (if exists) ---"
+          test -f scripts/rendered/exchangewire.html && head -n 80 scripts/rendered/exchangewire.html || echo "exchangewire.html missing"
+          echo "--- head of scripts/rendered/yahoo.html (if exists) ---"
+          test -f scripts/rendered/yahoo.html && head -n 80 scripts/rendered/yahoo.html || echo "yahoo.html missing"
 
-      
-      - name: Run generate_feeds.py
+      - name: 'Diagnostic: check sites config render_file mapping'
+        run: |
+          python3 scripts/diag_sites.py
+
+      - name: 'Run generate_feeds.py'
         run: |
           python3 scripts/generate_feeds.py
 
-      - name: Run feeds_to_excel.py
+      - name: 'Run feeds_to_excel.py'
         run: |
           python3 scripts/feeds_to_excel.py
 
-      
-      - name: Compare current vs previous and send email (if new)
-        # não queremos que um problema de email faça o job inteiro falhar
-        continue-on-error: false   # opcional: podes colocar true para nunca falhar o job
+      - name: 'Compare current vs previous and send email (if new)'
+        continue-on-error: false
         env:
-          # canonical names (preferidos)
           SMTP_HOST: ${{ secrets.SMTP_HOST }}
           SMTP_PORT: ${{ secrets.SMTP_PORT }}
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
-
-          # legacy/alternate secret names (se tens secrets com estes nomes)
           SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
           SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
-
-          # dobrar nomes para compatibilidade (garante que o script encontra pelo menos um)
-          # Se só existe um dos nomes acima, esse será passado (o outro fica vazio).
           EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
-
-          # parâmetros para o script
           FEEDS_XLSX: feeds_summary.xlsx
           SENT_IDS_FILE: .github/data/sent_ids.json
-
         run: |
           python3 scripts/compare_and_email.py
 
-
-      - name: Upload current feeds_summary.xlsx as artifact (to be used next run)
+      - name: 'Upload current feeds_summary.xlsx as artifact (to be used next run)'
         uses: actions/upload-artifact@v4
         with:
           name: feeds_summary
           path: feeds_summary.xlsx
-
