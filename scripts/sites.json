@@ -438,7 +438,7 @@
       "date": "time.c-timestamp@datetime, time.c-timestamp",
       "description": ".c-dek",
       "render_file": "scripts/rendered/wwd-on-holding.html",
-      "filters": { "keywords": [] }
+      "filters": { "keywords": ["ONON","on holding","on holdings","running"] }
     },
     {
       "name": "wwd-on-running",
@@ -449,7 +449,7 @@
       "date": "time.c-timestamp@datetime, time.c-timestamp",
       "description": ".c-dek",
       "render_file": "scripts/rendered/wwd-on-running.html",
-      "filters": { "keywords": [] }
+      "filters": { "keywords": ["ONON","on holding","on holdings","running"] }
     },
     {
       "name": "wwd-on-holding-ag",
@@ -460,7 +460,7 @@
       "date": "time.c-timestamp@datetime, time.c-timestamp",
       "description": ".c-dek",
       "render_file": "scripts/rendered/wwd-on-holding-ag.html",
-      "filters": { "keywords": [] }
+      "filters": { "keywords": ["ONON","on holding","on holdings","running"] }
     },
     {
       "name": "retaildive",
