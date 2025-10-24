@@ -11,13 +11,9 @@ const renderScript = path.join(SCRIPTS, 'render_page.js');
 
 // Lista de pares [url, output] — adapta se quiseres adicionar/retirar URLs
 const RENDER_TARGETS = [
-  ["https://www.businesswire.com/newsroom", `${SCRIPTS}/rendered/businesswire-page1.html`],
-  ["https://www.businesswire.com/newsroom?page=2", `${SCRIPTS}/rendered/businesswire-page2.html`],
-  ["https://www.businesswire.com/newsroom?page=3", `${SCRIPTS}/rendered/businesswire-page3.html`],
-  ["https://www.businesswire.com/newsroom?page=4", `${SCRIPTS}/rendered/businesswire-page4.html`],
-  ["https://www.businesswire.com/newsroom?page=5", `${SCRIPTS}/rendered/businesswire-page5.html`],
   ["https://inmodeinvestors.com/press-release", `${SCRIPTS}/rendered/inmode-press.html`],
-  ["https://www.darkreading.com/", `${SCRIPTS}/rendered/darkreading.html`],
+  ["https://www.inmodemd.com/clinical-papers/", `${SCRIPTS}/rendered/inmodemd.html`],
+  ["https://www.darkreading.com/latest-news", `${SCRIPTS}/rendered/darkreading.html`],
   ["https://adage.com/news/", `${SCRIPTS}/rendered/adage.html`],
   ["https://digiday.com/", `${SCRIPTS}/rendered/digiday.html`],
   ["https://www.modernhealthcare.com/latest-news/", `${SCRIPTS}/rendered/modernhealthcare.html`],
