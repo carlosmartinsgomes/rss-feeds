@@ -11,26 +11,17 @@ const renderScript = path.join(SCRIPTS, 'render_page.js');
 
 // Lista de pares [url, output] — adapta se quiseres adicionar/retirar URLs
 const RENDER_TARGETS = [
+  ["https://www.businesswire.com/newsroom", `${SCRIPTS}/rendered/businesswire-page1.html`],
+  ["https://www.businesswire.com/newsroom?page=2", `${SCRIPTS}/rendered/businesswire-page2.html`],
+  ["https://www.businesswire.com/newsroom?page=3", `${SCRIPTS}/rendered/businesswire-page3.html`],
+  ["https://www.businesswire.com/newsroom?page=4", `${SCRIPTS}/rendered/businesswire-page4.html`],
+  ["https://www.businesswire.com/newsroom?page=5", `${SCRIPTS}/rendered/businesswire-page5.html`],
   ["https://inmodeinvestors.com/press-release", `${SCRIPTS}/rendered/inmode-press.html`],
-  ["https://www.inmodemd.com/clinical-papers/", `${SCRIPTS}/rendered/inmodemd.html`],
-  ["https://www.darkreading.com/latest-news", `${SCRIPTS}/rendered/darkreading.html`],
+  ["https://www.darkreading.com/", `${SCRIPTS}/rendered/darkreading.html`],
   ["https://adage.com/news/", `${SCRIPTS}/rendered/adage.html`],
   ["https://digiday.com/", `${SCRIPTS}/rendered/digiday.html`],
   ["https://www.modernhealthcare.com/latest-news/", `${SCRIPTS}/rendered/modernhealthcare.html`],
-  ["https://aibusiness.com/latest-news", `${SCRIPTS}/rendered/aibusiness.html`],
-  ["https://dzone.com/list", `${SCRIPTS}/rendered/dzone.html`],
-  ["https://www.eetimes.com/category/news-analysis/", `${SCRIPTS}/rendered/eetimes.html`],
-  ["https://www.edsurge.com/news", `${SCRIPTS}/rendered/edsurge.html`],
-  ["https://www.mdpi.com/rss/journal/jaestheticmed", `${SCRIPTS}/rendered/mdpi.html`],
-  ["https://www.medscape.com/index/list_13470_0", `${SCRIPTS}/rendered/medscape0.html`],
-  ["https://www.medscape.com/index/list_13470_1", `${SCRIPTS}/rendered/medscape1.html`],
-  ["https://stocktwits.com/symbol/PUBM", `${SCRIPTS}/rendered/stocktwits.html`],
-  ["https://journals.lww.com/plasreconsurg/_layouts/15/OAKS.Journals/feed.aspx?FeedType=LatestArticles", `${SCRIPTS}/rendered/journals-current.html`],
-  ["https://journals.lww.com/plasreconsurg/_layouts/15/OAKS.Journals/feed.aspx?FeedType=CurrentIssue", `${SCRIPTS}/rendered/journals-latest.html`],
-  ["https://finance.yahoo.com/quotes/TTD,PUBM,INMD,CRWD,FTNT,DDOG,PINS,MNDY,HUBS,ETSY,ONON,RBRK,ANET,DUOL,GTLB,ALAB,AXON,DAVA,EPAM,HIMS,LUV,PAYC/", `${SCRIPTS}/rendered/finance-yahoo.html`],
-  ["https://www.exchangewire.com/?s=pubmatic", `${SCRIPTS}/rendered/exchangewire-pubm.html`],
-  ["https://www.exchangewire.com/?s=trade+desk", `${SCRIPTS}/rendered/exchangewire-ttd.html`],
-  ["https://www.exchangewire.com/?s=pinterest", `${SCRIPTS}/rendered/exchangewire-pins.html`]
+  ["https://aibusiness.com/", `${SCRIPTS}/rendered/aibusiness.html`]
 ];
 
 const CONCURRENCY = Number(process.env.RENDER_CONCURRENCY || 4);
