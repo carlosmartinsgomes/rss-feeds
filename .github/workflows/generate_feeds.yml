@@ -103,15 +103,24 @@ jobs:
         env:
           EXPLICIT_URLS: |
             https://inmodeinvestors.com/press-release
-            https://www.darkreading.com/
-            https://aibusiness.com/
-            https://www.businesswire.com/newsroom
-            https://www.businesswire.com/newsroom?page=2
-            https://www.businesswire.com/newsroom?page=3
-            https://www.businesswire.com/newsroom?page=4
-            https://www.businesswire.com/newsroom?page=5
+            https://www.inmodemd.com/clinical-papers/
+            https://www.darkreading.com/latest-news
+            https://aibusiness.com/latest-news
+            https://dzone.com/list
+            https://www.eetimes.com/category/news-analysis/
+            https://www.edsurge.com/news
+            https://www.mdpi.com/rss/journal/jaestheticmed
+            https://www.medscape.com/index/list_13470_0
+            https://www.medscape.com/index/list_13470_1
+            https://stocktwits.com/symbol/PUBM
+            https://journals.lww.com/plasreconsurg/_layouts/15/OAKS.Journals/feed.aspx?FeedType=LatestArticles
+            https://journals.lww.com/plasreconsurg/_layouts/15/OAKS.Journals/feed.aspx?FeedType=CurrentIssue
+            https://finance.yahoo.com/quotes/TTD,PUBM,INMD,CRWD,FTNT,DDOG,PINS,MNDY,HUBS,ETSY,ONON,RBRK,ANET,DUOL,GTLB,ALAB,AXON,DAVA,EPAM,HIMS,LUV,PAYC/
+            https://www.exchangewire.com/?s=pubmatic
+            https://www.exchangewire.com/?s=trade+desk
+            https://www.exchangewire.com/?s=pinterest
             https://digiday.com/
-            https://adage.com/
+            https://adage.com/news/
             https://www.modernhealthcare.com/latest-news/
           SCRIPTS: ${{ steps.detect.outputs.scripts_dir }}
         run: |
