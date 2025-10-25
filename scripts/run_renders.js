@@ -17,7 +17,20 @@ const RENDER_TARGETS = [
   ["https://adage.com/news/", `${SCRIPTS}/rendered/adage.html`],
   ["https://digiday.com/", `${SCRIPTS}/rendered/digiday.html`],
   ["https://www.modernhealthcare.com/latest-news/", `${SCRIPTS}/rendered/modernhealthcare.html`],
-  ["https://aibusiness.com/latest-news", `${SCRIPTS}/rendered/aibusiness.html`]
+  ["https://aibusiness.com/latest-news", `${SCRIPTS}/rendered/aibusiness.html`],
+  ["https://dzone.com/list", `${SCRIPTS}/rendered/dzone.html`],
+  ["https://www.eetimes.com/category/news-analysis/", `${SCRIPTS}/rendered/eetimes.html`],
+  ["https://www.edsurge.com/news", `${SCRIPTS}/rendered/edsurge.html`],
+  ["https://www.mdpi.com/rss/journal/jaestheticmed", `${SCRIPTS}/rendered/mdpi.html`],
+  ["https://www.medscape.com/index/list_13470_0", `${SCRIPTS}/rendered/medscape0.html`],
+  ["https://www.medscape.com/index/list_13470_1", `${SCRIPTS}/rendered/medscape1.html`],
+  ["https://stocktwits.com/symbol/PUBM", `${SCRIPTS}/rendered/stocktwits.html`],
+  ["https://journals.lww.com/plasreconsurg/_layouts/15/OAKS.Journals/feed.aspx?FeedType=LatestArticles", `${SCRIPTS}/rendered/journals-current.html`],
+  ["https://journals.lww.com/plasreconsurg/_layouts/15/OAKS.Journals/feed.aspx?FeedType=CurrentIssue", `${SCRIPTS}/rendered/journals-latest.html`],
+  ["https://finance.yahoo.com/quotes/TTD,PUBM,INMD,CRWD,FTNT,DDOG,PINS,MNDY,HUBS,ETSY,ONON,RBRK,ANET,DUOL,GTLB,ALAB,AXON,DAVA,EPAM,HIMS,LUV,PAYC/", `${SCRIPTS}/rendered/finance-yahoo.html`],
+  ["https://www.exchangewire.com/?s=pubmatic", `${SCRIPTS}/rendered/exchangewire-pubm.html`],
+  ["https://www.exchangewire.com/?s=trade+desk", `${SCRIPTS}/rendered/exchangewire-ttd.html`],
+  ["https://www.exchangewire.com/?s=pinterest", `${SCRIPTS}/rendered/exchangewire-pins.html`]
 ];
 
 const CONCURRENCY = Number(process.env.RENDER_CONCURRENCY || 4);
