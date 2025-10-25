@@ -1,0 +1,423 @@
+name: Generate RSS feeds (stable + businesswire)
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  PYTHON_VERSION: '3.11'
+  NODE_VERSION: '18'
+
+permissions:
+  contents: write
+
+jobs:
+
+  render-on-selfhosted:
+    runs-on: self-hosted
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      
+
+      - name: Detect scripts dir
+        id: detect
+        shell: bash
+        run: |
+          if [ -d "./scripts" ]; then sd="scripts";
+          elif [ -d "./rss-feeds/scripts" ]; then sd="rss-feeds/scripts";
+          else sd=$(find . -type d -name scripts | head -n 1); sd="${sd#./}";
+          fi
+          echo "scripts_dir=$sd" >> $GITHUB_OUTPUT
+          echo "Detected scripts_dir: $sd"
+
+      - name: Set up Node.js (self-hosted)
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Cache scripts node_modules
+        id: cache-node
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ steps.detect.outputs.scripts_dir }}/node_modules
+          key: node-mod-${{ runner.os }}-${{ env.NODE_VERSION }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            node-mod-${{ runner.os }}-${{ env.NODE_VERSION }}-
+
+      - name: Install playwright into scripts (npm --prefix) and chromium (self-hosted, smart)
+        shell: bash
+        run: |
+          SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
+          if [ -z "$SCRIPTS" ]; then
+            echo "No scripts dir detected -> skip playwright install"
+            exit 0
+          fi
+
+          if [ ! -d "$SCRIPTS/node_modules/playwright" ]; then
+            echo "Installing playwright package into $SCRIPTS (npm --prefix)..."
+            npm install --prefix "$SCRIPTS" playwright --no-audit --no-fund --silent || { echo "npm install failed"; exit 1; }
+          else
+            echo "playwright package already present in $SCRIPTS/node_modules - skipping npm install"
+          fi
+
+          if [ -d "${HOME}/.cache/ms-playwright" ] && [ "$(ls -A ${HOME}/.cache/ms-playwright 2>/dev/null | wc -l)" -gt 0 ]; then
+            echo "Playwright browsers already present in ${HOME}/.cache/ms-playwright -> skipping browser install"
+          else
+            echo "Playwright browsers not found in ${HOME}/.cache/ms-playwright -> installing chromium"
+            npx --yes --prefix "$SCRIPTS" playwright install chromium || { echo "playwright browser install failed"; exit 1; }
+          fi
+
+          echo "Done playwright setup."
+
+      - name: Render pages (parallel)
+        shell: bash
+        run: |
+          SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
+          if [ -z "$SCRIPTS" ]; then
+            echo "No scripts dir detected -> skip rendering"
+            exit 0
+          fi
+          mkdir -p "$SCRIPTS/rendered"
+          if [ ! -f "$SCRIPTS/run_renders.js" ]; then
+            echo "run_renders.js not found at $SCRIPTS/run_renders.js - skipping render"
+            exit 0
+          fi
+          export RENDER_CONCURRENCY=${{ env.RENDER_CONCURRENCY || '4' }}
+          if node "$SCRIPTS/run_renders.js"; then
+            echo "run_renders.js finished successfully"
+          else
+            echo "run_renders.js failed (non-zero exit) — continuing workflow"
+          fi
+        env:
+          SCRIPTS: ${{ steps.detect.outputs.scripts_dir }}
+          RENDER_CONCURRENCY: 4
+
+      - name: Render configured pages (for sites with render_file) - WHITELISTED hosts only
+        shell: bash
+        env:
+          EXPLICIT_URLS: |
+            https://inmodeinvestors.com/press-release
+            https://www.inmodemd.com/clinical-papers/
+            https://www.darkreading.com/latest-news
+            https://aibusiness.com/latest-news
+            https://dzone.com/list
+            https://www.eetimes.com/category/news-analysis/
+            https://www.edsurge.com/news
+            https://www.mdpi.com/rss/journal/jaestheticmed
+            https://www.medscape.com/index/list_13470_0
+            https://www.medscape.com/index/list_13470_1
+            https://stocktwits.com/symbol/PUBM
+            https://journals.lww.com/plasreconsurg/_layouts/15/OAKS.Journals/feed.aspx?FeedType=LatestArticles
+            https://journals.lww.com/plasreconsurg/_layouts/15/OAKS.Journals/feed.aspx?FeedType=CurrentIssue
+            https://finance.yahoo.com/quotes/TTD,PUBM,INMD,CRWD,FTNT,DDOG,PINS,MNDY,HUBS,ETSY,ONON,RBRK,ANET,DUOL,GTLB,ALAB,AXON,DAVA,EPAM,HIMS,LUV,PAYC/
+            https://www.exchangewire.com/?s=pubmatic
+            https://www.exchangewire.com/?s=trade+desk
+            https://www.exchangewire.com/?s=pinterest
+            https://digiday.com/
+            https://adage.com/news/
+            https://www.modernhealthcare.com/latest-news/
+          SCRIPTS: ${{ steps.detect.outputs.scripts_dir }}
+        run: |
+          echo "Using SCRIPTS='${SCRIPTS:-scripts}' and EXPLICIT_URLS provided"
+          SCRIPTS="${SCRIPTS:-scripts}"
+          if [ -z "$SCRIPTS" ]; then
+            echo "No scripts dir detected -> skip configured renders"
+            exit 0
+          fi
+          if [ -f "$SCRIPTS/render_configured.js" ]; then
+            node "$SCRIPTS/render_configured.js"
+          else
+            echo "render_configured.js not found at $SCRIPTS -> skipping"
+          fi
+
+      - name: Show rendered files (debug)
+        working-directory: ${{ steps.detect.outputs.scripts_dir }}
+        run: |
+          echo "Contents of scripts/rendered (if any):"
+          SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
+          ls -la "$SCRIPTS/rendered" || echo "No rendered dir or empty"
+        env:
+          SCRIPTS: ${{ steps.detect.outputs.scripts_dir }}
+
+      - name: Upload rendered HTML as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rendered-html
+          path: ${{ steps.detect.outputs.scripts_dir }}/rendered
+          if-no-files-found: warn
+
+      
+
+      - name: Diagnostics for rendered files (all)
+        run: python3 scripts/diagnose_rendered_no_bs4.py all    
+
+  build:
+    needs: render-on-selfhosted
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download rendered HTML artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: rendered-html
+          path: scripts/rendered
+
+      - name: Show repo root (debug)
+        run: |
+          echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
+          pwd
+          ls -la
+          echo "rendered dir (downloaded):"
+          ls -la scripts/rendered || true
+
+      - name: Detect scripts dir
+        id: detect
+        run: |
+          if [ -d "./scripts" ]; then sd="scripts";
+          elif [ -d "./rss-feeds/scripts" ]; then sd="rss-feeds/scripts";
+          else sd=$(find . -type d -name scripts | head -n 1); sd="${sd#./}";
+          fi
+          echo "scripts_dir=$sd" >> $GITHUB_OUTPUT
+          echo "Detected scripts_dir: $sd"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Cache scripts node_modules
+        id: cache-node
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ steps.detect.outputs.scripts_dir }}/node_modules
+          key: node-mod-${{ runner.os }}-${{ env.NODE_VERSION }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            node-mod-${{ runner.os }}-${{ env.NODE_VERSION }}-
+
+      - name: Install playwright into scripts (npm --prefix) and chromium (smart)
+        shell: bash
+        run: |
+          SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
+          if [ -z "$SCRIPTS" ]; then
+            echo "No scripts dir detected -> skip playwright install"
+            exit 0
+          fi
+
+          if [ ! -d "$SCRIPTS/node_modules/playwright" ]; then
+            npm install --prefix "$SCRIPTS" playwright --no-audit --no-fund --silent || { echo "npm install failed"; exit 1; }
+          fi
+
+          if [ -d "${HOME}/.cache/ms-playwright" ] && [ "$(ls -A ${HOME}/.cache/ms-playwright 2>/dev/null | wc -l)" -gt 0 ]; then
+            echo "Playwright browsers already present -> skipping"
+          else
+            npx --yes --prefix "$SCRIPTS" playwright install chromium || { echo "playwright browser install failed"; exit 1; }
+          fi
+
+      - name: Verify playwright is importable (sanity)
+        if: steps.detect.outputs.scripts_dir != ''
+        run: |
+          SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
+          echo "Node version: $(node --version)"
+          echo "NPM version: $(npm --version)"
+          ls -la "$SCRIPTS/node_modules" | sed -n '1,200p' || true
+          node -e "try { require('./${{ steps.detect.outputs.scripts_dir }}/node_modules/playwright'); console.log('playwright ok'); } catch(e) { console.error('playwright require failed:', e.message); process.exit(2); }"
+
+      - name: Render specific pages (Playwright, build-time)
+        if: steps.detect.outputs.scripts_dir != ''
+        shell: bash
+        run: |
+          SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
+          echo "Rendering selected pages into $SCRIPTS/rendered (build-time)"
+          mkdir -p "$SCRIPTS/rendered"
+          # ensure render_page.js exists
+          if [ ! -f "$SCRIPTS/render_page.js" ]; then
+            echo "render_page.js not found in $SCRIPTS - skipping build-time renders"
+          else
+            # Darkreading (main listing)
+            node "$SCRIPTS/render_page.js" "https://www.darkreading.com/latest-news" "$SCRIPTS/rendered/darkreading.html" || echo "render darkreading failed"
+            # DZone
+            node "$SCRIPTS/render_page.js" "https://dzone.com/list" "$SCRIPTS/rendered/dzone.html" || echo "render dzone failed"
+            # Digiday
+            node "$SCRIPTS/render_page.js" "https://digiday.com/" "$SCRIPTS/rendered/digiday.html" || echo "render digiday failed"
+            # Ad Age (if needed)
+            node "$SCRIPTS/render_page.js" "https://adage.com/news/" "$SCRIPTS/rendered/adage.html" || echo "render adage failed"
+          fi
+          echo "Rendered files (build-time):"
+          ls -la "$SCRIPTS/rendered" || true
+          echo "---- head of darkreading render (if exists) ----"
+          test -f "$SCRIPTS/rendered/darkreading.html" && head -n 80 "$SCRIPTS/rendered/darkreading.html" || echo "no darkreading render"
+        env:
+          SCRIPTS: ${{ steps.detect.outputs.scripts_dir }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install Python deps
+        run: |
+          python3 -m pip install --upgrade pip
+          if [ -f "requirements.txt" ]; then
+            pip install -r requirements.txt
+          else
+            pip install requests beautifulsoup4 feedgen lxml feedparser python-dateutil
+          fi
+
+      - name: Run feed generator (Python)
+        run: |
+          SCRIPTS="${{ steps.detect.outputs.scripts_dir }}"
+          if [ -f "${SCRIPTS}/generate_feeds.py" ]; then
+            python3 "${SCRIPTS}/generate_feeds.py"
+          elif [ -f "scripts/generate_feeds.py" ]; then
+            python3 scripts/generate_feeds.py
+          else
+            echo "generate_feeds.py not found -> abort"
+            exit 1
+          fi
+
+      - name: List feeds dir (debug)
+        run: |
+          echo "=== Listing feeds/*.xml in workspace ==="
+          ls -la "${{ github.workspace }}/feeds" || true
+
+      - name: Show first lines of each feed (debug)
+        run: |
+          sh -c 'for f in "${{ github.workspace }}/feeds"/*.xml; do
+            if [ -f "$f" ]; then
+              echo "---- $f ----"
+              head -n 20 "$f" || true
+            fi
+          done'
+
+      - name: Upload feeds XMLs (artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: feeds-xml-${{ github.run_id }}-${{ github.run_number }}
+          path: feeds/*.xml
+          if-no-files-found: warn
+          retention-days: 7
+    
+
+      - name: Install tiny extras for Excel export
+        run: |
+          python3 -m pip install --upgrade pip
+          pip install pandas openpyxl feedparser beautifulsoup4
+
+      - name: Generate Excel summary of feeds
+        run: |
+          python3 scripts/feeds_to_excel.py
+        shell: bash
+
+      
+      - name: Install email helper deps
+        run: |
+          python3 -m pip install --upgrade pip
+          pip install pandas openpyxl
+
+      
+      - name: "Debug: quais variáveis SMTP/EMAIL existem (não mostra valores)"
+        run: |
+          for v in SMTP_HOST SMTP_SERVER SMTP_PORT SMTP_USER SMTP_USERNAME SMTP_PASS SMTP_PASSWORD EMAIL_FROM EMAIL_TO SMTP_USE_SSL; do
+            if [ -n "${!v:-}" ]; then
+              echo "$v = SET"
+            else
+              echo "$v = UNSET"
+            fi
+          done
+
+      - name: Install email helper deps
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install pandas openpyxl
+
+      - name: Run compare & email (compare_and_email.py)
+        env:
+          # preferimos os nomes canonical que definiste nos Secrets
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          SMTP_USE_SSL: ${{ secrets.SMTP_USE_SSL }}
+
+          # dobrar nomes (compatibilidade com scripts que esperam SMTP_SERVER / SMTP_USERNAME / SMTP_PASSWORD)
+          SMTP_SERVER: ${{ secrets.SMTP_HOST }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASS }}
+
+          # parametros para o script
+          FEEDS_XLSX: feeds_summary.xlsx
+          SENT_IDS_FILE: .github/data/sent_ids.json
+        run: |
+          python3 scripts/compare_and_email.py
+
+
+      - name: Commit & push sent ids (if changed)
+        if: ${{ always() }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          mkdir -p .github/data
+          git add .github/data/sent_ids.json || true
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "chore: update sent_ids from workflow run $GITHUB_RUN_ID" || true
+            git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:${GITHUB_REF#refs/heads/} || true
+          fi
+
+
+
+      - name: Upload feeds Excel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: feeds-summary-${{ github.run_id }}-${{ github.run_number }}
+          path: feeds_summary.xlsx
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Ensure output dir exists
+        run: |
+          mkdir -p feeds
+          ls -la
+
+      - name: Create timestamped zip of feeds
+        id: create_zip
+        run: |
+          set -e
+          ZIPNAME=feeds-${{ github.run_id }}-${{ github.run_number }}.zip
+          if ls feeds/*.xml 1> /dev/null 2>&1; then
+            zip -r "$ZIPNAME" feeds || true
+          else
+            mkdir -p feeds
+            echo "no-feeds" > feeds/placeholder.txt
+            zip -r "$ZIPNAME" feeds || true
+          fi
+          echo "zipname=$ZIPNAME" >> $GITHUB_OUTPUT
+        shell: bash
+
+      
+          
+      - name: Show produced feeds
+        run: |
+          echo "Feeds dir listing:"
+          ls -la feeds || true
+          for f in feeds/*.xml; do
+            echo "---- $f ----"
+            head -n 40 "$f" || true
+          done
