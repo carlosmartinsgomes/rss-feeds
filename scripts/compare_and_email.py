@@ -1,9 +1,7 @@
 # scripts/compare_and_email.py
 # Compare feeds_summary.xlsx vs saved sent ids and send email for NEW titles only.
-# - UID is computed from normalized title only (title -> lower, strip punctuation/spaces)
-# - robust env var reading as before
-# - writes .github/data/sent_ids.json
-# - prints helpful diagnostics
+# Uses title-only UID normalization and includes 'description' in the email body/table.
+# Saves .github/data/sent_ids.json (ensure workflow persists it after run).
 
 import os, sys, json, re
 from email.message import EmailMessage
@@ -137,9 +135,19 @@ def read_feed_summary(path):
         return []
     rows = []
     for _, r in df.iterrows():
+        # try multiple possible column names for description
+        desc = None
+        for k in ("description","desc_preview","summary","description (source)","summary_tail"):
+            if k in r.index and r.get(k) is not None:
+                desc = str(r.get(k) or "")
+                break
+        # fallback to match column if no separate description
+        if not desc:
+            desc = str(r.get("match") or "")
         rows.append({
             "site": str(r.get("site") or ""),
             "title": str(r.get("title") or ""),
+            "description": desc,
             "pubDate": str(r.get("pubDate") or ""),
             "link (source)": str(r.get("link (source)") or r.get("link") or ""),
             "match": str(r.get("match") or "")
@@ -148,11 +156,12 @@ def read_feed_summary(path):
 
 def rows_to_html_table(rows):
     html = "<table border='1' cellpadding='6' cellspacing='0'>"
-    html += "<tr><th>site</th><th>title</th><th>pubDate</th><th>link</th><th>match</th></tr>"
+    html += "<tr><th>site</th><th>title</th><th>description</th><th>pubDate</th><th>link</th><th>match</th></tr>"
     for r in rows:
         html += "<tr>"
         html += "<td>{}</td>".format((r.get("site") or "")[:100])
         html += "<td>{}</td>".format((r.get("title") or "")[:400])
+        html += "<td>{}</td>".format((r.get("description") or "")[:400])
         html += "<td>{}</td>".format((r.get("pubDate") or "")[:60])
         html += "<td>{}</td>".format((r.get("link (source)") or r.get("link") or "")[:300])
         html += "<td>{}</td>".format((r.get("match") or "")[:300])
@@ -168,6 +177,7 @@ def main():
         return 0
 
     sent_ids = load_sent_ids(SENT_IDS_FILE)
+    print("DEBUG: loaded sent_ids count =", len(sent_ids))
     sent_set = set(sent_ids)
 
     new_rows = []
@@ -180,15 +190,19 @@ def main():
             new_ids.append(uid)
             sent_set.add(uid)
 
+    print("DEBUG: new_rows count =", len(new_rows))
+
     if not new_rows:
         print("No new rows to email (all already sent previously).")
         save_sent_ids(SENT_IDS_FILE, sorted(list(sent_set)))
+        # print snippet of saved ids for debug
+        print("Saved sent_ids sample:", json.dumps(sorted(list(sent_set))[:20], ensure_ascii=False))
         return 0
 
     subj = f"[RSS FEEDS] {len(new_rows)} new item(s)"
     plain_lines = []
     for r in new_rows:
-        plain_lines.append(f"- {r.get('title')} ({r.get('site')})\n  {r.get('link (source)')}\n  match: {r.get('match')}\n")
+        plain_lines.append(f"- {r.get('title')} ({r.get('site')})\n  {r.get('link (source)')}\n  desc: {r.get('description')}\n  match: {r.get('match')}\n")
     plain = "\n".join(plain_lines)
     html = "<html><body>"
     html += f"<p>{len(new_rows)} new item(s) detected:</p>"
@@ -200,13 +214,16 @@ def main():
         sent_ok = send_email(subj, plain, attach_path=FEEDS_XLSX, html=html)
         if not sent_ok:
             print("Failed to send email (see logs above).")
+            # still save sent ids? No: if sending failed we may prefer not to mark them as sent.
             return 2
     else:
         print("EMAIL_READY != 1 -> skipping actual send (but will save sent ids).")
 
-    # update sent ids file
+    # update sent ids file (save the new state)
     try:
         save_sent_ids(SENT_IDS_FILE, sorted(list(sent_set)))
+        print("Saved sent_ids count:", len(sent_set))
+        print("Saved sent_ids sample:", json.dumps(sorted(list(sent_set))[:20], ensure_ascii=False))
     except Exception as e:
         print("Error saving sent ids file:", e)
         return 3
