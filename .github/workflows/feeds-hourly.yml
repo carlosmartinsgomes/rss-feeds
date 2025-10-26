@@ -25,6 +25,23 @@ jobs:
             pip install requests beautifulsoup4 feedgen lxml feedparser python-dateutil pandas openpyxl
           fi
 
+      # ---- restore previous artifacts (rendered html + sent-ids) ----
+      - name: 'Download previous rendered-html artifact (if any)'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          # usa o teu script existente para descarregar artifact anterior chamado "rendered-html"
+          python3 scripts/download_prev_artifact.py rendered-html || true
+
+      - name: 'Download previous sent-ids artifact (if any)'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          # tenta restaurar .github/data/sent_ids.json de run anterior
+          python3 scripts/download_prev_artifact.py sent-ids || true
+
       - name: 'Download previous feeds_summary artifact (if any)'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -76,28 +93,13 @@ jobs:
           echo "--- head of scripts/rendered/yahoo.html (if exists) ---"
           test -f scripts/rendered/yahoo.html && head -n 80 scripts/rendered/yahoo.html || echo "yahoo.html missing"
 
-      
-      - name: 'Debug: list scripts/rendered after render'
-        run: |
-          echo "PWD=$(pwd)"
-          echo "ls -la scripts/rendered (top 200):"
-          ls -la scripts/rendered || echo "no scripts/rendered"
-          # show head of any html files
-          for f in scripts/rendered/*.html; do
-            if [ -f "$f" ]; then
-              echo "---- head of $f ----"
-              sed -n '1,80p' "$f"
-            fi
-          done
-
       - name: 'Runtime diagnosis (write diag to logs)'
         run: |
-          python3 scripts/diag_feed_runtime.py
+          python3 scripts/diag_rendered_and_feeds.py || true
 
-      
       - name: 'Diagnostic: check sites config render_file mapping'
         run: |
-          python3 scripts/diag_sites.py
+          python3 scripts/diag_sites.py || true
 
       - name: 'Run generate_feeds.py'
         run: |
@@ -129,3 +131,12 @@ jobs:
         with:
           name: feeds_summary
           path: feeds_summary.xlsx
+          if-no-files-found: warn
+
+      - name: 'Upload .github/data/sent_ids.json as artifact (persist sent state)'
+        uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: sent-ids
+          path: .github/data/sent_ids.json
+          if-no-files-found: warn
