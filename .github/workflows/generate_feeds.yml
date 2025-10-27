@@ -372,6 +372,12 @@ jobs:
             git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:${GITHUB_REF#refs/heads/} || true
           fi
 
+      - name: 'Upload .github/data/sent_ids.json (persist sent state)'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sent-ids
+          path: .github/data/sent_ids.json
+          if-no-files-found: ignore
 
 
       - name: Upload feeds Excel artifact
