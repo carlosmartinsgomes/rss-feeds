@@ -1,12 +1,12 @@
 # scripts/compare_and_email.py
-# Versão com diagnóstico explícito:
-# - UID = sha1(normalized title)
-# - carrega/normaliza formatos antigos de sent_ids
-# - preserva a ordem/nomes das colunas do Excel no email HTML
-# - imprime DIAG_PER_ROW para cada linha nova (útil para debugging)
-# - salva .github/data/sent_ids.json no final
+# Compare feeds_summary.xlsx vs saved sent ids and send email for NEW titles only.
+# Canonical UID: SHA1(normalized_title)
+# Backwards compatible with older saved ids that may be:
+#  - raw 40-char hex SHA1 strings
+#  - strings starting with "title:..." (old format)
+# The script will normalize old entries into canonical SHA1 form when saving.
 
-import os, sys, json, re, hashlib, unicodedata
+import os, sys, json, re, hashlib
 from email.message import EmailMessage
 import smtplib
 
@@ -47,118 +47,6 @@ if essential_missing:
     os.environ['EMAIL_READY'] = '0'
 else:
     os.environ['EMAIL_READY'] = '1'
-
-# ---------- normalization and uid helpers ----------
-def normalize_title_for_uid(t):
-    if not t:
-        return ''
-    t = str(t).strip()
-    # Unicode normalize and remove diacritics
-    t = unicodedata.normalize('NFKD', t)
-    t = ''.join(ch for ch in t if unicodedata.category(ch) != 'Mn')
-    # remove invisible characters
-    t = re.sub(r'[\u200B-\u200F\uFEFF]', ' ', t)
-    t = t.lower()
-    # remove punctuation, keep letters/numbers/space
-    t = re.sub(r'[^\w\s]', ' ', t, flags=re.UNICODE)
-    t = re.sub(r'\s+', ' ', t).strip()
-    return t
-
-def make_uid_from_title(title):
-    norm = normalize_title_for_uid(title)
-    if norm == '':
-        return ''
-    return hashlib.sha1(norm.encode('utf-8')).hexdigest()
-
-# ---------- sent ids read/write ----------
-def load_sent_ids(path):
-    try:
-        if not os.path.exists(path):
-            print("DEBUG: sent_ids file not found at", path)
-            return set()
-        with open(path,'r',encoding='utf-8') as fh:
-            data = json.load(fh)
-        out = set()
-        for e in data:
-            if not e:
-                continue
-            if isinstance(e, str):
-                s = e.strip()
-                if re.fullmatch(r'[0-9a-fA-F]{40}', s):
-                    out.add(s.lower())
-                elif s.startswith("title:"):
-                    old_title = s[len("title:"):].strip()
-                    uid = make_uid_from_title(old_title)
-                    if uid:
-                        out.add(uid)
-                else:
-                    uid = make_uid_from_title(s)
-                    if uid:
-                        out.add(uid)
-        print("DEBUG: loaded sent_ids count =", len(out))
-        return out
-    except Exception as e:
-        print("Error loading sent ids:", e)
-        return set()
-
-def save_sent_ids(path, ids_set):
-    try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        lst = sorted(list(ids_set))
-        with open(path,'w',encoding='utf-8') as fh:
-            json.dump(lst, fh, indent=2, ensure_ascii=False)
-        print("Saved sent ids to", path)
-        print("Saved sent_ids count:", len(lst))
-        if len(lst) > 20:
-            print("Saved sent_ids sample:", lst[:20])
-        else:
-            print("Saved sent_ids:", lst)
-    except Exception as e:
-        print("Error saving sent ids:", e)
-        raise
-
-# ---------- read Excel preserving columns ----------
-def read_feed_summary(path):
-    try:
-        import pandas as pd
-    except Exception as e:
-        print("Error: pandas not installed:", e)
-        return [], []
-    if not os.path.exists(path):
-        print("feeds_summary.xlsx not found at", path)
-        return [], []
-    try:
-        df = pd.read_excel(path, engine="openpyxl")
-    except Exception as e:
-        print("Error reading Excel:", e)
-        return [], []
-    cols = list(df.columns)
-    rows = []
-    for _, r in df.iterrows():
-        row = {}
-        for c in cols:
-            val = r.get(c)
-            row[c] = "" if (val is None or (hasattr(val, 'isna') and val.isna())) else str(val)
-        rows.append(row)
-    return rows, cols
-
-def rows_to_html_table_dynamic(rows, cols):
-    html = "<table border='1' cellpadding='6' cellspacing='0'>"
-    # header in original order
-    html += "<tr>"
-    for c in cols:
-        html += f"<th>{c}</th>"
-    html += "</tr>"
-    for r in rows:
-        html += "<tr>"
-        for c in cols:
-            cell = (r.get(c) or "")[:800]
-            # escape minor HTML characters
-            cell = cell.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-            html += f"<td>{cell}</td>"
-        html += "</tr>"
-    html += "</table>"
-    return html
 
 def send_email(subject, body_text, attach_path=None, html=None):
     if os.environ.get('EMAIL_READY') != '1':
@@ -203,65 +91,174 @@ def send_email(subject, body_text, attach_path=None, html=None):
         print("SMTP login/send failed:", repr(e))
         return False
 
+# ---------- helper: normalize title -> canonical SHA1 UID ----------
+def normalize_title(t):
+    if not t:
+        return ''
+    t = str(t).strip().lower()
+    # normalize unicode (NFC) to reduce differences
+    try:
+        import unicodedata
+        t = unicodedata.normalize('NFC', t)
+    except Exception:
+        pass
+    # remove punctuation (keep word chars and spaces), collapse whitespace
+    t = re.sub(r'[^\w\s]', ' ', t, flags=re.UNICODE)
+    t = re.sub(r'\s+', ' ', t).strip()
+    return t
+
+def sha1_of_text(s):
+    return hashlib.sha1(s.encode('utf-8')).hexdigest()
+
+def make_uid_from_title(title):
+    norm = normalize_title(title)
+    return sha1_of_text(norm)
+
+# ---------- read/write sent ids ----------
+def load_sent_ids(path):
+    try:
+        if not os.path.exists(path):
+            return []
+        with open(path,'r',encoding='utf-8') as fh:
+            data = json.load(fh)
+            if not isinstance(data, list):
+                print("Warning: sent_ids file parsed but top-level is not a list. Attempting best-effort handling.")
+                # try to coerce
+                if isinstance(data, dict):
+                    data = list(data.keys())
+                else:
+                    data = list(data)
+    except Exception as e:
+        print("Error loading sent ids:", e)
+        return []
+
+    canonical = set()
+    converted = 0
+    kept = 0
+    for entry in data:
+        try:
+            s = str(entry)
+        except Exception:
+            continue
+        s = s.strip()
+        # If it looks like a 40-char hex -> assume it's already SHA1
+        if re.fullmatch(r'[0-9a-f]{40}', s, flags=re.IGNORECASE):
+            canonical.add(s.lower())
+            kept += 1
+        elif s.startswith('title:'):
+            # old format: compute SHA1(normalize(title-tail))
+            tail = s[len('title:'):]
+            uid = make_uid_from_title(tail)
+            canonical.add(uid)
+            converted += 1
+        else:
+            # fallback: try to interpret as raw title string -> hash it
+            # This ensures older heterogeneous formats are handled.
+            uid = make_uid_from_title(s)
+            canonical.add(uid)
+            converted += 1
+
+    print(f"DEBUG: loaded sent_ids count (raw) = {len(data)} -> canonical SHA1 count = {len(canonical)} (kept={kept} converted={converted})")
+    return sorted(list(canonical))
+
+def save_sent_ids(path, ids):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    # ids expected as list of canonical sha1 hex strings
+    try:
+        with open(path,'w',encoding='utf-8') as fh:
+            json.dump(sorted(ids), fh, indent=2, ensure_ascii=False)
+        print("Saved sent ids to", path)
+        print("Saved sent_ids count:", len(ids))
+    except Exception as e:
+        print("Error saving sent ids:", e)
+
+# ---------- read Excel (pandas used) ----------
+def read_feed_summary(path):
+    try:
+        import pandas as pd
+    except Exception as e:
+        print("Error: pandas not installed:", e)
+        return []
+    if not os.path.exists(path):
+        print("feeds_summary.xlsx not found at", path)
+        return []
+    try:
+        df = pd.read_excel(path, engine="openpyxl")
+    except Exception as e:
+        print("Error reading Excel:", e)
+        return []
+    rows = []
+    # normalize column names access without being too strict:
+    for _, r in df.iterrows():
+        rows.append({
+            "site": str(r.get("site") or r.get("Site") or "") ,
+            "title": str(r.get("title") or r.get("Title") or ""),
+            "description": str(r.get("description") or r.get("desc") or r.get("Description") or ""),
+            "pubDate": str(r.get("pubDate") or r.get("date") or r.get("pubDate") or ""),
+            "link (source)": str(r.get("link (source)") or r.get("link") or r.get("Link") or ""),
+            "match": str(r.get("match") or "")
+        })
+    return rows
+
+def rows_to_html_table(rows):
+    html = "<table border='1' cellpadding='6' cellspacing='0' style='border-collapse:collapse;font-family:Arial,sans-serif;font-size:13px;'>"
+    html += "<tr style='background:#efefef'><th>site</th><th>title</th><th>description</th><th>pubDate</th><th>link</th><th>match</th></tr>"
+    for r in rows:
+        site = (r.get("site") or "")[:120]
+        title = (r.get("title") or "")[:400]
+        desc = (r.get("description") or "")[:500]
+        pub = (r.get("pubDate") or "")[:80]
+        link = (r.get("link (source)") or "")[:350]
+        match = (r.get("match") or "")[:300]
+        html += "<tr>"
+        html += "<td>{}</td>".format(site.replace("<","&lt;").replace(">","&gt;"))
+        html += "<td>{}</td>".format(title.replace("<","&lt;").replace(">","&gt;"))
+        html += "<td>{}</td>".format(desc.replace("<","&lt;").replace(">","&gt;"))
+        html += "<td>{}</td>".format(pub.replace("<","&lt;").replace(">","&gt;"))
+        html += "<td><a href='{0}'>{0}</a></td>".format(link.replace("'", "%27").replace("<","&lt;").replace(">","&gt;"))
+        html += "<td>{}</td>".format(match.replace("<","&lt;").replace(">","&gt;"))
+        html += "</tr>"
+    html += "</table>"
+    return html
+
 def main():
-    rows, cols = read_feed_summary(FEEDS_XLSX)
+    rows = read_feed_summary(FEEDS_XLSX)
     print("DEBUG: all_rows length =", len(rows))
     if not rows:
         print("No rows found in feed summary -> nothing to send")
         return 0
 
-    sent_set = load_sent_ids(SENT_IDS_FILE)
+    sent_ids = load_sent_ids(SENT_IDS_FILE)
+    sent_set = set([s.lower() for s in sent_ids])
 
     new_rows = []
-    added_uids = []
-    # We'll also print DIAG_PER_ROW for every row we will send
+    new_ids = []
     for r in rows:
-        # Try to determine a title column: common names: 'title', 'Title'
-        title = ""
-        for cand in ("title","Title","headline","Headline"):
-            if cand in r and r[cand]:
-                title = r[cand]
-                break
-        # fallback: try to find first column that looks like a title
-        if not title:
-            # choose the column named 'title' if present, else first non-empty string column
-            for c in cols:
-                if r.get(c):
-                    title = r.get(c)
-                    break
-        title = (title or "").strip()
+        title = r.get("title") or ""
         uid = make_uid_from_title(title)
-        existed = (uid in sent_set) if uid else False
-        # DIAGNOSTIC LINE (very important)
-        print(f"DIAG_PER_ROW: title={title[:200]!r} uid={uid!r} existed_before={existed}")
-        if uid and not existed:
+        if uid not in sent_set:
             new_rows.append(r)
-            added_uids.append(uid)
+            new_ids.append(uid)
             sent_set.add(uid)
 
     print("DEBUG: new_rows count =", len(new_rows))
     if len(new_rows) > 0:
-        print("DEBUG: new UIDs (first 50):", added_uids[:50])
+        print("DEBUG: new UIDs (first 50):", new_ids[:50])
 
     if not new_rows:
         print("No new rows to email (all already sent previously).")
-        save_sent_ids(SENT_IDS_FILE, sent_set)
+        # still save canonical sent ids to persist any conversions
+        save_sent_ids(SENT_IDS_FILE, sorted(list(sent_set)))
         return 0
 
     subj = f"[RSS FEEDS] {len(new_rows)} new item(s)"
     plain_lines = []
     for r in new_rows:
-        # pick columns link if present
-        link = r.get("link (source)") or r.get("link") or r.get("Link") or ""
-        site = r.get("site") or ""
-        title = r.get("title") or ""
-        match = r.get("match") or ""
-        desc = r.get("description") or r.get("desc") or ""
-        plain_lines.append(f"- {title} ({site})\n  {link}\n  match: {match}\n  desc: {desc}\n")
+        plain_lines.append(f"- {r.get('title')} ({r.get('site')})\n  {r.get('link (source)')}\n  match: {r.get('match')}\n  desc: {r.get('description')}\n")
     plain = "\n".join(plain_lines)
     html = "<html><body>"
     html += f"<p>{len(new_rows)} new item(s) detected:</p>"
-    html += rows_to_html_table_dynamic(new_rows, cols)
+    html += rows_to_html_table(new_rows)
     html += "</body></html>"
 
     sent_ok = False
@@ -273,8 +270,9 @@ def main():
     else:
         print("EMAIL_READY != 1 -> skipping actual send (but will save sent ids).")
 
+    # update sent ids file (save canonical SHA1 list)
     try:
-        save_sent_ids(SENT_IDS_FILE, sent_set)
+        save_sent_ids(SENT_IDS_FILE, sorted(list(sent_set)))
     except Exception as e:
         print("Error saving sent ids file:", e)
         return 3
