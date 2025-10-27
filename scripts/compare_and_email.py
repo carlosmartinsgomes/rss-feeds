@@ -1,10 +1,10 @@
 # scripts/compare_and_email.py
-# Robust compare & email: UIDs = sha1(normalized title)
-# - normaliza unicode, remove diacríticos, pontuação e espaços extras
-# - converte formatos antigos de sent_ids (ex: "title:...") para o novo sha1
-# - apresenta logs detalhados para diagnóstico
-# - anexa feeds_summary.xlsx se existir
-# - inclui 'description'/desc_preview na tabela HTML se a coluna existir
+# Versão com diagnóstico explícito:
+# - UID = sha1(normalized title)
+# - carrega/normaliza formatos antigos de sent_ids
+# - preserva a ordem/nomes das colunas do Excel no email HTML
+# - imprime DIAG_PER_ROW para cada linha nova (útil para debugging)
+# - salva .github/data/sent_ids.json no final
 
 import os, sys, json, re, hashlib, unicodedata
 from email.message import EmailMessage
@@ -52,19 +52,15 @@ else:
 def normalize_title_for_uid(t):
     if not t:
         return ''
-    # Normalize unicode (NFKD), remove diacritics, control chars, zero-width, etc.
-    t = str(t)
-    t = t.strip()
+    t = str(t).strip()
+    # Unicode normalize and remove diacritics
     t = unicodedata.normalize('NFKD', t)
-    # remove combining marks (diacritics)
     t = ''.join(ch for ch in t if unicodedata.category(ch) != 'Mn')
-    # remove zero-width & other invisible
+    # remove invisible characters
     t = re.sub(r'[\u200B-\u200F\uFEFF]', ' ', t)
-    # lower
     t = t.lower()
-    # replace non-word (keep letters/numbers/space)
+    # remove punctuation, keep letters/numbers/space
     t = re.sub(r'[^\w\s]', ' ', t, flags=re.UNICODE)
-    # collapse whitespace
     t = re.sub(r'\s+', ' ', t).strip()
     return t
 
@@ -72,10 +68,9 @@ def make_uid_from_title(title):
     norm = normalize_title_for_uid(title)
     if norm == '':
         return ''
-    h = hashlib.sha1(norm.encode('utf-8')).hexdigest()  # 40 hex chars
-    return h
+    return hashlib.sha1(norm.encode('utf-8')).hexdigest()
 
-# ---------- read/write sent ids (canonicalized as sha1 hex strings) ----------
+# ---------- sent ids read/write ----------
 def load_sent_ids(path):
     try:
         if not os.path.exists(path):
@@ -83,30 +78,23 @@ def load_sent_ids(path):
             return set()
         with open(path,'r',encoding='utf-8') as fh:
             data = json.load(fh)
-        # data could be list of strings, possibly old format like "title:..."
         out = set()
         for e in data:
-            if not e: 
+            if not e:
                 continue
             if isinstance(e, str):
                 s = e.strip()
-                # if looks like hex sha1 (40 hex chars)
                 if re.fullmatch(r'[0-9a-fA-F]{40}', s):
                     out.add(s.lower())
                 elif s.startswith("title:"):
-                    # old format: title:... -> convert to sha1 of normalized part
                     old_title = s[len("title:"):].strip()
                     uid = make_uid_from_title(old_title)
                     if uid:
                         out.add(uid)
                 else:
-                    # fallback: treat as raw title and hash it
                     uid = make_uid_from_title(s)
                     if uid:
                         out.add(uid)
-            else:
-                # ignore non-strings
-                continue
         print("DEBUG: loaded sent_ids count =", len(out))
         return out
     except Exception as e:
@@ -116,7 +104,6 @@ def load_sent_ids(path):
 def save_sent_ids(path, ids_set):
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        # save sorted list for determinism
         lst = sorted(list(ids_set))
         with open(path,'w',encoding='utf-8') as fh:
             json.dump(lst, fh, indent=2, ensure_ascii=False)
@@ -130,55 +117,49 @@ def save_sent_ids(path, ids_set):
         print("Error saving sent ids:", e)
         raise
 
-# ---------- read Excel (pandas used) ----------
+# ---------- read Excel preserving columns ----------
 def read_feed_summary(path):
     try:
         import pandas as pd
     except Exception as e:
         print("Error: pandas not installed:", e)
-        return []
+        return [], []
     if not os.path.exists(path):
         print("feeds_summary.xlsx not found at", path)
-        return []
+        return [], []
     try:
         df = pd.read_excel(path, engine="openpyxl")
     except Exception as e:
         print("Error reading Excel:", e)
-        return []
+        return [], []
+    cols = list(df.columns)
     rows = []
     for _, r in df.iterrows():
-        # try multiple possible description column names
-        desc = ""
-        for cname in ("description", "desc", "desc_preview", "summary", "summary_tail"):
-            if cname in r and not pd.isna(r.get(cname)):
-                desc = str(r.get(cname))
-                break
-        rows.append({
-            "site": str(r.get("site") or ""),
-            "title": str(r.get("title") or ""),
-            "pubDate": str(r.get("pubDate") or ""),
-            "link (source)": str(r.get("link (source)") or r.get("link") or ""),
-            "match": str(r.get("match") or ""),
-            "description": desc
-        })
-    return rows
+        row = {}
+        for c in cols:
+            val = r.get(c)
+            row[c] = "" if (val is None or (hasattr(val, 'isna') and val.isna())) else str(val)
+        rows.append(row)
+    return rows, cols
 
-def rows_to_html_table(rows):
+def rows_to_html_table_dynamic(rows, cols):
     html = "<table border='1' cellpadding='6' cellspacing='0'>"
-    html += "<tr><th>site</th><th>title</th><th>pubDate</th><th>link</th><th>match</th><th>description</th></tr>"
+    # header in original order
+    html += "<tr>"
+    for c in cols:
+        html += f"<th>{c}</th>"
+    html += "</tr>"
     for r in rows:
         html += "<tr>"
-        html += "<td>{}</td>".format((r.get("site") or "")[:100])
-        html += "<td>{}</td>".format((r.get("title") or "")[:400])
-        html += "<td>{}</td>".format((r.get("pubDate") or "")[:60])
-        html += "<td>{}</td>".format((r.get("link (source)") or r.get("link") or "")[:300])
-        html += "<td>{}</td>".format((r.get("match") or "")[:300])
-        html += "<td>{}</td>".format((r.get("description") or "")[:500])
+        for c in cols:
+            cell = (r.get(c) or "")[:800]
+            # escape minor HTML characters
+            cell = cell.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            html += f"<td>{cell}</td>"
         html += "</tr>"
     html += "</table>"
     return html
 
-# ---------- send email ----------
 def send_email(subject, body_text, attach_path=None, html=None):
     if os.environ.get('EMAIL_READY') != '1':
         print("send_email() chamado mas EMAIL_READY != 1 -> não enviar")
@@ -222,9 +203,8 @@ def send_email(subject, body_text, attach_path=None, html=None):
         print("SMTP login/send failed:", repr(e))
         return False
 
-# ---------- main ----------
 def main():
-    rows = read_feed_summary(FEEDS_XLSX)
+    rows, cols = read_feed_summary(FEEDS_XLSX)
     print("DEBUG: all_rows length =", len(rows))
     if not rows:
         print("No rows found in feed summary -> nothing to send")
@@ -234,36 +214,54 @@ def main():
 
     new_rows = []
     added_uids = []
+    # We'll also print DIAG_PER_ROW for every row we will send
     for r in rows:
-        title = (r.get("title") or "").strip()
+        # Try to determine a title column: common names: 'title', 'Title'
+        title = ""
+        for cand in ("title","Title","headline","Headline"):
+            if cand in r and r[cand]:
+                title = r[cand]
+                break
+        # fallback: try to find first column that looks like a title
         if not title:
-            continue
+            # choose the column named 'title' if present, else first non-empty string column
+            for c in cols:
+                if r.get(c):
+                    title = r.get(c)
+                    break
+        title = (title or "").strip()
         uid = make_uid_from_title(title)
-        if not uid:
-            continue
-        if uid not in sent_set:
+        existed = (uid in sent_set) if uid else False
+        # DIAGNOSTIC LINE (very important)
+        print(f"DIAG_PER_ROW: title={title[:200]!r} uid={uid!r} existed_before={existed}")
+        if uid and not existed:
             new_rows.append(r)
             added_uids.append(uid)
             sent_set.add(uid)
 
     print("DEBUG: new_rows count =", len(new_rows))
     if len(new_rows) > 0:
-        print("DEBUG: new UIDs (first 20):", added_uids[:20])
+        print("DEBUG: new UIDs (first 50):", added_uids[:50])
 
     if not new_rows:
         print("No new rows to email (all already sent previously).")
-        # still save sent ids to persist possible conversions
         save_sent_ids(SENT_IDS_FILE, sent_set)
         return 0
 
     subj = f"[RSS FEEDS] {len(new_rows)} new item(s)"
     plain_lines = []
     for r in new_rows:
-        plain_lines.append(f"- {r.get('title')} ({r.get('site')})\n  {r.get('link (source)')}\n  match: {r.get('match')}\n")
+        # pick columns link if present
+        link = r.get("link (source)") or r.get("link") or r.get("Link") or ""
+        site = r.get("site") or ""
+        title = r.get("title") or ""
+        match = r.get("match") or ""
+        desc = r.get("description") or r.get("desc") or ""
+        plain_lines.append(f"- {title} ({site})\n  {link}\n  match: {match}\n  desc: {desc}\n")
     plain = "\n".join(plain_lines)
     html = "<html><body>"
     html += f"<p>{len(new_rows)} new item(s) detected:</p>"
-    html += rows_to_html_table(new_rows)
+    html += rows_to_html_table_dynamic(new_rows, cols)
     html += "</body></html>"
 
     sent_ok = False
@@ -275,7 +273,6 @@ def main():
     else:
         print("EMAIL_READY != 1 -> skipping actual send (but will save sent ids).")
 
-    # update sent ids file
     try:
         save_sent_ids(SENT_IDS_FILE, sent_set)
     except Exception as e:
