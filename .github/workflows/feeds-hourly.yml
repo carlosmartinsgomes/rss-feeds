@@ -43,6 +43,16 @@ jobs:
           python3 scripts/download_prev_artifact.py feeds_summary || true
           python3 scripts/download_prev_artifact.py sent-ids || true
 
+      # --- PRESERVE previous feeds_summary (rename to prev_feeds_summary.xlsx) ---
+      - name: 'Preserve previous feeds_summary (if downloaded)'
+        run: |
+          if [ -f "feeds_summary.xlsx" ]; then
+            mv feeds_summary.xlsx prev_feeds_summary.xlsx
+            echo "Prev feeds moved to prev_feeds_summary.xlsx"
+          else
+            echo "No previous feeds_summary.xlsx downloaded -> nothing to preserve"
+          fi
+
       - name: 'Setup Node.js (for rendering)'
         uses: actions/setup-node@v4
         with:
@@ -116,24 +126,26 @@ jobs:
           EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
           FEEDS_XLSX: feeds_summary.xlsx
+          # pass the preserved previous excel (if present) so the script compares current vs previous
+          PREV_FEEDS_XLSX: prev_feeds_summary.xlsx
           SENT_IDS_FILE: .github/data/sent_ids.json
         run: |
           python3 scripts/compare_and_email.py
 
       # upload feeds_summary with *consistent* artifact name (used by download_prev_artifact.py)
-      - name: 'Upload current feeds_summary.xlsx as artifact (to be used next run)'
+      - name: 'Upload current feeds_summary.xlsx as artifact (consistent name for downloader)'
         uses: actions/upload-artifact@v4
         with:
           name: feeds_summary
           path: feeds_summary.xlsx
-          if-no-files-found: ignore
+          if-no-files-found: warn
 
-      # upload sent-ids ONCE (remover duplicados!)
-      - name: 'Upload .github/data/sent_ids.json (persist sent state)'
+      # upload sent-ids with unique name (avoid conflicts / duplicates)
+      - name: 'Upload .github/data/sent_ids.json (persist sent state) - unique name'
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: sent-ids
+          name: sent-ids-${{ github.run_id }}-${{ github.run_number }}
           path: .github/data/sent_ids.json
           if-no-files-found: ignore
 
