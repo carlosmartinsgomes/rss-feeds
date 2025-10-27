@@ -25,13 +25,13 @@ jobs:
             pip install requests beautifulsoup4 feedgen lxml feedparser python-dateutil pandas openpyxl
           fi
 
-      # ---- restore previous artifacts (rendered html + sent-ids) ----
+      # ---- restore previous artifacts (rendered html + feeds_summary + sent-ids) ----
       - name: 'Download previous rendered-html artifact (if any)'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
         run: |
-          # usa o teu script existente para descarregar artifact anterior chamado "rendered-html"
           python3 scripts/download_prev_artifact.py rendered-html || true
 
       - name: 'Download previous feeds_summary artifact (if any) and sent_ids'
@@ -42,7 +42,6 @@ jobs:
         run: |
           python3 scripts/download_prev_artifact.py feeds_summary || true
           python3 scripts/download_prev_artifact.py sent-ids || true
-
 
       - name: 'Setup Node.js (for rendering)'
         uses: actions/setup-node@v4
@@ -121,25 +120,56 @@ jobs:
         run: |
           python3 scripts/compare_and_email.py
 
+      # upload feeds_summary with *consistent* artifact name (used by download_prev_artifact.py)
       - name: 'Upload current feeds_summary.xlsx as artifact (to be used next run)'
         uses: actions/upload-artifact@v4
         with:
           name: feeds_summary
           path: feeds_summary.xlsx
-          if-no-files-found: warn
+          if-no-files-found: ignore
 
+      # upload sent-ids ONCE (remover duplicados!)
       - name: 'Upload .github/data/sent_ids.json (persist sent state)'
+        if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: sent-ids
           path: .github/data/sent_ids.json
           if-no-files-found: ignore
 
-      
-      - name: 'Upload .github/data/sent_ids.json as artifact (persist sent state)'
+      - name: 'Upload feeds Excel artifact (backup with run id)'
         uses: actions/upload-artifact@v4
-        if: ${{ always() }}
         with:
-          name: sent-ids
-          path: .github/data/sent_ids.json
-          if-no-files-found: warn
+          name: feeds-summary-${{ github.run_id }}-${{ github.run_number }}
+          path: feeds_summary.xlsx
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Ensure output dir exists
+        run: |
+          mkdir -p feeds
+          ls -la
+
+      - name: Create timestamped zip of feeds
+        id: create_zip
+        run: |
+          set -e
+          ZIPNAME=feeds-${{ github.run_id }}-${{ github.run_number }}.zip
+          if ls feeds/*.xml 1> /dev/null 2>&1; then
+            zip -r "$ZIPNAME" feeds || true
+          else
+            mkdir -p feeds
+            echo "no-feeds" > feeds/placeholder.txt
+            zip -r "$ZIPNAME" feeds || true
+          fi
+          echo "zipname=$ZIPNAME" >> $GITHUB_OUTPUT
+        shell: bash
+
+      - name: Show produced feeds
+        run: |
+          echo "Feeds dir listing:"
+          ls -la feeds || true
+          for f in feeds/*.xml; do
+            echo "---- $f ----"
+            head -n 40 "$f" || true
+          done
