@@ -34,20 +34,15 @@ jobs:
           # usa o teu script existente para descarregar artifact anterior chamado "rendered-html"
           python3 scripts/download_prev_artifact.py rendered-html || true
 
-      - name: 'Download previous sent-ids artifact (if any)'
+      - name: 'Download previous feeds_summary artifact (if any) and sent_ids'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-        run: |
-          # tenta restaurar .github/data/sent_ids.json de run anterior
-          python3 scripts/download_prev_artifact.py sent-ids || true
-
-      - name: 'Download previous feeds_summary artifact (if any)'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
         run: |
           python3 scripts/download_prev_artifact.py feeds_summary || true
+          python3 scripts/download_prev_artifact.py sent-ids || true
+
 
       - name: 'Setup Node.js (for rendering)'
         uses: actions/setup-node@v4
@@ -133,6 +128,14 @@ jobs:
           path: feeds_summary.xlsx
           if-no-files-found: warn
 
+      - name: 'Upload .github/data/sent_ids.json (persist sent state)'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sent-ids
+          path: .github/data/sent_ids.json
+          if-no-files-found: ignore
+
+      
       - name: 'Upload .github/data/sent_ids.json as artifact (persist sent state)'
         uses: actions/upload-artifact@v4
         if: ${{ always() }}
