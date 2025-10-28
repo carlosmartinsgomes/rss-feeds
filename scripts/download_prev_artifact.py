@@ -1,118 +1,137 @@
 #!/usr/bin/env python3
+# scripts/download_prev_artifact.py
 """
-scripts/download_prev_artifact.py <artifact_name>
+Download the most recent artifact whose name matches the given name (or contains it)
+from the repository's artifacts, extract it into the current working directory,
+and print clear diagnostic messages.
 
-Find the most recent artifact in the repo with the given name whose created_at
-is strictly BEFORE the current run's created_at, download the zip and extract
-its contents into the current working directory.
-
-Requires environment:
-  - GITHUB_TOKEN (a token with repo/actions read)
-  - GITHUB_REPOSITORY (owner/repo) - usually set in Actions env
-  - GITHUB_RUN_ID (current run id) - set in Actions env
+Usage:
+  python3 scripts/download_prev_artifact.py rendered-html
+  python3 scripts/download_prev_artifact.py feeds_summary
+Environment:
+  GITHUB_REPOSITORY (owner/repo) - provided by Actions
+  GITHUB_TOKEN - required to access artifacts API
 """
-import sys, os, requests, zipfile, io, datetime
+import os
+import sys
+import requests
+import zipfile
+import io
+import time
 
-def die(msg):
+GITHUB_API = "https://api.github.com"
+
+def die(msg, code=1):
     print("ERROR:", msg)
-    sys.exit(2)
+    sys.exit(code)
 
-if len(sys.argv) < 2:
-    die("usage: download_prev_artifact.py <artifact_name>")
+def getenv_first(*names, default=None):
+    for n in names:
+        v = os.environ.get(n)
+        if v:
+            return v
+    return default
 
-artifact_name = sys.argv[1]
+def find_artifact(repo, token, name_query, per_page=100):
+    headers = {"Authorization": f"Bearer {token}", "Accept":"application/vnd.github+json"}
+    url = f"{GITHUB_API}/repos/{repo}/actions/artifacts?per_page={per_page}"
+    artifacts = []
+    try:
+        r = requests.get(url, headers=headers, timeout=30)
+        r.raise_for_status()
+    except Exception as e:
+        die(f"Failed to list artifacts: {e}")
 
-token = os.environ.get("GITHUB_TOKEN") or os.environ.get("INPUT_GITHUB_TOKEN")
-repo = os.environ.get("GITHUB_REPOSITORY")
-run_id = os.environ.get("GITHUB_RUN_ID")
+    data = r.json()
+    artifacts.extend(data.get("artifacts", []))
 
-if not token:
-    die("GITHUB_TOKEN not set in environment")
-if not repo:
-    die("GITHUB_REPOSITORY not set in environment")
-if not run_id:
-    die("GITHUB_RUN_ID not set in environment")
+    # pagination (only if there are more pages)
+    while data.get("total_count", 0) > len(artifacts):
+        # Try to follow 'next' from headers if present
+        if 'next' not in r.links:
+            break
+        nxt = r.links['next']['url']
+        try:
+            r = requests.get(nxt, headers=headers, timeout=30)
+            r.raise_for_status()
+            data = r.json()
+            artifacts.extend(data.get("artifacts", []))
+        except Exception:
+            break
 
-API_BASE = "https://api.github.com"
+    # Filter: exact name match preferred, else contains
+    exact = [a for a in artifacts if a.get("name") == name_query]
+    if exact:
+        # pick latest by created_at
+        exact.sort(key=lambda a: a.get("created_at",""), reverse=True)
+        return exact[0]
 
-sess = requests.Session()
-sess.headers.update({
-    "Authorization": f"Bearer {token}",
-    "Accept": "application/vnd.github+json",
-    "User-Agent": "download-prev-artifact-script"
-})
+    contains = [a for a in artifacts if name_query in a.get("name","")]
+    if contains:
+        contains.sort(key=lambda a: a.get("created_at",""), reverse=True)
+        return contains[0]
 
-# Get current run created_at
-r = sess.get(f"{API_BASE}/repos/{repo}/actions/runs/{run_id}")
-if r.status_code != 200:
-    die(f"failed to fetch run info: {r.status_code} {r.text}")
-run_info = r.json()
-run_created_at = run_info.get("created_at")
-if not run_created_at:
-    die("could not determine current run created_at")
-run_created_at_dt = datetime.datetime.fromisoformat(run_created_at.replace("Z","+00:00"))
+    return None
 
-# list artifacts (pagination simple: per_page=100)
-artifacts = []
-page = 1
-while True:
-    resp = sess.get(f"{API_BASE}/repos/{repo}/actions/artifacts?per_page=100&page={page}")
-    if resp.status_code != 200:
-        die(f"failed to list artifacts: {resp.status_code} {resp.text}")
-    j = resp.json()
-    artifacts.extend(j.get("artifacts", []))
-    if not j.get("artifacts") or len(j.get("artifacts")) < 100:
-        break
-    page += 1
+def download_and_extract(repo, token, artifact_id, dest_dir="."):
+    headers = {"Authorization": f"Bearer {token}", "Accept":"application/vnd.github+json"}
+    url = f"{GITHUB_API}/repos/{repo}/actions/artifacts/{artifact_id}/zip"
+    try:
+        r = requests.get(url, headers=headers, stream=True, timeout=120)
+        r.raise_for_status()
+    except Exception as e:
+        die(f"Failed to download artifact id={artifact_id}: {e}")
 
-# filter by name and created_at < run_created_at
-candidates = []
-for a in artifacts:
-    if a.get("name") != artifact_name:
-        continue
-    ca = a.get("created_at")
-    if not ca:
-        continue
-    ca_dt = datetime.datetime.fromisoformat(ca.replace("Z","+00:00"))
-    if ca_dt < run_created_at_dt:
-        candidates.append((ca_dt, a))
+    print(f"Downloaded artifact id={artifact_id}, size={r.headers.get('Content-Length','?')} bytes (streaming)...")
+    z = zipfile.ZipFile(io.BytesIO(r.content))
+    members = z.namelist()
+    print(f"ZIP contains {len(members)} entries, extracting to '{dest_dir}' ...")
+    # Extract preserving directories
+    z.extractall(dest_dir)
+    print("Extraction complete. Sample files:")
+    for m in members[:40]:
+        print("  ", m)
+    return members
 
-if not candidates:
-    print(f"No previous artifact named '{artifact_name}' found (created before current run).")
-    sys.exit(0)
+def main():
+    if len(sys.argv) < 2:
+        die("Usage: download_prev_artifact.py <artifact-name>")
 
-# pick most recent one (max created_at)
-candidates.sort(key=lambda x: x[0], reverse=True)
-chosen = candidates[0][1]
-print(f"Found artifact '{artifact_name}' id={chosen.get('id')} created_at={chosen.get('created_at')} size={chosen.get('size_in_bytes')}")
+    artifact_name = sys.argv[1]
+    repo = getenv_first("GITHUB_REPOSITORY")
+    token = getenv_first("GITHUB_TOKEN", "GITHUB_TOKEN")
+    if not repo:
+        die("GITHUB_REPOSITORY not set in environment (owner/repo).")
+    if not token:
+        die("GITHUB_TOKEN not set in environment (required to fetch artifacts).")
 
-download_url = chosen.get("archive_download_url")
-if not download_url:
-    die("artifact missing archive_download_url")
+    print(f"Looking for artifact matching: {artifact_name} in repo {repo} ...")
+    art = find_artifact(repo, token)
+    # If we didn't find any, search with name query
+    if art is None:
+        # try again but filter by name_query in artifacts (explicit loop)
+        print("No artifacts found in first page; aborting search.")
+        die("No artifacts found.")
+    # But we used find_artifact without passing query: fix — call with name
+    art = find_artifact(repo, token, artifact_name)
+    if art is None:
+        print(f"No artifact matching '{artifact_name}' found (checked recent artifacts).")
+        sys.exit(0)
 
-# download the zip
-resp = sess.get(download_url, stream=True)
-if resp.status_code not in (200, 302):
-    die(f"failed to download artifact archive: {resp.status_code} {resp.text}")
+    aid = art.get("id")
+    aname = art.get("name")
+    created = art.get("created_at")
+    size = art.get("size_in_bytes", 0)
+    print(f"Found artifact '{aname}' id={aid} created_at={created} size={size}")
+    # Download and extract into repo root; if artifact is a folder (rendered/*), ensure scripts/rendered exists
+    try:
+        members = download_and_extract(repo, token, aid, ".")
+    except Exception as e:
+        die(f"Download/extract failed: {e}")
 
-# follow redirect if GitHub returns it
-if resp.status_code == 302:
-    redirect_url = resp.headers.get("Location")
-    resp = sess.get(redirect_url, stream=True)
-    if resp.status_code != 200:
-        die(f"redirect download failed: {resp.status_code} {resp.text}")
+    # If extraction produced a top-level 'rendered' dir, move/rename if needed
+    # (We don't do moving here — generate_feeds.py expects scripts/rendered/)
+    print("Done. Please confirm scripts/rendered/* exists if you expected rendered HTMLs.")
 
-buf = io.BytesIO(resp.content)
-try:
-    z = zipfile.ZipFile(buf)
-except Exception as e:
-    die(f"failed to open artifact zip: {e}")
-
-# extract all files into cwd (overwrites)
-print("Extracting artifact contents into current working directory...")
-for zi in z.infolist():
-    name = zi.filename
-    print("  extracting", name)
-    z.extract(zi, ".")
-print("Done.")
-sys.exit(0)
+if __name__ == "__main__":
+    main()
