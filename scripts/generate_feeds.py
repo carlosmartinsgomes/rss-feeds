@@ -17,7 +17,6 @@ from dateutil import tz as date_tz
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-
 # silence UnknownTimezoneWarning if present
 try:
     from dateutil import _parser as _dateutil__parser
@@ -589,6 +588,15 @@ def extract_items_from_html(html, cfg):
                     return full, a
             return anchors[0][0], anchors[0][2]
 
+        # detect Yahoo multi-quote (either by cfg name or url)
+        is_yahoo = False
+        try:
+            url_lower = (cfg.get('url') or '').lower()
+            if 'finance.yahoo.com/quotes' in url_lower or (cfg.get('name') or '').lower() == 'yahoo-multiquote-news':
+                is_yahoo = True
+        except Exception:
+            is_yahoo = False
+
         # iterate nodes and extract fields (reintroduzemos fallbacks antigos)
         for node_idx, node in enumerate(nodes):
             try:
@@ -603,13 +611,60 @@ def extract_items_from_html(html, cfg):
                 desc_sel = cfg.get('description')
                 topic_sel = cfg.get('topic')
 
+                # --- Yahoo-specific extraction (prefer these values if present) ---
+                if is_yahoo:
+                    try:
+                        pub_sel = cfg.get('publishing_selector') or 'div.publishing'
+                        pub_val = None
+                        # allow comma separated selectors in publishing_selector
+                        for ps in [p.strip() for p in str(pub_sel).split(',') if p.strip()]:
+                            pub_val = select_and_get(node, ps)
+                            if pub_val:
+                                title = pub_val
+                                break
+                    except Exception:
+                        pass
+
+                    try:
+                        tax_sel = cfg.get('taxonomy_selector') or 'div.taxonomy-links'
+                        tax_node = None
+                        try:
+                            tax_node = node.select_one(tax_sel)
+                        except Exception:
+                            tax_node = None
+                        syms = []
+                        if tax_node:
+                            # first try .symbol elements
+                            try:
+                                for sp in tax_node.select('.symbol')[:5]:
+                                    st = sp.get_text(" ", strip=True)
+                                    if st:
+                                        syms.append(st)
+                            except Exception:
+                                pass
+                            # fallback: ticker-container links
+                            if not syms:
+                                try:
+                                    for a in tax_node.select('a[data-testid="ticker-container"]')[:5]:
+                                        s = a.get('title') or a.get_text(" ", strip=True)
+                                        if s:
+                                            syms.append(s.strip())
+                                except Exception:
+                                    pass
+                        if syms:
+                            # join up to first 3 tickers
+                            topic = ', '.join(syms[:3])
+                    except Exception:
+                        pass
+                    # note: do NOT early-skip fallbacks - if these yielded nothing, later generic logic will try.
                 # ------------- TITLE -------------
-                if title_sel:
-                    for s in [t.strip() for t in str(title_sel).split(',') if t.strip()]:
-                        val = select_and_get(node, s)
-                        if val:
-                            title = val
-                            break
+                if not title:
+                    if title_sel:
+                        for s in [t.strip() for t in str(title_sel).split(',') if t.strip()]:
+                            val = select_and_get(node, s)
+                            if val:
+                                title = val
+                                break
                 if not title:
                     # try common headline tags
                     t = node.find(['h1', 'h2', 'h3', 'h4', 'a'])
@@ -696,40 +751,38 @@ def extract_items_from_html(html, cfg):
                     except Exception:
                         pass
 
-                
                 # ------------- TOPIC -------------
-                topic = ''
-                try:
-                    topic_sel = cfg.get('topic')
-                    if topic_sel:
-                        for s in [t.strip() for t in str(topic_sel).split(',') if t.strip()]:
+                if not topic:
+                    try:
+                        topic_sel = cfg.get('topic')
+                        if topic_sel:
+                            for s in [t.strip() for t in str(topic_sel).split(',') if t.strip()]:
+                                try:
+                                    val = select_and_get(node, s)
+                                except Exception:
+                                    val = None
+                                if val:
+                                    topic = val
+                                    break
+                        # fallbacks comuns: meta keywords, tag classes, category elements
+                        if not topic:
                             try:
-                                val = select_and_get(node, s)
+                                meta = node.select_one('meta[name="keywords"], meta[property="article:tag"], .tag, .tags, .category')
+                                if meta:
+                                    topic = (meta.get('content') or meta.get_text(" ", strip=True) or '').strip()
                             except Exception:
-                                val = None
-                            if val:
-                                topic = val
-                                break
-                    # fallbacks comuns: meta keywords, tag classes, category elements
-                    if not topic:
-                        try:
-                            meta = node.select_one('meta[name="keywords"], meta[property="article:tag"], .tag, .tags, .category')
-                            if meta:
-                                topic = (meta.get('content') or meta.get_text(" ", strip=True) or '').strip()
-                        except Exception:
-                            topic = topic or ''
-                    # última tentativa: procurar um .category/.tag dentro do node
-                    if not topic:
-                        try:
-                            tag_el = node.select_one('.category, .tag, .tags, .topic')
-                            if tag_el:
-                                topic = tag_el.get_text(" ", strip=True) or ''
-                        except Exception:
-                            pass
-                except Exception:
-                    topic = topic or ''
+                                topic = topic or ''
+                        # última tentativa: procurar um .category/.tag dentro do node
+                        if not topic:
+                            try:
+                                tag_el = node.select_one('.category, .tag, .tags, .topic')
+                                if tag_el:
+                                    topic = tag_el.get_text(" ", strip=True) or ''
+                            except Exception:
+                                pass
+                    except Exception:
+                        topic = topic or ''
 
-                
                 # ------------- DATE -------------
                 date = ''
                 if cfg.get('date'):
@@ -825,7 +878,7 @@ def extract_items_from_html(html, cfg):
                 try:
                     if cfg.get('name','').lower() == 'yahoo-multiquote-news':
                         anchors_count = len(node.find_all('a', href=True))
-                        print(f"YAHOO: node idx={node_idx} anchors={anchors_count} chosen_link='{(link or '')[:140]}' title_len={len(title)} desc_len={len(desc)}")
+                        print(f"YAHOO: node idx={node_idx} anchors={anchors_count} chosen_link='{(link or '')[:140]}' title_len={len(title)} desc_len={len(desc)} topic='{topic}'")
                 except Exception:
                     pass
 
@@ -907,7 +960,6 @@ def build_feed(name, cfg, items):
             except Exception:
                 pass
 
-            
             fe.description(desc_to_use)
             if it.get('date'):
                 try:
@@ -1027,6 +1079,7 @@ def apply_filters_and_mark(items, cfg):
     return filtered
 # -----------------------------------------------------------------------------
 
+
 def main():
     sites = load_sites()
     print(f'Loaded {len(sites)} site configurations from {SITES_JSON}')
@@ -1054,8 +1107,17 @@ def main():
                 print(f'No rendered file found at {rf_path} for {name}')
         if html is None:
             try:
-                print(f'Fetching {url} via requests...')
-                resp = fetch_url(url)
+                # determine per-site timeout (respect cfg['timeout'] if present)
+                default_timeout = int(cfg.get('timeout', 20))
+                # special-case Yahoo multi-quote -> increase timeout
+                url_lower = (url or '').lower()
+                if 'finance.yahoo.com/quotes' in url_lower or name.lower() == 'yahoo-multiquote-news':
+                    timeout = max(default_timeout, 60)   # 60s for Yahoo (ajusta se quiseres)
+                else:
+                    timeout = default_timeout
+
+                print(f'Fetching {url} via requests with timeout={timeout}...')
+                resp = fetch_url(url, timeout=timeout)
             except Exception as e:
                 print(f'Request error for {url}: {e}')
                 resp = None
