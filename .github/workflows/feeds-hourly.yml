@@ -105,6 +105,14 @@ jobs:
         run: |
           python3 scripts/diag_sites.py || true
 
+      - name: Full repo diagnostic (single step)
+        run: python3 scripts/diag_all_run_state.py
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          DIAG_DOWNLOAD_ARTIFACTS: '0'   # muda para '1' se quiseres que o workflow BAIXE e EXTRAIA artifacts (pode ser grande)
+
+      
       - name: 'Run generate_feeds.py'
         run: |
           python3 scripts/generate_feeds.py
