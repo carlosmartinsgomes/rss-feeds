@@ -127,7 +127,7 @@
       "title": "h3 a, h3, a span, a",
       "link": "a[href*='/news/']@href, a[href*='/articles/']@href, a@href",
       "date": "time, span._date, span.publish-date, .Fz(12px)",
-      "description": "h3, p, .summary",
+      "description": "time, span._date, span.publish-date, .Fz(12px)",
       "render_file": "scripts/rendered/yahoo.html",
       "filters": { "keywords": [] }
     },
