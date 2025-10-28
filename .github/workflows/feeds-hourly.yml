@@ -25,33 +25,25 @@ jobs:
             pip install requests beautifulsoup4 feedgen lxml feedparser python-dateutil pandas openpyxl
           fi
 
-      # ---- restore previous artifacts (rendered html + feeds_summary + sent-ids) ----
+      # ---- restore previous artifacts (rendered html + prev feeds_summary + sent-ids) ----
       - name: 'Download previous rendered-html artifact (if any)'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_RUN_ID: ${{ github.run_id }}
         run: |
+          # attempt to fetch the most-recent rendered-html artifact BEFORE this run
           python3 scripts/download_prev_artifact.py rendered-html || true
 
-      - name: 'Download previous feeds_summary artifact (if any) and sent_ids'
+      - name: 'Download previous feeds_summary artifact (if any) and sent_ids (previous)'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_RUN_ID: ${{ github.run_id }}
         run: |
+          # this will extract prev_feeds_summary.xlsx (if found) and .github/data/sent_ids.json
           python3 scripts/download_prev_artifact.py feeds_summary || true
           python3 scripts/download_prev_artifact.py sent-ids || true
-
-      # --- PRESERVE previous feeds_summary (rename to prev_feeds_summary.xlsx) ---
-      - name: 'Preserve previous feeds_summary (if downloaded)'
-        run: |
-          if [ -f "feeds_summary.xlsx" ]; then
-            mv feeds_summary.xlsx prev_feeds_summary.xlsx
-            echo "Prev feeds moved to prev_feeds_summary.xlsx"
-          else
-            echo "No previous feeds_summary.xlsx downloaded -> nothing to preserve"
-          fi
 
       - name: 'Setup Node.js (for rendering)'
         uses: actions/setup-node@v4
@@ -105,14 +97,6 @@ jobs:
         run: |
           python3 scripts/diag_sites.py || true
 
-      - name: Full repo diagnostic (single step)
-        run: python3 scripts/diag_all_run_state.py
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          DIAG_DOWNLOAD_ARTIFACTS: '0'   # muda para '1' se quiseres que o workflow BAIXE e EXTRAIA artifacts (pode ser grande)
-
-      
       - name: 'Run generate_feeds.py'
         run: |
           python3 scripts/generate_feeds.py
@@ -133,27 +117,28 @@ jobs:
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          # current FEEDS XLSX is the one just produced by feeds_to_excel.py
           FEEDS_XLSX: feeds_summary.xlsx
-          # pass the preserved previous excel (if present) so the script compares current vs previous
-          PREV_FEEDS_XLSX: prev_feeds_summary.xlsx
+          # if we extracted previous artifact, prev_feeds_summary.xlsx will exist; compare_and_email
+          # must be aware of prev_feeds_summary.xlsx semantics (this script reads sent_ids.json etc).
           SENT_IDS_FILE: .github/data/sent_ids.json
         run: |
           python3 scripts/compare_and_email.py
 
       # upload feeds_summary with *consistent* artifact name (used by download_prev_artifact.py)
-      - name: 'Upload current feeds_summary.xlsx as artifact (consistent name for downloader)'
+      - name: 'Upload current feeds_summary.xlsx as artifact (to be used next run)'
         uses: actions/upload-artifact@v4
         with:
           name: feeds_summary
           path: feeds_summary.xlsx
           if-no-files-found: warn
 
-      # upload sent-ids with unique name (avoid conflicts / duplicates)
-      - name: 'Upload .github/data/sent_ids.json (persist sent state) - unique name'
+      # upload sent-ids ONCE (persist sent state)
+      - name: 'Upload .github/data/sent_ids.json (persist sent state)'
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: sent-ids-${{ github.run_id }}-${{ github.run_number }}
+          name: sent-ids
           path: .github/data/sent_ids.json
           if-no-files-found: ignore
 
@@ -162,7 +147,7 @@ jobs:
         with:
           name: feeds-summary-${{ github.run_id }}-${{ github.run_number }}
           path: feeds_summary.xlsx
-          if-no-files-found: ignore
+          if-no-files-found: warn
           retention-days: 7
 
       - name: Ensure output dir exists
