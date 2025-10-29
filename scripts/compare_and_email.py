@@ -127,15 +127,26 @@ def read_feed_summary(path):
         return []
     rows = []
     for _, r in df.iterrows():
+        # descrição: tenta múltiplas chaves (case-sensitive & variants) porque o excel pode ter "description (short)"
+        descr = (
+            r.get("description")
+            or r.get("Description")
+            or r.get("description (short)")
+            or r.get("Description (short)")
+            or r.get("desc")
+            or r.get("Desc")
+            or ""
+        )
         rows.append({
             "site": str(r.get("site") or r.get("Site") or "") ,
             "title": str(r.get("title") or r.get("Title") or ""),
-            "description": str(r.get("description") or r.get("desc") or r.get("Description") or ""),
-            "pubDate": str(r.get("pubDate") or r.get("date") or r.get("pubDate") or ""),
+            "description": str(descr),
+            "pubDate": str(r.get("pubDate") or r.get("date") or r.get("pubDate") or r.get("Date") or ""),
             "link (source)": str(r.get("link (source)") or r.get("link") or r.get("Link") or ""),
-            "match": str(r.get("match") or "")
+            "match": str(r.get("match") or r.get("matched_reason") or "")
         })
     return rows
+
 
 def rows_to_html_table(rows):
     html = "<table border='1' cellpadding='6' cellspacing='0' style='border-collapse:collapse;font-family:Arial,sans-serif;font-size:13px;'>"
