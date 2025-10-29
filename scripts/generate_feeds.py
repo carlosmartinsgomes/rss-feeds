@@ -620,6 +620,8 @@ def extract_items_from_html(html, cfg):
                         for ps in [p.strip() for p in str(pub_sel).split(',') if p.strip()]:
                             pub_val = select_and_get(node, ps)
                             if pub_val:
+                                # keep original behavior (pub_val was put in title previously)
+                                # we do NOT assign here - we'll swap at the end to guarantee consistent fallbacks
                                 title = pub_val
                                 break
                     except Exception:
@@ -657,6 +659,7 @@ def extract_items_from_html(html, cfg):
                     except Exception:
                         pass
                     # note: do NOT early-skip fallbacks - if these yielded nothing, later generic logic will try.
+
                 # ------------- TITLE -------------
                 if not title:
                     if title_sel:
@@ -871,6 +874,14 @@ def extract_items_from_html(html, cfg):
                 if not link:
                     # build urn (so dedupe still works)
                     link = f"urn:node:{cfg.get('name')}:{node_idx}"
+
+                # === SWAP title <-> desc for Yahoo as requested ===
+                # keep all fallbacks intact, then invert the two fields for Yahoo nodes
+                if is_yahoo:
+                    try:
+                        title, desc = (desc or ''), (title or '')
+                    except Exception:
+                        pass
 
                 full_text = (title or '') + ' ' + (desc or '') + ' ' + text_of_node(node)
 
