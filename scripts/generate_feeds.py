@@ -905,24 +905,55 @@ def extract_items_from_html(html, cfg):
 
     return items
 
+
 def dedupe_items(items, cfg=None):
+    """
+    Deduplicate items robustly:
+    - Prefer exact normalized link dedupe (normalize_link_for_dedupe)
+    - If normalized link is empty or has already been seen, fallback to normalized title
+      (title normalized by lowercasing + collapse whitespace; truncated)
+    This reduces duplicates that appear because the same news has slightly different links
+    across runs while preserving distinct items with same title but different links only if
+    both link and title are different.
+    """
     do_dedupe = True
     if isinstance(cfg, dict) and cfg.get('dedupe') is False:
         do_dedupe = False
     if not do_dedupe:
         return items[:]
-    unique = {}
+
+    seen_links = set()
+    seen_titles = set()
     out = []
     for it in (items or []):
-        key = normalize_link_for_dedupe(it.get('link') or '')
-        if not key:
-            key = (it.get('title','') or '').strip().lower()[:200]
-        if not key:
-            key = f"__no_key__{len(out)}"
-        if key not in unique:
-            unique[key] = True
+        link_raw = (it.get('link') or '').strip()
+        title_raw = (it.get('title') or '').strip()
+
+        link_key = normalize_link_for_dedupe(link_raw) if link_raw else ''
+        # normalize title: collapse whitespace, lower, remove non-word punctuation for robust match
+        t = re.sub(r'\s+', ' ', title_raw or '').strip().lower()
+        t = re.sub(r'[^\w\s]', '', t)
+        title_key = (t[:200]) if t else ''
+
+        accept = False
+        if link_key:
+            if link_key not in seen_links:
+                accept = True
+                seen_links.add(link_key)
+                if title_key:
+                    seen_titles.add(title_key)
+        else:
+            # no link -> rely on title-based dedupe
+            if title_key and title_key not in seen_titles:
+                accept = True
+                seen_titles.add(title_key)
+        if accept:
             out.append(it)
+        else:
+            # skip duplicate
+            continue
     return out
+
 
 def build_feed(name, cfg, items):
     fg = FeedGenerator()
