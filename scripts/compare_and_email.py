@@ -5,6 +5,7 @@
 import os, sys, json, re, hashlib
 from email.message import EmailMessage
 import smtplib
+import unicodedata
 
 def getenv_first(*names, default=''):
     for n in names:
@@ -87,14 +88,38 @@ def send_email(subject, body_text, attach_path=None, html=None):
         print("SMTP login/send failed:", repr(e))
         return False
 
+# ---------- normalization helpers ----------
+def normalize_text_for_compare(s):
+    """
+    Normalize text for robust equality/comparison and display:
+    - ensure string
+    - unicode-normalize (NFKC)
+    - replace NBSP with regular space
+    - collapse whitespace
+    - strip (but do NOT lowercase here — UID generation uses normalize_title)
+    """
+    if s is None:
+        return ''
+    t = str(s)
+    try:
+        t = unicodedata.normalize('NFKC', t)
+    except Exception:
+        pass
+    t = t.replace('\u00A0', ' ')
+    # remove zero-width/control characters that may differ between runs
+    t = re.sub(r'[\u200B-\u200F\uFEFF]', '', t)
+    # collapse whitespace
+    t = re.sub(r'\s+', ' ', t)
+    return t.strip()
+
 # ---------- normalization and uid ----------
 def normalize_title(t):
     if not t:
         return ''
     t = str(t).strip().lower()
     try:
-        import unicodedata
-        t = unicodedata.normalize('NFC', t)
+        import unicodedata as _ud
+        t = _ud.normalize('NFC', t)
     except Exception:
         pass
     # remove zero-width and control characters
@@ -137,13 +162,26 @@ def read_feed_summary(path):
             or r.get("Desc")
             or ""
         )
+
+        site_raw = r.get("site") or r.get("Site") or ""
+        title_raw = r.get("title") or r.get("Title") or ""
+        pub_raw = r.get("pubDate") or r.get("date") or r.get("pubDate") or r.get("Date") or ""
+        link_raw = r.get("link (source)") or r.get("link") or r.get("Link") or ""
+        match_raw = r.get("match") or r.get("matched_reason") or ""
+
+        # normalize for consistent comparison/display but keep raw title too
+        site_norm = normalize_text_for_compare(site_raw)[:120]
+        title_norm = normalize_text_for_compare(title_raw)[:400]
+        desc_norm = normalize_text_for_compare(descr)[:500]
+
         rows.append({
-            "site": str(r.get("site") or r.get("Site") or "") ,
-            "title": str(r.get("title") or r.get("Title") or ""),
-            "description": str(descr),
-            "pubDate": str(r.get("pubDate") or r.get("date") or r.get("pubDate") or r.get("Date") or ""),
-            "link (source)": str(r.get("link (source)") or r.get("link") or r.get("Link") or ""),
-            "match": str(r.get("match") or r.get("matched_reason") or "")
+            "site": site_norm,
+            "title": title_norm,
+            "title_raw": str(title_raw),
+            "description": desc_norm,
+            "pubDate": str(pub_raw),
+            "link (source)": str(link_raw),
+            "match": str(match_raw)
         })
     return rows
 
@@ -229,7 +267,8 @@ def main():
     if PREV_FEEDS_XLSX and os.path.exists(PREV_FEEDS_XLSX):
         prev_rows = read_feed_summary(PREV_FEEDS_XLSX)
         for r in prev_rows:
-            uid = make_uid_from_title(r.get("title") or "")
+            # use the title (normalized) from prev_rows to generate uid
+            uid = make_uid_from_title(r.get("title") or r.get("title_raw") or "")
             if uid:
                 prev_uids_set.add(uid)
         prev_mode = 'prev_excel'
@@ -244,8 +283,9 @@ def main():
     new_rows = []
     new_ids = []
     for r in current_rows:
-        title = r.get("title") or ""
-        uid = make_uid_from_title(title)
+        # use title_raw if available, else title (both are present from read_feed_summary)
+        title_for_uid = r.get("title_raw") or r.get("title") or ""
+        uid = make_uid_from_title(title_for_uid)
         if uid and uid not in prev_uids_set:
             new_rows.append(r)
             new_ids.append(uid)
