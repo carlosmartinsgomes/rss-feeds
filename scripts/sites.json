@@ -344,7 +344,7 @@
       "description": ".categoryFeatured-body, .card-text, .categoryFeatured-body, p",
       "render_file": "scripts/rendered/eetimes.html",
       "max_items": 200,
-      "filters": { "keywords": ["astera","alab"] }
+      "filters": { "keywords": ["a","astera","alab"] }
     },
     {
       "name": "techcrunch-feed",
