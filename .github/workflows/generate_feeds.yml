@@ -4,6 +4,8 @@ on:
   push:
     branches: [ main ]
   workflow_dispatch:
+  schedule:
+    - cron: '*/15 * * * *'   # run every 15 minutes
 
 env:
   PYTHON_VERSION: '3.11'
