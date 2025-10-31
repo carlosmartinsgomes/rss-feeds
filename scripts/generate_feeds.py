@@ -600,6 +600,7 @@ def extract_items_from_html(html, cfg):
         # iterate nodes and extract fields (reintroduzemos fallbacks antigos)
         for node_idx, node in enumerate(nodes):
             try:
+                # --- initialize ---
                 title = ''
                 link = ''
                 date = ''
@@ -611,52 +612,53 @@ def extract_items_from_html(html, cfg):
                 desc_sel = cfg.get('description')
                 topic_sel = cfg.get('topic')
 
-                # --- Yahoo-specific extraction (prefer these values if present) ---
-                if is_yahoo:
-                    try:
+                # --- Yahoo-specific preliminary reads (do NOT commit swap yet) ---
+                # read publishing selector (but keep for later) - we DON'T early-swap here
+                is_yahoo = (cfg.get('name','').lower() == 'yahoo-multiquote-news')
+                try:
+                    if is_yahoo:
                         pub_sel = cfg.get('publishing_selector') or 'div.publishing'
                         pub_val = None
-                        # allow comma separated selectors in publishing_selector
                         for ps in [p.strip() for p in str(pub_sel).split(',') if p.strip()]:
                             pub_val = select_and_get(node, ps)
                             if pub_val:
+                                # record it in title for now (orig_title) but we will swap later safely
                                 title = pub_val
                                 break
-                    except Exception:
-                        pass
+                except Exception:
+                    pass
 
+                # taxonomy (topic) extraction as before
+                try:
+                    tax_sel = cfg.get('taxonomy_selector') or 'div.taxonomy-links'
+                    tax_node = None
                     try:
-                        tax_sel = cfg.get('taxonomy_selector') or 'div.taxonomy-links'
+                        tax_node = node.select_one(tax_sel)
+                    except Exception:
                         tax_node = None
+                    syms = []
+                    if tax_node:
                         try:
-                            tax_node = node.select_one(tax_sel)
+                            for sp in tax_node.select('.symbol')[:5]:
+                                st = sp.get_text(" ", strip=True)
+                                if st:
+                                    syms.append(st)
                         except Exception:
-                            tax_node = None
-                        syms = []
-                        if tax_node:
-                            # first try .symbol elements
+                            pass
+                        if not syms:
                             try:
-                                for sp in tax_node.select('.symbol')[:5]:
-                                    st = sp.get_text(" ", strip=True)
-                                    if st:
-                                        syms.append(st)
+                                for a in tax_node.select('a[data-testid="ticker-container"]')[:5]:
+                                    s = a.get('title') or a.get_text(" ", strip=True)
+                                    if s:
+                                        syms.append(s.strip())
                             except Exception:
                                 pass
-                            # fallback: ticker-container links
-                            if not syms:
-                                try:
-                                    for a in tax_node.select('a[data-testid="ticker-container"]')[:5]:
-                                        s = a.get('title') or a.get_text(" ", strip=True)
-                                        if s:
-                                            syms.append(s.strip())
-                                except Exception:
-                                    pass
-                        if syms:
-                            # join up to first 3 tickers
-                            topic = ', '.join(syms[:3])
-                    except Exception:
-                        pass
-                    # note: do NOT early-skip fallbacks - if these yielded nothing, later generic logic will try.
+                    if syms:
+                        topic = ', '.join(syms[:3])
+                except Exception:
+                    pass
+                # do not early-skip fallbacks
+
                 # ------------- TITLE -------------
                 if not title:
                     if title_sel:
@@ -666,12 +668,11 @@ def extract_items_from_html(html, cfg):
                                 title = val
                                 break
                 if not title:
-                    # try common headline tags
                     t = node.find(['h1', 'h2', 'h3', 'h4', 'a'])
                     if t and t.get_text(strip=True):
                         title = t.get_text(" ", strip=True)
 
-                # fallback: if anchor with title attribute exists, use it
+                # fallback: anchor title attribute
                 if not title:
                     try:
                         a_try = node.select_one('a[title], a.title')
@@ -728,20 +729,17 @@ def extract_items_from_html(html, cfg):
                 # if desc equals title or is empty try fallbacks (old behavior)
                 if (not desc) or (title and desc and desc.strip() == title.strip()):
                     try:
-                        # try anchor title attribute
                         a_try = node.select_one('a.link, h4 a.title, a.title, a')
                         if a_try and a_try.has_attr('title'):
                             a_title_attr = (a_try.get('title') or '').strip()
                             if a_title_attr and a_title_attr != title:
                                 desc = a_title_attr
-                        # previous paragraph
                         if (not desc) or (desc.strip() == title.strip()):
                             pprev = node.find_previous('p')
                             if pprev and pprev.get_text(strip=True):
                                 ptxt = pprev.get_text(" ", strip=True)
                                 if ptxt and ptxt != title:
                                     desc = ptxt
-                        # next paragraph
                         if (not desc) or (desc.strip() == title.strip()):
                             pnext = node.find_next('p')
                             if pnext and pnext.get_text(strip=True):
@@ -764,7 +762,6 @@ def extract_items_from_html(html, cfg):
                                 if val:
                                     topic = val
                                     break
-                        # fallbacks comuns: meta keywords, tag classes, category elements
                         if not topic:
                             try:
                                 meta = node.select_one('meta[name="keywords"], meta[property="article:tag"], .tag, .tags, .category')
@@ -772,7 +769,6 @@ def extract_items_from_html(html, cfg):
                                     topic = (meta.get('content') or meta.get_text(" ", strip=True) or '').strip()
                             except Exception:
                                 topic = topic or ''
-                        # última tentativa: procurar um .category/.tag dentro do node
                         if not topic:
                             try:
                                 tag_el = node.select_one('.category, .tag, .tags, .topic')
@@ -792,7 +788,6 @@ def extract_items_from_html(html, cfg):
                             date = val
                             break
 
-                # heuristics: search node, ancestors up to 3 levels, siblings
                 if not date:
                     def find_date_in(element):
                         for ds in ['time', 'span.time', 'time[datetime]', '.date', 'span.date', '.timestamp', '.pubdate', 'small']:
@@ -804,7 +799,6 @@ def extract_items_from_html(html, cfg):
                                 txt = (el.get('datetime') or el.get_text(" ", strip=True) or '').strip()
                                 if txt:
                                     return txt
-                        # also try attributes like data-date
                         try:
                             for attr in ('data-date','data-datetime','datetime'):
                                 if element and getattr(element, 'attrs', None) and element.attrs.get(attr):
@@ -837,7 +831,6 @@ def extract_items_from_html(html, cfg):
                     if found:
                         date = found
 
-                # fallback: if still none, try any iso-like text in node
                 if not date:
                     txt_all = node.get_text(" ", strip=True)
                     m = re.search(r'(\d{4}-\d{2}-\d{2})', txt_all)
@@ -848,45 +841,60 @@ def extract_items_from_html(html, cfg):
                         if m2:
                             date = m2.group(1)
 
-                # ------------- FINAL NORMALIZATIONS & FALLBACKS -------------
-                # if title is empty, try several candidates
-                if not title:
-                    for cand in ('a[title]', 'h3 a', '.headline', '.title', 'img[alt]', '.provider'):
-                        try:
-                            tval = None
-                            if cand == 'img[alt]':
-                                img = node.select_one('img[alt]')
-                                if img and img.get('alt'):
-                                    tval = img.get('alt')
-                            else:
-                                tval = select_and_get(node, cand + '@text') if '@' not in cand else select_and_get(node, cand)
-                            if tval:
-                                title = tval
-                                break
-                        except Exception:
-                            pass
+                # ------------- FINAL NORMALIZATIONS & SAFETY SWAP FOR YAHOO -------------
+                # save originals (after all fallbacks)
+                orig_title = (title or '').strip()
+                orig_desc = (desc or '').strip()
+
+                # default fallbacks if both empty
+                if not orig_title and not orig_desc:
+                    # try some common simple candidates
+                    try:
+                        a_try = node.select_one('a')
+                        if a_try and a_try.get_text(strip=True):
+                            orig_title = a_try.get_text(" ", strip=True)
+                    except Exception:
+                        pass
+
+                # For Yahoo: swap description->title and title->description BUT ensure final title is non-empty
+                if is_yahoo:
+                    try:
+                        title_final = orig_desc if orig_desc else orig_title
+                        if not title_final:
+                            title_final = 'No title'
+                        desc_final = orig_title or ''
+                        title = title_final
+                        desc = desc_final
+                    except Exception:
+                        # fallback safe assignment
+                        title = orig_desc or orig_title or 'No title'
+                        desc = orig_title or ''
+                else:
+                    # not yahoo: keep as-is
+                    title = orig_title or 'No title'
+                    desc = orig_desc or ''
+
+                # ensure there is always a title
                 if not title:
                     title = 'No title'
 
-                if not link:
-                    # build urn (so dedupe still works)
-                    link = f"urn:node:{cfg.get('name')}:{node_idx}"
-
+                # build full_text using the final title/desc
                 full_text = (title or '') + ' ' + (desc or '') + ' ' + text_of_node(node)
 
-                # debug per-node lightweight
+                # debug per-node lightweight (show original and final lengths for Yahoo)
                 try:
                     if cfg.get('name','').lower() == 'yahoo-multiquote-news':
                         anchors_count = len(node.find_all('a', href=True))
-                        print(f"YAHOO: node idx={node_idx} anchors={anchors_count} chosen_link='{(link or '')[:140]}' title_len={len(title)} desc_len={len(desc)} topic='{topic}'")
+                        print(f"YAHOO: node idx={node_idx} anchors={anchors_count} orig_title_len={len(orig_title)} orig_desc_len={len(orig_desc)} -> final_title_len={len(title)} final_desc_len={len(desc)} chosen_link='{(link or '')[:140]}' topic='{topic}'")
                 except Exception:
                     pass
 
                 items.append({'title': title or '', 'link': link or '', 'description': desc or '', 'date': date or '', 'full_text': full_text or '', 'topic': topic or ''})
 
             except Exception:
-                # não deixes um node problemático bloquear todo o resto
+                # do not let a single bad node block the rest
                 continue
+
 
     except Exception as e:
         print('extract_items_from_html: unexpected error', e)
