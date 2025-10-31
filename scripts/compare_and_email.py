@@ -1,4 +1,4 @@
-# scripts/compare_and_email.py
+# scripts/compare_and_email.py 
 # Compare current feeds_summary.xlsx vs previous Excel (if available) OR fallback to sent_ids,
 # send email for NEW titles only. Canonical UID: SHA1(normalized_title).
 
@@ -163,6 +163,15 @@ def read_feed_summary(path):
             or ""
         )
 
+        # topic: tenta várias variantes
+        topic_raw = (
+            r.get("topic")
+            or r.get("Topic")
+            or r.get("topic (short)")
+            or r.get("Topic (short)")
+            or ""
+        )
+
         site_raw = r.get("site") or r.get("Site") or ""
         title_raw = r.get("title") or r.get("Title") or ""
         pub_raw = r.get("pubDate") or r.get("date") or r.get("pubDate") or r.get("Date") or ""
@@ -173,12 +182,15 @@ def read_feed_summary(path):
         site_norm = normalize_text_for_compare(site_raw)[:120]
         title_norm = normalize_text_for_compare(title_raw)[:400]
         desc_norm = normalize_text_for_compare(descr)[:500]
+        topic_norm = normalize_text_for_compare(topic_raw)[:200]
 
         rows.append({
             "site": site_norm,
             "title": title_norm,
             "title_raw": str(title_raw),
             "description": desc_norm,
+            "topic": topic_norm,
+            "topic_raw": str(topic_raw),
             "pubDate": str(pub_raw),
             "link (source)": str(link_raw),
             "match": str(match_raw)
@@ -188,10 +200,11 @@ def read_feed_summary(path):
 
 def rows_to_html_table(rows):
     html = "<table border='1' cellpadding='6' cellspacing='0' style='border-collapse:collapse;font-family:Arial,sans-serif;font-size:13px;'>"
-    html += "<tr style='background:#efefef'><th>site</th><th>title</th><th>description</th><th>pubDate</th><th>link</th><th>match</th></tr>"
+    html += "<tr style='background:#efefef'><th>site</th><th>title</th><th>topic</th><th>description</th><th>pubDate</th><th>link</th><th>match</th></tr>"
     for r in rows:
         site = (r.get("site") or "")[:120]
         title = (r.get("title") or "")[:400]
+        topic = (r.get("topic") or "")[:200]
         desc = (r.get("description") or "")[:500]
         pub = (r.get("pubDate") or "")[:80]
         link = (r.get("link (source)") or "")[:350]
@@ -199,6 +212,7 @@ def rows_to_html_table(rows):
         html += "<tr>"
         html += "<td>{}</td>".format(site.replace("<","&lt;").replace(">","&gt;"))
         html += "<td>{}</td>".format(title.replace("<","&lt;").replace(">","&gt;"))
+        html += "<td>{}</td>".format(topic.replace("<","&lt;").replace(">","&gt;"))
         html += "<td>{}</td>".format(desc.replace("<","&lt;").replace(">","&gt;"))
         html += "<td>{}</td>".format(pub.replace("<","&lt;").replace(">","&gt;"))
         html += "<td><a href='{0}'>{0}</a></td>".format(link.replace("'", "%27").replace("<","&lt;").replace(">","&gt;"))
@@ -304,7 +318,7 @@ def main():
     subj = f"[RSS FEEDS] {len(new_rows)} new item(s)"
     plain_lines = []
     for r in new_rows:
-        plain_lines.append(f"- {r.get('title')} ({r.get('site')})\n  {r.get('link (source)')}\n  match: {r.get('match')}\n  desc: {r.get('description')}\n")
+        plain_lines.append(f"- {r.get('title')} ({r.get('site')})\n  topic: {r.get('topic')}\n  {r.get('link (source)')}\n  match: {r.get('match')}\n  desc: {r.get('description')}\n")
     plain = "\n".join(plain_lines)
     html = "<html><body>"
     html += f"<p>{len(new_rows)} new item(s) detected (baseline: {prev_mode}):</p>"
