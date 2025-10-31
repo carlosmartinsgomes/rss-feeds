@@ -122,7 +122,7 @@
     },
     {
       "name": "yahoo-multiquote-news",
-      "url": "https://finance.yahoo.com/quotes/TTD,PUBM,INMD,CRWD,FTNT,DDOG,PINS,MNDY,HUBS,NVDA,MSFT,ETSY,ONON,IOT,RBRK,ANET,DUOL,GTLB,ALAB,AXON,DAVA,EPAM,HIMS,LUV,PAYC/",
+      "url": "https://finance.yahoo.com/quotes/TTD,PUBM,INMD,CRWD,FTNT,DDOG,PINS,MNDY,HUBS,ETSY,ONON,IOT,RBRK,ANET,DUOL,GTLB,ALAB,AXON,DAVA,EPAM,HIMS,LUV,PAYC/",
       "item_container": "section[data-test='qsp-news'] ul li, ul[data-test='quoteNewsStream'] li, li.stream-item.story-item, li.js-stream-content",
       "title": "h3 a, h3, a span, a",
       "link": "a[href*='/news/']@href, a[href*='/articles/']@href, a@href",
