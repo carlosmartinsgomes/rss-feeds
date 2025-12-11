@@ -1,12 +1,3 @@
-name: Meu Workflow Manual
-on:
-  workflow_dispatch:    # permite clicar em "Run workflow" no GitHub
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo "Hello"
-
 # salvar como check_ads_txt.py
 # Requisitos: python3, pip install requests
 import requests
