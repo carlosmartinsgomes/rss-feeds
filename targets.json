@@ -1,0 +1,143 @@
+{
+  "publishers": [
+    {
+      "domain": "www.amc.com",
+      "pages": [
+        {"label": "homepage", "url": "https://www.amc.com/"},
+        {"label": "shows_index", "url": "https://www.amc.com/shows"},
+        {"label": "show_example", "url": "https://www.amc.com/shows/the-walking-dead--1002293"},
+        {"label": "episodes_index", "url": "https://www.amc.com/episodes"},
+        {"label": "video_example", "url": "https://www.amc.com/shows/the-walking-dead-dead-city--1060741"}
+      ],
+      "geos": [
+        {"country_code": "US", "pct": 45},
+        {"country_code": "BR", "pct": 7}
+      ]
+    },
+    {
+      "domain": "www.mlb.com",
+      "pages": [
+        {"label": "homepage", "url": "https://www.mlb.com/"},
+        {"label": "news", "url": "https://www.mlb.com/news"},
+        {"label": "example_article", "url": "https://www.mlb.com/news/trade-buzz-for-freddy-peralta-intensifying"},
+        {"label": "scores", "url": "https://www.mlb.com/scores"},
+        {"label": "video_index", "url": "https://www.mlb.com/video"}
+      ],
+      "geos": [
+        {"country_code": "US", "pct": 71.73},
+        {"country_code": "CA", "pct": 9.60}
+      ]
+    },
+    {
+      "domain": "www.barstoolsports.com",
+      "pages": [
+        {"label": "homepage", "url": "https://www.barstoolsports.com/"},
+        {"label": "topics", "url": "https://www.barstoolsports.com/topics"},
+        {"label": "example_article", "url": "https://www.barstoolsports.com/blog/3556265/old-habits-die-hard-the-most-hated-man-in-golf-luke-kwon-had-an-article-in-he"},
+        {"label": "news", "url": "https://www.barstoolsports.com/news"},
+        {"label": "video_index", "url": "https://www.barstoolsports.com/video"}
+      ],
+      "geos": [
+        {"country_code": "US", "pct": 92.05},
+        {"country_code": "CA", "pct": 3.46}
+      ]
+    },
+    {
+      "domain": "www.crunchyroll.com",
+      "pages": [
+        {"label": "homepage", "url": "https://www.crunchyroll.com/"},
+        {"label": "news", "url": "https://www.crunchyroll.com/news"},
+        {"label": "series_example", "url": "https://www.crunchyroll.com/series/G4PH0WJWQ/tenpuru"},
+        {"label": "watch_example", "url": "https://www.crunchyroll.com/pt-pt/watch/G4PH0WJWQ/episode-1"},
+        {"label": "video_index", "url": "https://www.crunchyroll.com/videos"}
+      ],
+      "geos": [
+        {"country_code": "US", "pct": 35.59},
+        {"country_code": "BR", "pct": 8.76}
+      ]
+    },
+    {
+      "domain": "www.plex.tv",
+      "pages": [
+        {"label": "homepage", "url": "https://www.plex.tv/"},
+        {"label": "watch_free", "url": "https://www.plex.tv/watch-free/"},
+        {"label": "what_to_watch", "url": "https://www.plex.tv/what-to-watch/"},
+        {"label": "watch_domain", "url": "https://watch.plex.tv/"},
+        {"label": "video_index", "url": "https://www.plex.tv/episodes"}
+      ],
+      "geos": [
+        {"country_code": "US", "pct": 45.72},
+        {"country_code": "CA", "pct": 8.01}
+      ]
+    },
+    {
+      "domain": "www.philo.com",
+      "pages": [
+        {"label": "homepage", "url": "https://www.philo.com/"},
+        {"label": "free_channels", "url": "https://www.philo.com/go/free-channels"},
+        {"label": "player_example", "url": "https://www.philo.com/player/channel/Q2hhbm5lbDo2MDg1NDg4OTk2NDg0Mzk3NTQ"},
+        {"label": "watch_index", "url": "https://www.philo.com/watch"},
+        {"label": "help", "url": "https://www.philo.com/help"}
+      ],
+      "geos": [
+        {"country_code": "US", "pct": 92.97},
+        {"country_code": "CA", "pct": 0.46}
+      ]
+    },
+    {
+      "domain": "www.tastemade.com",
+      "pages": [
+        {"label": "homepage", "url": "https://www.tastemade.com/"},
+        {"label": "recipes", "url": "https://www.tastemade.com/recipes"},
+        {"label": "videos", "url": "https://www.tastemade.com/videos"},
+        {"label": "show_index", "url": "https://www.tastemade.com/shows"},
+        {"label": "example_video", "url": "https://br.tastemade.com/videos/truques-com-chocolate"}
+      ],
+      "geos": [
+        {"country_code": "US", "pct": 60.97},
+        {"country_code": "AR", "pct": 4.26}
+      ]
+    },
+    {
+      "domain": "www.thisoldhouse.com",
+      "pages": [
+        {"label": "homepage", "url": "https://www.thisoldhouse.com/"},
+        {"label": "videos", "url": "https://www.thisoldhouse.com/videos"},
+        {"label": "example_article", "url": "https://www.thisoldhouse.com/how-to/21124329/how-to-install-an-instantaneous-water-heater"},
+        {"label": "tv", "url": "https://www.thisoldhouse.com/tv"},
+        {"label": "show_examples", "url": "https://www.thisoldhouse.com/tags/show"}
+      ],
+      "geos": [
+        {"country_code": "US", "pct": 80.68},
+        {"country_code": "CA", "pct": 6.19}
+      ]
+    },
+    {
+      "domain": "www.redbox.com",
+      "pages": [
+        {"label": "homepage", "url": "https://www.redbox.com/"},
+        {"label": "movies", "url": "https://www.redbox.com/movies"},
+        {"label": "tv", "url": "https://www.redbox.com/tv"},
+        {"label": "movie_example", "url": "https://www.redbox.com/movies/film/some-popular-movie"},
+        {"label": "help", "url": "https://www.redbox.com/help"}
+      ],
+      "geos": [
+        {"country_code": "US", "pct": 100}
+      ]
+    },
+    {
+      "domain": "www.jukinmedia.com",
+      "pages": [
+        {"label": "homepage", "url": "https://www.jukinmedia.com/"},
+        {"label": "consumer", "url": "https://www.jukin.com/"},
+        {"label": "video_examples", "url": "https://www.jukin.com/video"},
+        {"label": "licensing", "url": "https://www.jukinmedia.com/licensing"},
+        {"label": "gallery", "url": "https://www.jukin.com/gallery"}
+      ],
+      "geos": [
+        {"country_code": "US", "pct": 32},
+        {"country_code": "JP", "pct": 14}
+      ]
+    }
+  ]
+}
