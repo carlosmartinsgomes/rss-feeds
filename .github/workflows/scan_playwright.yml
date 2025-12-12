@@ -1,0 +1,39 @@
+name: Playwright HAR scan (iteration)
+
+on:
+  workflow_dispatch:
+    inputs:
+      iteration_index:
+        description: 'Iteration index (0..5)'
+        required: true
+        default: '0'
+      geo:
+        description: 'Optional geo code (e.g. US) or ALL'
+        required: false
+        default: 'ALL'
+
+jobs:
+  scan:
+    name: Run Playwright scan
+    runs-on: self-hosted
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install playwright
+          python -m playwright install --with-deps
+
+      - name: Run scan script
+        env:
+          TARGETS_FILE: targets.json
+        run: |
+          mkdir -p output
+          python3 scan_page.py --targets targets.json --iteration ${{ github.event.inputs.iteration_index }} --geo "${{ github.event.inputs.geo }}" --outdir output
