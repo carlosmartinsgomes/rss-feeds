@@ -28,6 +28,9 @@ import argparse
 from datetime import datetime
 from pathlib import Path
 from playwright.sync_api import sync_playwright
+import logging
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+
 
 # ---------- CONFIG ----------
 N_RUNS_PER_ITERATION = 3    # number of consecutive loads per page per iteration
@@ -86,8 +89,20 @@ def run_scan_for_page(playwright, url, outdir, domain_name, page_label, geo, pro
         if proxy_url:
             launch_args["proxy"] = {"server": proxy_url}
 
+        logging.info("Launching browser for url=%s geo=%s proxy=%s mobile=%s", url, geo, proxy_url, mobile)
         browser = playwright.chromium.launch(**launch_args)
+        logging.info("Browser launched.")
+
+        browser = playwright.chromium.launch(**launch_args)
+        logging.info("Launching browser for url=%s geo=%s proxy=%s mobile=%s", url, geo, proxy_url, mobile)
+        browser = playwright.chromium.launch(**launch_args)
+        logging.info("Browser launched.")
+        
         context = browser.new_context(record_har_path=har_path, **context_args)
+        logging.info("Launching browser for url=%s geo=%s proxy=%s mobile=%s", url, geo, proxy_url, mobile)
+        browser = playwright.chromium.launch(**launch_args)
+        logging.info("Browser launched.")
+
         page = context.new_page()
         reqs = []
 
@@ -187,6 +202,15 @@ def main():
     csv_rows = []
 
     print("[INFO] Starting scan. Targets count:", len(targets["publishers"]))
+    logging.info("Opening Playwright context...")
+    try:
+        with sync_playwright() as p:
+            logging.info("Playwright started successfully.")
+            # ... restante código ...
+    except Exception as e:
+        logging.exception("Fatal error while running Playwright scan: %s", e)
+        sys.exit(2)
+
     with sync_playwright() as p:
         for pub in targets["publishers"]:
             domain = pub.get("domain")
