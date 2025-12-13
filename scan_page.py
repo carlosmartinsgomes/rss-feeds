@@ -29,10 +29,10 @@ except Exception as e:
 
 # --- Configurable defaults ---
 N_RUNS_PER_ITERATION = int(os.environ.get("N_RUNS_PER_ITERATION", "3"))
-WAIT_AFTER_LOAD_MS = int(os.environ.get("WAIT_AFTER_LOAD_MS", "10000"))  # ms
-NAV_TIMEOUT_MS = int(os.environ.get("NAV_TIMEOUT_MS", "40000"))  # ms for page.goto
-PAGE_NETWORK_IDLE_TIMEOUT_MS = int(os.environ.get("PAGE_NETWORK_IDLE_TIMEOUT_MS", "20000"))
-GLOBAL_PAGE_RUN_TIMEOUT_SEC = int(os.environ.get("GLOBAL_PAGE_RUN_TIMEOUT_SEC", "60"))  # safety per run
+WAIT_AFTER_LOAD_MS = int(os.environ.get("WAIT_AFTER_LOAD_MS", "370"))  # ms
+NAV_TIMEOUT_MS = int(os.environ.get("NAV_TIMEOUT_MS", "1500"))  # ms for page.goto
+PAGE_NETWORK_IDLE_TIMEOUT_MS = int(os.environ.get("PAGE_NETWORK_IDLE_TIMEOUT_MS", "750"))
+GLOBAL_PAGE_RUN_TIMEOUT_SEC = int(os.environ.get("GLOBAL_PAGE_RUN_TIMEOUT_SEC", "10"))  # safety per run
 PUBMATIC_KEYWORDS = ["pubmatic", "pbjs", "hb.pubmatic", "ads.pubmatic", "pubmatic.com"]
 DEFAULT_OUTDIR = "output"
 DEFAULT_PROXY_FILE = "country_proxies.json"
