@@ -79,7 +79,7 @@
     },
     {
       "name": "jukinmedia",
-      "domain": "www.jukinmedia.com",
+      "domain": "jukinmedia.com",
       "weight_pct": 3.5,
       "pages": [
         {"label": "homepage", "url": "https://www.jukinmedia.com/"},
