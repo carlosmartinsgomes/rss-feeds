@@ -208,7 +208,49 @@ def capture_single_run(playwright, url, outdir, domain, page_label, geo, proxy_u
 
     try:
         browser = playwright.chromium.launch(**launch_args)
-        context = browser.new_context(**ctx_args)
+
+        # ---------- MOBILE / DESKTOP CONTEXT CREATION (device-aware) ----------
+        # Use Playwright built-in device descriptor (Pixel 5) when available; otherwise fallback
+        try:
+            device = None
+            # playwright.devices may be a dict-like; try safe access
+            if hasattr(playwright, "devices"):
+                # try dict-like get first, else indexing
+                device = playwright.devices.get("Pixel 5") if isinstance(playwright.devices, dict) else playwright.devices.get("Pixel 5") if hasattr(playwright.devices, "get") else None
+                if device is None:
+                    try:
+                        device = playwright.devices["Pixel 5"]
+                    except Exception:
+                        device = None
+            else:
+                device = None
+        except Exception:
+            device = None
+
+        if mobile:
+            if device:
+                # device is a DeviceDescriptor (mapping) — copy and adapt, but DO NOT set record_har_path (we use mini-har)
+                device_opts = dict(device)
+                device_opts.pop("name", None)
+                # ensure user_agent equals our mobile UA (keeps consistency)
+                device_opts["user_agent"] = user_agent
+                # ensure we keep ignore_https_errors
+                device_opts["ignore_https_errors"] = True
+                # create context using device options (no record_har_path)
+                context = browser.new_context(**device_opts)
+            else:
+                # fallback: UA + mobile-ish viewport
+                context = browser.new_context(user_agent=user_agent,
+                                              viewport={"width": 412, "height": 915},
+                                              is_mobile=True, has_touch=True,
+                                              ignore_https_errors=True)
+        else:
+            # desktop context (mantém o teu UA desktop)
+            context = browser.new_context(user_agent=user_agent,
+                                          viewport={"width": 1366, "height": 768},
+                                          ignore_https_errors=True)
+        # ---------- end context creation ----------
+
         page = context.new_page()
 
         # Request event
@@ -221,11 +263,17 @@ def capture_single_run(playwright, url, outdir, domain, page_label, geo, proxy_u
                     post = r.post_data or r.post_data()
                 except Exception:
                     post = None
+                # headers extraction: different Playwright objects expose headers differently
+                try:
+                    headers_callable = getattr(r, "headers", None)
+                    headers_val = headers_callable() if callable(headers_callable) else (r.headers if hasattr(r, "headers") else {})
+                except Exception:
+                    headers_val = {}
                 entry = {
                     "request_ts": ts,
                     "method": getattr(r, "method", None) or (r._impl_obj.method if hasattr(r, "_impl_obj") else None),
                     "url": r.url,
-                    "headers": _filter_headers(getattr(r, "headers", lambda: {})() if callable(getattr(r, "headers", None)) else getattr(r, "headers", {})),
+                    "headers": _filter_headers(headers_val),
                     "post_data": _truncate_str(post, MAX_POSTDATA_LEN)
                 }
                 req_entries[key] = entry
