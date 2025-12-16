@@ -2,10 +2,10 @@
   "publishers": [
     {
       "name": "AMC Networks",
-      "domain": "amc.com",
+      "domain": "amcnetworks.com",
       "weight_pct": 15,
       "pages": [
-        {"label": "homepage", "url": "https://www.amc.com/"},
+        {"label": "homepage", "url": "https://www.amcnetworks.com/"},
         {"label": "BBC America (channel)", "url": "https://www.bbcamerica.com/"},
         {"label": "IFC (channel)", "url": "https://www.ifc.com/"},
         {"label": "SundanceTV (channel)", "url": "https://www.sundancetv.com/"},
@@ -91,6 +91,8 @@
       "geos": [
         {"country_code": "US", "pct": 32},
         {"country_code": "JP", "pct": 14}
+        ]
+    }, 
     {
       "name": "Philo",
       "domain": "philo.com",
