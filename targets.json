@@ -4,10 +4,10 @@
       "domain": "www.amc.com",
       "pages": [
         {"label": "homepage", "url": "https://www.amc.com/"},
-        {"label": "shows_index", "url": "https://www.amc.com/shows"},
-        {"label": "show_example", "url": "https://www.amc.com/shows/the-walking-dead--1002293"},
-        {"label": "episodes_index", "url": "https://www.amc.com/episodes"},
-        {"label": "video_example", "url": "https://www.amc.com/shows/the-walking-dead-dead-city--1060741"}
+        {"label": "BBC America (channel)", "url": "https://www.bbcamerica.com/"},
+        {"label": "IFC (channel)", "url": "https://www.ifc.com/"},
+        {"label": "SundanceTV (channel)", "url": "https://www.sundancetv.com/"},
+        {"label": "WETV (channel)", "url": "https://www.wetv.com/"}
       ],
       "geos": [
         {"country_code": "US", "pct": 45},
@@ -19,7 +19,7 @@
       "pages": [
         {"label": "homepage", "url": "https://www.mlb.com/"},
         {"label": "news", "url": "https://www.mlb.com/news"},
-        {"label": "example_article", "url": "https://www.mlb.com/news/trade-buzz-for-freddy-peralta-intensifying"},
+        {"label": "Standings/Stats", "url": "https://www.mlb.com/stats"},
         {"label": "scores", "url": "https://www.mlb.com/scores"},
         {"label": "video_index", "url": "https://www.mlb.com/video"}
       ],
@@ -29,11 +29,24 @@
       ]
     },
     {
+      "name": "Cox Media Group",
+      "domain": "coxmediagroup.com",
+      "weight_pct": 10.5,
+      "pages": [
+        {"label": "homepage", "url": "https://www.coxmediagroup.com/"},
+        {"label": "boston25news", "url": "https://www.boston25news.com/"},
+        {"label": "fox13news", "url": "https://www.fox13news.com/"},
+        {"label": "fox23", "url": "https://www.fox23.com/"},
+        {"label": "kiro7", "url": "https://www.kiro7.com/"}
+      ],
+      "geos": [{"country_code": "US", "pct": 98}]
+    },
+    {
       "domain": "www.barstoolsports.com",
       "pages": [
         {"label": "homepage", "url": "https://www.barstoolsports.com/"},
         {"label": "topics", "url": "https://www.barstoolsports.com/topics"},
-        {"label": "example_article", "url": "https://www.barstoolsports.com/blog/3556265/old-habits-die-hard-the-most-hated-man-in-golf-luke-kwon-had-an-article-in-he"},
+        {"label": "Shop/Commerce", "url": "https://www.barstoolsports.com/shop"},
         {"label": "news", "url": "https://www.barstoolsports.com/news"},
         {"label": "video_index", "url": "https://www.barstoolsports.com/video"}
       ],
@@ -46,10 +59,10 @@
       "domain": "www.crunchyroll.com",
       "pages": [
         {"label": "homepage", "url": "https://www.crunchyroll.com/"},
-        {"label": "news", "url": "https://www.crunchyroll.com/news"},
-        {"label": "series_example", "url": "https://www.crunchyroll.com/series/G4PH0WJWQ/tenpuru"},
-        {"label": "watch_example", "url": "https://www.crunchyroll.com/pt-pt/watch/G4PH0WJWQ/episode-1"},
-        {"label": "video_index", "url": "https://www.crunchyroll.com/videos"}
+        {"label": "Series/Show pages", "url": "https://www.crunchyroll.com/series"},
+        {"label": "News/Articles", "url": "https://www.crunchyroll.com/news"},
+        {"label": "Watch/Player", "url": "https://www.crunchyroll.com/watch"},
+        {"label": "Simulcast/Episodes", "url": "https://www.crunchyroll.com/videos"}
       ],
       "geos": [
         {"country_code": "US", "pct": 35.59},
@@ -77,7 +90,7 @@
         {"label": "free_channels", "url": "https://www.philo.com/go/free-channels"},
         {"label": "player_example", "url": "https://www.philo.com/player/channel/Q2hhbm5lbDo2MDg1NDg4OTk2NDg0Mzk3NTQ"},
         {"label": "watch_index", "url": "https://www.philo.com/watch"},
-        {"label": "help", "url": "https://www.philo.com/help"}
+        {"label": "guide", "url": "https://www.philo.com/guide"}
       ],
       "geos": [
         {"country_code": "US", "pct": 92.97},
@@ -85,32 +98,30 @@
       ]
     },
     {
-      "domain": "www.tastemade.com",
+      "name": "Tastemade",
+      "domain": "tastemade.com",
+      "weight_pct": 6.0,
       "pages": [
         {"label": "homepage", "url": "https://www.tastemade.com/"},
-        {"label": "recipes", "url": "https://www.tastemade.com/recipes"},
-        {"label": "videos", "url": "https://www.tastemade.com/videos"},
-        {"label": "show_index", "url": "https://www.tastemade.com/shows"},
-        {"label": "example_video", "url": "https://br.tastemade.com/videos/truques-com-chocolate"}
+        {"label": "Recipes / Videos", "url": "https://www.tastemade.com/videos"},
+        {"label": "Shows / Channels", "url": "https://www.tastemade.com/shows"},
+        {"label": "Discover / Collections", "url": "https://www.tastemade.com/discover"},
+        {"label": "Blog / Articles", "url": "https://www.tastemade.com/blog"}
       ],
-      "geos": [
-        {"country_code": "US", "pct": 60.97},
-        {"country_code": "AR", "pct": 4.26}
-      ]
+      "geos": [{"country_code": "US", "pct": 60.97}, {"country_code": "AR", "pct": 4.26}]
     },
     {
-      "domain": "www.thisoldhouse.com",
+      "name": "Scripps Digital (Scripps portfolio)",
+      "domain": "scripps.com",
+      "weight_pct": 7.0,
       "pages": [
-        {"label": "homepage", "url": "https://www.thisoldhouse.com/"},
-        {"label": "videos", "url": "https://www.thisoldhouse.com/videos"},
-        {"label": "example_article", "url": "https://www.thisoldhouse.com/how-to/21124329/how-to-install-an-instantaneous-water-heater"},
-        {"label": "tv", "url": "https://www.thisoldhouse.com/tv"},
-        {"label": "show_examples", "url": "https://www.thisoldhouse.com/tags/show"}
+        {"label": "corporate homepage", "url": "https://www.scripps.com/"},
+        {"label": "Scripps News", "url": "https://www.scripps.com/our-brands/scripps-news/"},
+        {"label": "Local Stations / Video", "url": "https://www.scripps.com/our-brands/"},
+        {"label": "Shows / TV", "url": "https://www.scripps.com/tv/"},
+        {"label": "Lifestyle / Digital", "url": "https://www.scripps.com/digital/"}
       ],
-      "geos": [
-        {"country_code": "US", "pct": 80.68},
-        {"country_code": "CA", "pct": 6.19}
-      ]
+      "geos": [{"country_code": "US", "pct": 75}]
     },
     {
       "domain": "www.redbox.com",
@@ -119,25 +130,12 @@
         {"label": "movies", "url": "https://www.redbox.com/movies"},
         {"label": "tv", "url": "https://www.redbox.com/tv"},
         {"label": "movie_example", "url": "https://www.redbox.com/movies/film/some-popular-movie"},
-        {"label": "help", "url": "https://www.redbox.com/help"}
+        {"label": "Deals / Promotions", "url": "https://www.redbox.com/deals"}
       ],
       "geos": [
         {"country_code": "US", "pct": 100}
       ]
-    },
-    {
-      "domain": "www.jukinmedia.com",
-      "pages": [
-        {"label": "homepage", "url": "https://www.jukinmedia.com/"},
-        {"label": "consumer", "url": "https://www.jukin.com/"},
-        {"label": "video_examples", "url": "https://www.jukin.com/video"},
-        {"label": "licensing", "url": "https://www.jukinmedia.com/licensing"},
-        {"label": "gallery", "url": "https://www.jukin.com/gallery"}
-      ],
-      "geos": [
-        {"country_code": "US", "pct": 32},
-        {"country_code": "JP", "pct": 14}
-      ]
+    
     }
   ]
 }
