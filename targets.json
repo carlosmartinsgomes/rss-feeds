@@ -136,7 +136,7 @@
     {
       "name": "FloSports",
       "domain": "flosports.tv",
-      "weight_pct": 3.5,
+      "weight_pct": 6,
       "pages": [
         {"label": "homepage", "url": "https://www.flosports.tv/"},
         {"label": "college", "url": "https://www.flocollege.com/"},
