@@ -3,7 +3,7 @@
     {
       "name": "AMC Networks",
       "domain": "amc.com",
-      "weight_pct": 22.83,
+      "weight_pct": 15,
       "pages": [
         {"label": "homepage", "url": "https://www.amc.com/"},
         {"label": "BBC America (channel)", "url": "https://www.bbcamerica.com/"},
@@ -19,7 +19,7 @@
     {
       "name": "Major League Baseball (MLB)",
       "domain": "mlb.com",
-      "weight_pct": 17.57,
+      "weight_pct": 25,
       "pages": [
         {"label": "homepage", "url": "https://www.mlb.com/"},
         {"label": "news", "url": "https://www.mlb.com/news"},
@@ -35,7 +35,7 @@
     {
       "name": "Cox Media Group",
       "domain": "coxmediagroup.com",
-      "weight_pct": 10.5,
+      "weight_pct": 12,
       "pages": [
         {"label": "homepage", "url": "https://www.coxmediagroup.com/"},
         {"label": "boston25news", "url": "https://www.boston25news.com/"},
@@ -48,7 +48,7 @@
     {
       "name": "Barstool Sports",
       "domain": "barstoolsports.com",
-      "weight_pct": 9.0,
+      "weight_pct": 6.0,
       "pages": [
         {"label": "homepage", "url": "https://www.barstoolsports.com/"},
         {"label": "topics", "url": "https://www.barstoolsports.com/topics"},
@@ -64,7 +64,7 @@
     {
       "name": "Crunchyroll",
       "domain": "crunchyroll.com",
-      "weight_pct": 9.0,
+      "weight_pct": 7.0,
       "pages": [
         {"label": "homepage", "url": "https://www.crunchyroll.com/"},
         {"label": "Series/Show pages", "url": "https://www.crunchyroll.com/series"},
@@ -78,25 +78,23 @@
       ]
     },
     {
-      "name": "Plex",
-      "domain": "plex.tv",
-      "weight_pct": 8.0,
+      "name": "jukinmedia",
+      "domain": "www.jukinmedia.com",
+      "weight_pct": 3.5,
       "pages": [
-        {"label": "homepage", "url": "https://www.plex.tv/"},
-        {"label": "watch_free", "url": "https://www.plex.tv/watch-free/"},
-        {"label": "what_to_watch", "url": "https://www.plex.tv/what-to-watch/"},
-        {"label": "watch_domain", "url": "https://watch.plex.tv/"},
-        {"label": "video_index", "url": "https://www.plex.tv/episodes"}
+        {"label": "homepage", "url": "https://www.jukinmedia.com/"},
+        {"label": "consumer", "url": "https://www.jukin.com/"},
+        {"label": "video_examples", "url": "https://www.jukin.com/video"},
+        {"label": "licensing", "url": "https://www.jukinmedia.com/licensing"},
+        {"label": "gallery", "url": "https://www.jukin.com/gallery"}
       ],
       "geos": [
-        {"country_code": "US", "pct": 45.72},
-        {"country_code": "CA", "pct": 8.01}
-      ]
-    },
+        {"country_code": "US", "pct": 32},
+        {"country_code": "JP", "pct": 14}
     {
       "name": "Philo",
       "domain": "philo.com",
-      "weight_pct": 8.0,
+      "weight_pct": 7.0,
       "pages": [
         {"label": "homepage", "url": "https://www.philo.com/"},
         {"label": "free_channels", "url": "https://www.philo.com/go/free-channels"},
@@ -112,7 +110,7 @@
     {
       "name": "Tastemade",
       "domain": "tastemade.com",
-      "weight_pct": 6.0,
+      "weight_pct": 3.5,
       "pages": [
         {"label": "homepage", "url": "https://www.tastemade.com/"},
         {"label": "Recipes / Videos", "url": "https://www.tastemade.com/videos"},
@@ -125,7 +123,7 @@
     {
       "name": "Scripps Digital (Scripps portfolio)",
       "domain": "scripps.com",
-      "weight_pct": 7.0,
+      "weight_pct": 15,
       "pages": [
         {"label": "corporate homepage", "url": "https://www.scripps.com/"},
         {"label": "Scripps News", "url": "https://www.scripps.com/our-brands/scripps-news/"},
@@ -136,15 +134,15 @@
       "geos": [{"country_code": "US", "pct": 75}]
     },
     {
-      "name": "Redbox",
-      "domain": "redbox.com",
-      "weight_pct": 3.0,
+      "name": "FloSports",
+      "domain": "flosports.tv",
+      "weight_pct": 3.5,
       "pages": [
-        {"label": "homepage", "url": "https://www.redbox.com/"},
-        {"label": "movies", "url": "https://www.redbox.com/movies"},
-        {"label": "tv", "url": "https://www.redbox.com/tv"},
-        {"label": "movie_example", "url": "https://www.redbox.com/movies/film/some-popular-movie"},
-        {"label": "Deals / Promotions", "url": "https://www.redbox.com/deals"}
+        {"label": "homepage", "url": "https://www.flosports.tv/"},
+        {"label": "college", "url": "https://www.flocollege.com/"},
+        {"label": "news", "url": "https://www.flosports.tv/news/"},
+        {"label": "watch", "url": "https://www.flocollege.com/watch"},
+        {"label": "wrestling", "url": "https://www.flowrestling.org/"}
       ],
       "geos": [
         {"country_code": "US", "pct": 100}
