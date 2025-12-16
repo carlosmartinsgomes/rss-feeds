@@ -1,7 +1,9 @@
 {
   "publishers": [
     {
-      "domain": "www.amc.com",
+      "name": "AMC Networks",
+      "domain": "amc.com",
+      "weight_pct": 22.83,
       "pages": [
         {"label": "homepage", "url": "https://www.amc.com/"},
         {"label": "BBC America (channel)", "url": "https://www.bbcamerica.com/"},
@@ -15,7 +17,9 @@
       ]
     },
     {
-      "domain": "www.mlb.com",
+      "name": "Major League Baseball (MLB)",
+      "domain": "mlb.com",
+      "weight_pct": 17.57,
       "pages": [
         {"label": "homepage", "url": "https://www.mlb.com/"},
         {"label": "news", "url": "https://www.mlb.com/news"},
@@ -42,7 +46,9 @@
       "geos": [{"country_code": "US", "pct": 98}]
     },
     {
-      "domain": "www.barstoolsports.com",
+      "name": "Barstool Sports",
+      "domain": "barstoolsports.com",
+      "weight_pct": 9.0,
       "pages": [
         {"label": "homepage", "url": "https://www.barstoolsports.com/"},
         {"label": "topics", "url": "https://www.barstoolsports.com/topics"},
@@ -56,7 +62,9 @@
       ]
     },
     {
-      "domain": "www.crunchyroll.com",
+      "name": "Crunchyroll",
+      "domain": "crunchyroll.com",
+      "weight_pct": 9.0,
       "pages": [
         {"label": "homepage", "url": "https://www.crunchyroll.com/"},
         {"label": "Series/Show pages", "url": "https://www.crunchyroll.com/series"},
@@ -70,7 +78,9 @@
       ]
     },
     {
-      "domain": "www.plex.tv",
+      "name": "Plex",
+      "domain": "plex.tv",
+      "weight_pct": 8.0,
       "pages": [
         {"label": "homepage", "url": "https://www.plex.tv/"},
         {"label": "watch_free", "url": "https://www.plex.tv/watch-free/"},
@@ -84,7 +94,9 @@
       ]
     },
     {
-      "domain": "www.philo.com",
+      "name": "Philo",
+      "domain": "philo.com",
+      "weight_pct": 8.0,
       "pages": [
         {"label": "homepage", "url": "https://www.philo.com/"},
         {"label": "free_channels", "url": "https://www.philo.com/go/free-channels"},
@@ -124,7 +136,9 @@
       "geos": [{"country_code": "US", "pct": 75}]
     },
     {
-      "domain": "www.redbox.com",
+      "name": "Redbox",
+      "domain": "redbox.com",
+      "weight_pct": 3.0,
       "pages": [
         {"label": "homepage", "url": "https://www.redbox.com/"},
         {"label": "movies", "url": "https://www.redbox.com/movies"},
