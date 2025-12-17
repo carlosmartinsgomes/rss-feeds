@@ -8,10 +8,9 @@ mlb.com
 nypost.com
 nikkei.com
 goodreads.com
-bilibili.tv
+bilibili.com
 stackoverflow.com
 canalplus.com
-iqiyi.com
 iq.com
 skyscanner.net
 ntv.co.jp
@@ -21,7 +20,6 @@ bedbathandbeyond.com
 toyota.com
 goibibo.com
 virginmedia.com
-france.tv
 lastminute.com
 fox.com
 gulfnews.com
