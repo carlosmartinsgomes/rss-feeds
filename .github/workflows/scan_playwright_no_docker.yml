@@ -14,13 +14,7 @@ on:
   # (opcional) podes descomentar schedule abaixo para correr 6x/dia
   schedule:
     - cron: '*/5 * * * *'
-    - cron: '0 0 * * *'
-    - cron: '0 4 * * *'
-    - cron: '0 5 * * *'
-    - cron: '0 12 * * *'
-    - cron: '33 14 * * *'
-    - cron: '0 16 * * *'
-    - cron: '0 20 * * *'
+    
 
 jobs:
   scan:
