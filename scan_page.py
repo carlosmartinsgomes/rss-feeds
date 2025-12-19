@@ -2,15 +2,16 @@
 """
 scan_page.py — weighted-slot scanner (adaptative timing) with compact "mini-HAR" output
 
-Changes:
-- Dynamic allocation of runs per page that scales up when few pages (to approach ~TARGET_ITERATION_MINUTES)
-- Safety: clamps n_runs and timeouts; ensures estimated total fits into target ± FLEX
-- Keeps compact mini-HAR output (small JSON) and device-aware mobile context (Pixel 5 fallback)
-- Adds pubmatic_rate in CSV as requested earlier (avg_pubmatic_requests / avg_total_requests)
-
-Usage:
-    python3 scan_page.py --targets targets.json --iteration 0 --geo US --outdir output
+Features applied:
+- slot allocation based on weight_pct
+- dynamic per-page budget (TARGET_ITERATION_MINUTES ± FLEX_MINUTES)
+- device-aware mobile context (Playwright device descriptor "Pixel 5" when available)
+- NO full HARs: instead writes compact mini-har JSON per run (much smaller)
+- detection flags: prebid_detected / pubmatic_detected (reduce false positives)
+- safety: global per-page run timeout checked and will end early if exceeded
+- summary CSV with pubmatic_rate = avg_pubmatic_requests / avg_total_requests
 """
+
 import os
 import sys
 import json
@@ -30,42 +31,34 @@ except Exception as e:
 
 # ---------------- CONFIG (tunable via env) ----------------
 TOTAL_DAILY_SLOTS = int(os.environ.get("TOTAL_DAILY_SLOTS", "6"))
-# nominal runs per page (base; will be adjusted by compute_timeouts_and_runs)
 BASE_N_RUNS_PER_PAGE = int(os.environ.get("BASE_N_RUNS_PER_PAGE", "1"))
-# target minutes per iteration (aim). We'll allow +/- FLEX_MINUTES
 TARGET_ITERATION_MINUTES = int(os.environ.get("TARGET_ITERATION_MINUTES", "60"))
 FLEX_MINUTES = int(os.environ.get("FLEX_MINUTES", "15"))
 
-# fallback min/max timeouts (seconds)
-NAV_TIMEOUT_MIN = float(os.environ.get("NAV_TIMEOUT_MIN", "3"))    # lower bound for nav timeout (s)
-NAV_TIMEOUT_MAX = float(os.environ.get("NAV_TIMEOUT_MAX", "20"))   # increased upper bound to allow heavier pages
-WAIT_AFTER_LOAD_MIN = float(os.environ.get("WAIT_AFTER_LOAD_MIN", "1"))   # sec
-WAIT_AFTER_LOAD_MAX = float(os.environ.get("WAIT_AFTER_LOAD_MAX", "8"))   # sec
-GLOBAL_PAGE_RUN_TIMEOUT_MIN = float(os.environ.get("GLOBAL_PAGE_RUN_TIMEOUT_MIN", "8"))  # sec
-GLOBAL_PAGE_RUN_TIMEOUT_MAX = float(os.environ.get("GLOBAL_PAGE_RUN_TIMEOUT_MAX", "60")) # sec (bigger safety)
-
-# hard cap for n_runs per page (avoid runaway)
-MAX_N_RUNS_PER_PAGE = int(os.environ.get("MAX_N_RUNS_PER_PAGE", "8"))
+NAV_TIMEOUT_MIN = float(os.environ.get("NAV_TIMEOUT_MIN", "3"))
+NAV_TIMEOUT_MAX = float(os.environ.get("NAV_TIMEOUT_MAX", "12"))
+WAIT_AFTER_LOAD_MIN = float(os.environ.get("WAIT_AFTER_LOAD_MIN", "1"))
+WAIT_AFTER_LOAD_MAX = float(os.environ.get("WAIT_AFTER_LOAD_MAX", "8"))
+GLOBAL_PAGE_RUN_TIMEOUT_MIN = float(os.environ.get("GLOBAL_PAGE_RUN_TIMEOUT_MIN", "8"))
+GLOBAL_PAGE_RUN_TIMEOUT_MAX = float(os.environ.get("GLOBAL_PAGE_RUN_TIMEOUT_MAX", "30"))
 
 DEFAULT_OUTDIR = os.environ.get("OUTDIR", "output")
 DEFAULT_PROXY_FILE = os.environ.get("PROXIES_FILE", "country_proxies.json")
-# keyword detection (improved)
+
+# detection markers
 PUBMATIC_STRONG = ["pubmatic", "ads.pubmatic", "pubmatic.com", "hb.pubmatic"]
 PREBID_MARKERS = ["pbjs", "prebid", "prebid.js"]
+
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
-# limits for captured strings
 MAX_HEADER_VALUE_LEN = int(os.environ.get("MAX_HEADER_VALUE_LEN", "200"))
 MAX_POSTDATA_LEN = int(os.environ.get("MAX_POSTDATA_LEN", "200"))
-
-# ---------------------------------------------------------
 
 logging.basicConfig(level=getattr(logging, LOG_LEVEL.upper(), logging.INFO),
                     format="%(asctime)s %(levelname)s %(message)s")
 
-
+# ---------------- helpers ----------------
 def timestamp_str():
     return datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
-
 
 def load_json(p):
     if not os.path.exists(p):
@@ -73,16 +66,31 @@ def load_json(p):
     with open(p, "r", encoding="utf-8") as f:
         return json.load(f)
 
-
 def ensure_dir(d):
     Path(d).mkdir(parents=True, exist_ok=True)
-
 
 def sanitize(s):
     return "".join(c if (c.isalnum() or c in "-._") else "_" for c in s)[:200]
 
+def _truncate_str(s, length):
+    if s is None:
+        return None
+    s = str(s)
+    if len(s) > length:
+        return s[:length] + "...(truncated)"
+    return s
 
-# ---------- slot allocation (same algorithm you had) ----------
+def _filter_headers(headers):
+    keep = {}
+    if not headers:
+        return keep
+    for k, v in headers.items():
+        kl = k.lower()
+        if kl in ("content-type", "user-agent", "referer", "origin", "accept", "x-forwarded-for"):
+            keep[k] = _truncate_str(v, MAX_HEADER_VALUE_LEN)
+    return keep
+
+# ---------- slot allocation ----------
 def allocate_slots(publishers, total_slots):
     rows = []
     for p in publishers:
@@ -118,119 +126,39 @@ def allocate_slots(publishers, total_slots):
             pub_to_slots.setdefault(name, []).append(slot_idx)
     return pub_to_slots
 
-
-# ---------- dynamic timing helper (improved) ----------
+# ---------- dynamic timing ----------
 def compute_timeouts_and_runs(num_pages, target_minutes=TARGET_ITERATION_MINUTES, flex_minutes=FLEX_MINUTES):
-    """
-    Compute:
-      - n_runs_per_page (int)
-      - NAV_TIMEOUT_MS, WAIT_AFTER_LOAD_MS, GLOBAL_PAGE_RUN_TIMEOUT_SEC
-
-    Strategy (leiga):
-      - Aim total iteration wall-time ≈ target_minutes ± flex_minutes
-      - If num_pages is small, increase n_runs to use budget (up to MAX_N_RUNS_PER_PAGE)
-      - Estimate per-run time = nav + wait + overhead; choose n_runs = round(per_page_budget / per_run_time)
-      - Re-adjust if estimated total exceeds upper bound; ensure at least 1 run.
-    Returns (n_runs, NAV_MS, WAIT_MS, GLOBAL_RUN_SEC)
-    """
+    # allow target to vary within ±flex to avoid rigid runs; pick middle (target) for determinism
     if num_pages <= 0:
         num_pages = 1
+    # total budget seconds - we keep nominal target (flex could be used to randomly jitter)
     budget_seconds = target_minutes * 60
-    upper_seconds = (target_minutes + flex_minutes) * 60
-    lower_seconds = max(30, (target_minutes - flex_minutes) * 60)  # don't go too small
-
     per_page_budget = budget_seconds / num_pages
-
-    # initial nav/wait suggestions (seconds), clamped
-    nav_s = max(NAV_TIMEOUT_MIN, min(NAV_TIMEOUT_MAX, per_page_budget * 0.40))
-    wait_s = max(WAIT_AFTER_LOAD_MIN, min(WAIT_AFTER_LOAD_MAX, per_page_budget * 0.20))
-
-    # rough per-run estimate (seconds) — include small overhead
-    per_run_est = nav_s + wait_s + 3.0  # 3s overhead for browser/context actions
-
-    # desired runs based on per_page_budget
-    if per_page_budget < 20:
-        desired_runs = 1
-    else:
-        desired_runs = int(round(per_page_budget / per_run_est))
-        desired_runs = max(1, desired_runs)
-
-    # clamp desired runs
-    desired_runs = max(1, min(desired_runs, MAX_N_RUNS_PER_PAGE))
-
-    # Now check estimated total time and adjust if it would exceed upper_seconds
-    estimated_total = num_pages * desired_runs * per_run_est
-    if estimated_total > upper_seconds:
-        # reduce runs proportionally to fit into upper bound
-        max_runs_allowed = max(1, int(upper_seconds / (num_pages * per_run_est)))
-        desired_runs = max(1, min(desired_runs, max_runs_allowed))
-
-    # also try to ensure we are not far below lower_seconds; if estimated_total < lower, try to increase runs
-    estimated_total = num_pages * desired_runs * per_run_est
-    if estimated_total < lower_seconds:
-        # try to grow runs to reach lower bound
-        needed_runs = int(round(lower_seconds / (num_pages * per_run_est)))
-        desired_runs = max(desired_runs, min(needed_runs, MAX_N_RUNS_PER_PAGE))
-
-    # final nav/wait/global timeouts based on per_page_budget but clamped to configured bounds
+    # decide runs
+    n_runs = 1 if per_page_budget < 20 else BASE_N_RUNS_PER_PAGE
+    # nav/wait/global as fractions with clamps
     nav = max(NAV_TIMEOUT_MIN, min(NAV_TIMEOUT_MAX, per_page_budget * 0.40))
     wait = max(WAIT_AFTER_LOAD_MIN, min(WAIT_AFTER_LOAD_MAX, per_page_budget * 0.20))
     global_run_timeout = max(GLOBAL_PAGE_RUN_TIMEOUT_MIN, min(GLOBAL_PAGE_RUN_TIMEOUT_MAX, per_page_budget * 0.7))
+    return int(n_runs), int(nav * 1000), int(wait * 1000), int(global_run_timeout)
 
-    # convert to ms where required
-    return int(desired_runs), int(nav * 1000), int(wait * 1000), int(global_run_timeout)
-
-
-# ---------- compact capture helper ----------
-def _truncate_str(s, length):
-    if s is None:
-        return None
-    s = str(s)
-    if len(s) > length:
-        return s[:length] + "...(truncated)"
-    return s
-
-
-def _filter_headers(headers):
-    """
-    Keep a small set of headers that are useful for debugging and
-    truncate values so per-entry size stays small.
-    """
-    keep = {}
-    if not headers:
-        return keep
-    for k, v in headers.items():
-        kl = k.lower()
-        if kl in ("content-type", "user-agent", "referer", "origin", "accept", "x-forwarded-for"):
-            keep[k] = _truncate_str(v, MAX_HEADER_VALUE_LEN)
-    return keep
-
-
-# ---------- capture logic (improved detection flags) ----------
+# ---------- capture logic (mini-har) ----------
 def capture_single_run(playwright, url, outdir, domain, page_label, geo, proxy_url, mobile, iteration, run_idx,
                        NAV_TIMEOUT_MS, WAIT_AFTER_LOAD_MS, GLOBAL_PAGE_RUN_TIMEOUT_SEC):
-    """
-    Capture one run: do navigation and record a compact per-request mini-har JSON + summary JSON.
-    """
     run_ts = timestamp_str()
     safe = sanitize(f"{domain}_{page_label}_{geo}_iter{iteration}_run{run_idx}_{run_ts}")
     mini_har_path = os.path.join(outdir, f"{safe}.minihar.json")
     summary_file = os.path.join(outdir, f"{safe}.json")
 
-    # data structures: map request_id -> entry
-    req_entries = {}  # key: id(request_object) -> dict
-    seq = []  # maintain order of request keys for final array
-
+    req_entries = {}
+    seq = []
     flags = {"prebid": False, "pubmatic": False}
-    collected_urls = []  # list of all request urls (lowercase)
 
-    # launch/playwright context
-    launch_args = {"headless": True, "args": ["--no-sandbox", "--disable-setuid-sandbox"]}
-
+    launch_args = {"headless": True, "args": ["--no-sandbox", "--disable-setuid-sandbox"] }
     ctx_args = {"ignore_https_errors": True}
     if proxy_url:
         launch_args["proxy"] = {"server": proxy_url}
-    user_agent = "Mozilla/5.0 (Linux; Android 11; Pixel 5)..." if mobile else "Mozilla/5.0 (Windows NT 10.0; Win64; x64)..."
+    user_agent = "Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117 Mobile Safari/537.36" if mobile else "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117 Safari/537.36"
     ctx_args["user_agent"] = user_agent
 
     browser = None
@@ -241,21 +169,18 @@ def capture_single_run(playwright, url, outdir, domain, page_label, geo, proxy_u
     try:
         browser = playwright.chromium.launch(**launch_args)
 
-        # ---------- MOBILE / DESKTOP CONTEXT CREATION (device-aware) ----------
-        # Use Playwright built-in device descriptor (Pixel 5) when available; otherwise fallback
+        # device-aware context (use Playwright descriptor if available)
+        device = None
         try:
-            device = None
             if hasattr(playwright, "devices"):
-                # safe dict access
+                # safe access patterns
                 try:
-                    device = playwright.devices.get("Pixel 5")
+                    device = playwright.devices.get("Pixel 5") if isinstance(playwright.devices, dict) else playwright.devices.get("Pixel 5")
                 except Exception:
                     try:
                         device = playwright.devices["Pixel 5"]
                     except Exception:
                         device = None
-            else:
-                device = None
         except Exception:
             device = None
 
@@ -268,29 +193,42 @@ def capture_single_run(playwright, url, outdir, domain, page_label, geo, proxy_u
                 context = browser.new_context(**device_opts)
             else:
                 context = browser.new_context(user_agent=user_agent,
-                                              viewport={"width": 412, "height": 915},
+                                              viewport={"width":412, "height":915},
                                               is_mobile=True, has_touch=True,
                                               ignore_https_errors=True)
         else:
             context = browser.new_context(user_agent=user_agent,
-                                          viewport={"width": 1366, "height": 768},
+                                          viewport={"width":1366, "height":768},
                                           ignore_https_errors=True)
-        # ---------- end context creation ----------
 
         page = context.new_page()
 
-        # Request event
+        # helper to check global timeout and abort capture early
+        def check_global_timeout():
+            if GLOBAL_PAGE_RUN_TIMEOUT_SEC and (time.time() - start_time) > GLOBAL_PAGE_RUN_TIMEOUT_SEC:
+                return True
+            return False
+
         def on_request(r):
             try:
                 key = id(r)
                 ts = time.time()
+                # post data safely
+                post = None
                 try:
-                    post = r.post_data or r.post_data()
+                    if callable(getattr(r, "post_data", None)):
+                        post = r.post_data()
+                    else:
+                        post = getattr(r, "post_data", None)
                 except Exception:
                     post = None
+                # headers safe extraction
+                headers_val = {}
                 try:
-                    headers_callable = getattr(r, "headers", None)
-                    headers_val = headers_callable() if callable(headers_callable) else (r.headers if hasattr(r, "headers") else {})
+                    if callable(getattr(r, "headers", None)):
+                        headers_val = r.headers()
+                    else:
+                        headers_val = r.headers if hasattr(r, "headers") else {}
                 except Exception:
                     headers_val = {}
                 entry = {
@@ -302,8 +240,7 @@ def capture_single_run(playwright, url, outdir, domain, page_label, geo, proxy_u
                 }
                 req_entries[key] = entry
                 seq.append(key)
-                low = r.url.lower() if r.url else ""
-                collected_urls.append(low)
+                low = (r.url or "").lower()
                 if not flags["prebid"] and any(k in low for k in PREBID_MARKERS):
                     flags["prebid"] = True
                 if not flags["pubmatic"] and any(k in low for k in PUBMATIC_STRONG):
@@ -311,7 +248,6 @@ def capture_single_run(playwright, url, outdir, domain, page_label, geo, proxy_u
             except Exception:
                 logging.debug("on_request exception", exc_info=True)
 
-        # Response event
         def on_response(resp):
             try:
                 req = resp.request
@@ -354,7 +290,7 @@ def capture_single_run(playwright, url, outdir, domain, page_label, geo, proxy_u
         page.on("request", on_request)
         page.on("response", on_response)
 
-        # navigation
+        # navigation with NAV_TIMEOUT_MS (ms)
         try:
             page.goto(url, timeout=NAV_TIMEOUT_MS)
         except PlaywrightTimeoutError:
@@ -362,20 +298,23 @@ def capture_single_run(playwright, url, outdir, domain, page_label, geo, proxy_u
         except Exception as e:
             logging.warning("Navigation exception %s", e)
 
-        # wait for networkidle best-effort
-        with suppress(Exception):
-            page.wait_for_load_state("networkidle", timeout=min(int(WAIT_AFTER_LOAD_MAX * 1000), NAV_TIMEOUT_MS))
+        # check global timeout after navigation
+        if check_global_timeout():
+            logging.warning("Global run timeout exceeded after navigation, ending early for %s", url)
+        else:
+            with suppress(Exception):
+                page.wait_for_load_state("networkidle", timeout=min(NAV_TIMEOUT_MS, PAGE_NETWORK_IDLE_TIMEOUT_MS if 'PAGE_NETWORK_IDLE_TIMEOUT_MS' in globals() else NAV_TIMEOUT_MS))
 
-        # extra short wait for late calls
-        try:
-            page.wait_for_timeout(WAIT_AFTER_LOAD_MS)
-        except Exception:
-            pass
+            # extra wait for late calls
+            if not check_global_timeout():
+                try:
+                    page.wait_for_timeout(WAIT_AFTER_LOAD_MS)
+                except Exception:
+                    pass
 
     except Exception as e:
         logging.exception("Error during capture: %s", e)
     finally:
-        # ensure close context (no HAR auto-write)
         with suppress(Exception):
             if context:
                 context.close()
@@ -383,7 +322,7 @@ def capture_single_run(playwright, url, outdir, domain, page_label, geo, proxy_u
             if browser:
                 browser.close()
 
-    # Build compact list in original order
+    # Build compact ordered entries
     compact_list = []
     for key in seq:
         ent = req_entries.get(key, {})
@@ -399,7 +338,6 @@ def capture_single_run(playwright, url, outdir, domain, page_label, geo, proxy_u
         }
         compact_list.append(compact)
 
-    # write mini-har
     mini = {
         "generated": timestamp_str(),
         "domain": domain,
@@ -410,6 +348,7 @@ def capture_single_run(playwright, url, outdir, domain, page_label, geo, proxy_u
         "entries_count": len(compact_list),
         "entries": compact_list
     }
+
     try:
         with open(mini_har_path, "w", encoding="utf-8") as mf:
             json.dump(mini, mf)
@@ -443,10 +382,9 @@ def capture_single_run(playwright, url, outdir, domain, page_label, geo, proxy_u
     except Exception:
         logging.exception("Failed to write summary json to %s", summary_file)
 
-    logging.info("Run finished %s pubmatic_hits=%s total_requests=%s prebid=%s pubmatic=%s", safe,
-                 summary["pubmatic_requests"], total, flags["prebid"], flags["pubmatic"])
+    logging.info("Run finished %s pubmatic_hits=%s total_requests=%s prebid=%s pubmatic=%s",
+                 safe, summary["pubmatic_requests"], total, flags["prebid"], flags["pubmatic"])
     return summary
-
 
 # aggregated per page
 def run_page_aggregated(playwright, url, outdir, domain, page_label, geo, proxy_url, mobile, iteration,
@@ -455,7 +393,6 @@ def run_page_aggregated(playwright, url, outdir, domain, page_label, geo, proxy_
     for r in range(1, n_runs + 1):
         runs.append(capture_single_run(playwright, url, outdir, domain, page_label, geo, proxy_url, mobile, iteration, r,
                                        NAV_TIMEOUT_MS, WAIT_AFTER_LOAD_MS, GLOBAL_PAGE_RUN_TIMEOUT_SEC))
-        # short pause to vary cache behavior
         time.sleep(1)
     avg_total = sum(x["total_requests"] for x in runs) / len(runs) if runs else 0
     avg_pub = sum(x["pubmatic_requests"] for x in runs) / len(runs) if runs else 0
@@ -464,7 +401,6 @@ def run_page_aggregated(playwright, url, outdir, domain, page_label, geo, proxy_
     return {"domain": domain, "page_label": page_label, "geo": geo, "iteration": iteration,
             "avg_total_requests": avg_total, "avg_pubmatic_requests": avg_pub, "runs": runs,
             "prebid_detected": any_prebid, "pubmatic_detected": any_pubmatic}
-
 
 # ---------------- main ----------------
 def main():
@@ -485,24 +421,22 @@ def main():
 
     pubs = targets.get("publishers", [])
     pub_to_slots = allocate_slots(pubs, TOTAL_DAILY_SLOTS)
-    # save mapping
     with open(os.path.join(run_root, "slot_map.json"), "w", encoding="utf-8") as f:
         json.dump(pub_to_slots, f, indent=2)
 
     selected = [p for p in pubs if p["name"] in pub_to_slots and args.iteration in pub_to_slots[p["name"]]]
     logging.info("Iteration %s selected publishers: %s", args.iteration, [p["name"] for p in selected])
 
-    # build list of pages (desktop+mobile) count to compute budgets
+    # build page entries (desktop + mobile)
     page_entries = []
     for pub in selected:
         for pg in pub.get("pages", []):
             if not pg.get("url"):
                 continue
-            page_entries.append((pub, pg, False))  # desktop
-            page_entries.append((pub, pg, True))   # mobile
+            page_entries.append((pub, pg, False))
+            page_entries.append((pub, pg, True))
     total_pages = len(page_entries)
 
-    # compute dynamic n_runs and timeouts
     n_runs_per_page, NAV_MS, WAIT_MS, GLOBAL_RUN_SEC = compute_timeouts_and_runs(total_pages,
                                                                                  target_minutes=TARGET_ITERATION_MINUTES,
                                                                                  flex_minutes=FLEX_MINUTES)
@@ -551,7 +485,6 @@ def main():
         json.dump(meta, jf, indent=2)
 
     logging.info("Iteration complete: output in %s (csv=%s) meta=%s", run_root, csv_path, meta)
-
 
 if __name__ == "__main__":
     main()
