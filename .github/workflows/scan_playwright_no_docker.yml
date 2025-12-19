@@ -16,7 +16,7 @@ on:
     - cron: '0 0 * * *'
     - cron: '0 4 * * *'
     - cron: '0 5 * * *'
-    - cron: '25 5 * * *'
+    - cron: '0 14 * * *'
     - cron: '0 12 * * *'
     - cron: '0 16 * * *'
     - cron: '0 20 * * *'
@@ -24,7 +24,7 @@ on:
 jobs:
   scan:
     name: Run Playwright scan (github-hosted)
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 90
     steps:
       - name: Checkout repository
@@ -48,14 +48,17 @@ jobs:
 
       - name: Run scan script
         env:
-          ITERATION: ${{ github.event.inputs.iteration_index }}
-          GEO: ${{ github.event.inputs.geo }}
+          ITERATION: ${{ github.event.inputs.iteration_index || '0' }}
+          GEO: ${{ github.event.inputs.geo || 'ALL' }}
         run: |
           echo "Starting scan_page.py iteration=${ITERATION} geo=${GEO}"
-          # ensure output folder exists
           mkdir -p output
-          # run scanner (exit non-zero if fails)
-          python3 scan_page.py --targets targets.json --iteration ${ITERATION} --geo "${GEO}" --outdir output
+          python3 scan_page.py \
+            --targets targets.json \
+            --iteration "${ITERATION}" \
+            --geo "${GEO}" \
+            --outdir output
+
 
       - name: Archive output (optional)
         if: always()
