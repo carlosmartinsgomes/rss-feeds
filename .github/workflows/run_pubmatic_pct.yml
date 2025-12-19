@@ -1,0 +1,48 @@
+name: Estimate PubMatic country percentages
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  estimate:
+    runs-on: self-hosted
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests pandas openpyxl
+
+      - name: Run PubMatic estimation
+        env:
+          TOTAL_REQUESTS: 1000    # default per-domain total requests (can be overridden)
+          ALPHA: 10
+        run: |
+          # ensure principaldomains exists
+          if [ ! -f principaldomains ]; then
+            echo "principaldomains file not found!"
+            ls -la
+            exit 1
+          fi
+          python3 estimate_pubmatic_country_percentages.py \
+            --domains-file principaldomains \
+            --out pubmatic_country_estimates.xlsx \
+            --total-requests ${TOTAL_REQUESTS} \
+            --alpha ${ALPHA}
+
+      - name: Upload Excel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pubmatic_country_estimates
+          path: pubmatic_country_estimates.xlsx
