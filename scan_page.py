@@ -9,7 +9,7 @@ Features applied:
 - NO full HARs: instead writes compact mini-har JSON per run (much smaller)
 - detection flags: prebid_detected / pubmatic_detected (reduce false positives)
 - safety: global per-page run timeout checked and will end early if exceeded
-- summary CSV with pubmatic_rate = avg_pubmatic_requests / avg_total_requests
+- watchdog: force-close browser/context if global timeout exceeded (threading.Timer)
 """
 
 import os
@@ -18,6 +18,7 @@ import json
 import time
 import argparse
 import logging
+import threading
 from datetime import datetime
 from pathlib import Path
 from math import floor
@@ -180,9 +181,33 @@ def capture_single_run(playwright, url, outdir, domain, page_label, geo, proxy_u
     context = None
     page = None
     start_time = time.time()
+    timer = None  # watchdog timer handle
 
     try:
         browser = playwright.chromium.launch(**launch_args)
+
+        # --- START WATCHDOG: força fechar context/browser se GLOBAL_PAGE_RUN_TIMEOUT_SEC for excedido ---
+        def _kill_browser():
+            try:
+                logging.warning("Watchdog triggered: forcing browser/context close for %s", safe)
+                with suppress(Exception):
+                    if context:
+                        context.close()
+                with suppress(Exception):
+                    if browser:
+                        browser.close()
+            except Exception:
+                pass
+
+        try:
+            # start watchdog (seconds)
+            if GLOBAL_PAGE_RUN_TIMEOUT_SEC and GLOBAL_PAGE_RUN_TIMEOUT_SEC > 0:
+                timer = threading.Timer(GLOBAL_PAGE_RUN_TIMEOUT_SEC, _kill_browser)
+                timer.daemon = True
+                timer.start()
+        except Exception:
+            logging.exception("Failed to start watchdog timer", exc_info=True)
+        # --- END WATCHDOG ---
 
         # device-aware context (use Playwright descriptor if available)
         device = None
@@ -330,6 +355,11 @@ def capture_single_run(playwright, url, outdir, domain, page_label, geo, proxy_u
     except Exception as e:
         logging.exception("Error during capture: %s", e)
     finally:
+        # cancel watchdog timer first to avoid race where timer fires during shutdown sequence
+        with suppress(Exception):
+            if timer:
+                timer.cancel()
+
         with suppress(Exception):
             if context:
                 context.close()
