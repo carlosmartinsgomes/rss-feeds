@@ -128,19 +128,34 @@ def allocate_slots(publishers, total_slots):
 
 # ---------- dynamic timing ----------
 def compute_timeouts_and_runs(num_pages, target_minutes=TARGET_ITERATION_MINUTES, flex_minutes=FLEX_MINUTES):
-    # allow target to vary within ±flex to avoid rigid runs; pick middle (target) for determinism
     if num_pages <= 0:
         num_pages = 1
-    # total budget seconds - we keep nominal target (flex could be used to randomly jitter)
     budget_seconds = target_minutes * 60
     per_page_budget = budget_seconds / num_pages
-    # decide runs
-    n_runs = 1 if per_page_budget < 20 else BASE_N_RUNS_PER_PAGE
-    # nav/wait/global as fractions with clamps
-    nav = max(NAV_TIMEOUT_MIN, min(NAV_TIMEOUT_MAX, per_page_budget * 0.40))
-    wait = max(WAIT_AFTER_LOAD_MIN, min(WAIT_AFTER_LOAD_MAX, per_page_budget * 0.20))
-    global_run_timeout = max(GLOBAL_PAGE_RUN_TIMEOUT_MIN, min(GLOBAL_PAGE_RUN_TIMEOUT_MAX, per_page_budget * 0.7))
+
+    # decide runs:
+    if per_page_budget < 20:
+        n_runs = 1
+    elif per_page_budget < 90:
+        n_runs = 1
+    elif per_page_budget < 240:
+        n_runs = 2
+    else:
+        n_runs = max(1, BASE_N_RUNS_PER_PAGE)  # se tens base>1 adapta aqui
+
+    # compute timeouts from fractions of per_page_budget but clamp to min/max
+    nav = per_page_budget * 0.45
+    wait = per_page_budget * 0.30
+    safety = per_page_budget * 0.20
+
+    # clamp to configured min/max
+    nav = max(NAV_TIMEOUT_MIN, min(NAV_TIMEOUT_MAX, nav))
+    wait = max(WAIT_AFTER_LOAD_MIN, min(WAIT_AFTER_LOAD_MAX, wait))
+    global_run_timeout = max(GLOBAL_PAGE_RUN_TIMEOUT_MIN, min(GLOBAL_PAGE_RUN_TIMEOUT_MAX, safety))
+
+    # convert to ms where needed
     return int(n_runs), int(nav * 1000), int(wait * 1000), int(global_run_timeout)
+
 
 # ---------- capture logic (mini-har) ----------
 def capture_single_run(playwright, url, outdir, domain, page_label, geo, proxy_url, mobile, iteration, run_idx,
