@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-scan_page.py — weighted-slot scanner (adaptative timing) with compact "mini-HAR" output
+scan_page.py — weighted-slot scanner (optimized + min-coverage)
 
-Features applied:
-- slot allocation based on weight_pct
-- dynamic per-page budget (TARGET_ITERATION_MINUTES ± FLEX_MINUTES)
-- device-aware mobile context (Playwright device descriptor "Pixel 5" when available)
-- NO full HARs: instead writes compact mini-har JSON per run (much smaller)
-- detection flags: prebid_detected / pubmatic_detected (reduce false positives)
-- safety: global per-page run timeout checked and will end early if exceeded
-- watchdog: force-close browser/context if global timeout exceeded (threading.Timer)
+Design decisions:
+- Each publisher gets at least one appearance across the total slots (runs per day).
+- Additional appearances are proportional to weight_pct (more weight -> more copies).
+- Copies are distributed across slots to spread load.
+- Default TOTAL_DAILY_SLOTS = 6 (6 runs/day). Override with --slots or env TOTAL_DAILY_SLOTS.
+- Watchdog (threading.Timer) forcibly closes browser/context if GLOBAL_PAGE_RUN_TIMEOUT_SEC is exceeded.
+- CLI options: --slots, --all, --verbose.
+- Writes slot_map.json into run folder and slot_map_latest.json at outdir root for quick inspection.
 """
 
 import os
@@ -33,7 +33,7 @@ except Exception as e:
 # ---------------- CONFIG (tunable via env) ----------------
 TOTAL_DAILY_SLOTS = int(os.environ.get("TOTAL_DAILY_SLOTS", "6"))
 BASE_N_RUNS_PER_PAGE = int(os.environ.get("BASE_N_RUNS_PER_PAGE", "1"))
-TARGET_ITERATION_MINUTES = int(os.environ.get("TARGET_ITERATION_MINUTES", "60"))
+TARGET_ITERATION_MINUTES = int(os.environ.get("TARGET_ITERATION_MINUTES", "60"))  # center (default 60 -> 45..75 with FLEX=15)
 FLEX_MINUTES = int(os.environ.get("FLEX_MINUTES", "15"))
 
 NAV_TIMEOUT_MIN = float(os.environ.get("NAV_TIMEOUT_MIN", "3"))
@@ -91,36 +91,51 @@ def _filter_headers(headers):
             keep[k] = _truncate_str(v, MAX_HEADER_VALUE_LEN)
     return keep
 
-# ---------- slot allocation ----------
+# ---------- slot allocation (guaranteed min coverage + proportional shares) ----------
 def allocate_slots(publishers, total_slots):
+    """
+    Allocate publisher appearances ("copies") across total_slots.
+
+    Policy:
+      - For each publisher, compute raw = weight_pct/100 * total_slots.
+      - desired = floor(raw). If desired == 0, set desired = 1 (guarantee at least one appearance/day).
+      - Create 'copies' list repeating publisher name desired times.
+      - Distribute copies across slots using min-heap to balance counts per slot.
+      - Result: mapping publisher -> list of slot indices where it appears.
+    Rationale:
+      - Ensures every publisher appears at least once across the day.
+      - Respects weight_pct by giving more copies to higher-weight publishers.
+    """
     rows = []
     for p in publishers:
         w = float(p.get("weight_pct", 0.0))
         raw = w / 100.0 * total_slots
-        initial = int(floor(raw))
-        rem = raw - initial
-        rows.append({"name": p["name"], "initial": initial, "remainder": rem, "raw": raw, "obj": p})
-    sum_initial = sum(r["initial"] for r in rows)
-    remaining = total_slots - sum_initial
-    rows_sorted = sorted(rows, key=lambda r: r["remainder"], reverse=True)
-    i = 0
-    while remaining > 0 and i < len(rows_sorted):
-        rows_sorted[i]["initial"] += 1
-        remaining -= 1
-        i += 1
-        if i == len(rows_sorted):
-            i = 0
-    # distribute counts across slots fairly
+        desired = int(floor(raw))
+        if desired < 1:
+            desired = 1  # guarantee one appearance per publisher across day
+        rows.append({"name": p["name"], "desired": desired, "raw": raw, "weight": w})
+
+    # Build copies list
+    copies = []
+    for r in rows:
+        for _ in range(r["desired"]):
+            copies.append({"name": r["name"], "weight": r["weight"]})
+
+    # If copies somehow empty (shouldn't happen), fallback: give every publisher one copy
+    if not copies and rows:
+        for r in rows:
+            copies.append({"name": r["name"], "weight": r["weight"]})
+
+    # Distribute copies across slots fairly (min-heap by count)
     import heapq
     slot_buckets = [[] for _ in range(total_slots)]
     heap = [(0, idx) for idx in range(total_slots)]
     heapq.heapify(heap)
-    pub_counts = [(r["name"], r["initial"]) for r in rows_sorted]
-    for name, count in pub_counts:
-        for _ in range(count):
-            size, slot = heapq.heappop(heap)
-            slot_buckets[slot].append(name)
-            heapq.heappush(heap, (size + 1, slot))
+    for c in copies:
+        size, slot = heapq.heappop(heap)
+        slot_buckets[slot].append(c["name"])
+        heapq.heappush(heap, (size + 1, slot))
+
     pub_to_slots = {}
     for slot_idx, bucket in enumerate(slot_buckets):
         for name in bucket:
@@ -129,12 +144,21 @@ def allocate_slots(publishers, total_slots):
 
 # ---------- dynamic timing ----------
 def compute_timeouts_and_runs(num_pages, target_minutes=TARGET_ITERATION_MINUTES, flex_minutes=FLEX_MINUTES):
+    """
+    Returns: n_runs, NAV_MS, WAIT_MS, GLOBAL_PAGE_RUN_TIMEOUT_SEC
+
+    Heuristics:
+      - per_page_budget = (target_minutes * 60) / num_pages
+      - if per_page_budget small -> 1 run; moderate -> 1; larger -> 2 runs.
+      - allocate nav/wait/safety fractions of per_page_budget.
+      - clamp to configured min/max.
+    """
     if num_pages <= 0:
         num_pages = 1
     budget_seconds = target_minutes * 60
     per_page_budget = budget_seconds / num_pages
 
-    # decide runs:
+    # decide number of runs per page (conservative)
     if per_page_budget < 20:
         n_runs = 1
     elif per_page_budget < 90:
@@ -142,21 +166,17 @@ def compute_timeouts_and_runs(num_pages, target_minutes=TARGET_ITERATION_MINUTES
     elif per_page_budget < 240:
         n_runs = 2
     else:
-        n_runs = max(1, BASE_N_RUNS_PER_PAGE)  # se tens base>1 adapta aqui
+        n_runs = max(1, BASE_N_RUNS_PER_PAGE)
 
-    # compute timeouts from fractions of per_page_budget but clamp to min/max
     nav = per_page_budget * 0.45
     wait = per_page_budget * 0.30
     safety = per_page_budget * 0.20
 
-    # clamp to configured min/max
     nav = max(NAV_TIMEOUT_MIN, min(NAV_TIMEOUT_MAX, nav))
     wait = max(WAIT_AFTER_LOAD_MIN, min(WAIT_AFTER_LOAD_MAX, wait))
     global_run_timeout = max(GLOBAL_PAGE_RUN_TIMEOUT_MIN, min(GLOBAL_PAGE_RUN_TIMEOUT_MAX, safety))
 
-    # convert to ms where needed
     return int(n_runs), int(nav * 1000), int(wait * 1000), int(global_run_timeout)
-
 
 # ---------- capture logic (mini-har) ----------
 def capture_single_run(playwright, url, outdir, domain, page_label, geo, proxy_url, mobile, iteration, run_idx,
@@ -186,7 +206,7 @@ def capture_single_run(playwright, url, outdir, domain, page_label, geo, proxy_u
     try:
         browser = playwright.chromium.launch(**launch_args)
 
-        # --- START WATCHDOG: força fechar context/browser se GLOBAL_PAGE_RUN_TIMEOUT_SEC for excedido ---
+        # --- WATCHDOG: força fechar context/browser se GLOBAL_PAGE_RUN_TIMEOUT_SEC for excedido ---
         def _kill_browser():
             try:
                 logging.warning("Watchdog triggered: forcing browser/context close for %s", safe)
@@ -200,20 +220,17 @@ def capture_single_run(playwright, url, outdir, domain, page_label, geo, proxy_u
                 pass
 
         try:
-            # start watchdog (seconds)
             if GLOBAL_PAGE_RUN_TIMEOUT_SEC and GLOBAL_PAGE_RUN_TIMEOUT_SEC > 0:
                 timer = threading.Timer(GLOBAL_PAGE_RUN_TIMEOUT_SEC, _kill_browser)
                 timer.daemon = True
                 timer.start()
         except Exception:
             logging.exception("Failed to start watchdog timer", exc_info=True)
-        # --- END WATCHDOG ---
 
-        # device-aware context (use Playwright descriptor if available)
+        # device-aware context
         device = None
         try:
             if hasattr(playwright, "devices"):
-                # safe access patterns
                 try:
                     device = playwright.devices.get("Pixel 5") if isinstance(playwright.devices, dict) else playwright.devices.get("Pixel 5")
                 except Exception:
@@ -243,7 +260,6 @@ def capture_single_run(playwright, url, outdir, domain, page_label, geo, proxy_u
 
         page = context.new_page()
 
-        # helper to check global timeout and abort capture early
         def check_global_timeout():
             if GLOBAL_PAGE_RUN_TIMEOUT_SEC and (time.time() - start_time) > GLOBAL_PAGE_RUN_TIMEOUT_SEC:
                 return True
@@ -253,7 +269,6 @@ def capture_single_run(playwright, url, outdir, domain, page_label, geo, proxy_u
             try:
                 key = id(r)
                 ts = time.time()
-                # post data safely
                 post = None
                 try:
                     if callable(getattr(r, "post_data", None)):
@@ -262,7 +277,6 @@ def capture_single_run(playwright, url, outdir, domain, page_label, geo, proxy_u
                         post = getattr(r, "post_data", None)
                 except Exception:
                     post = None
-                # headers safe extraction
                 headers_val = {}
                 try:
                     if callable(getattr(r, "headers", None)):
@@ -455,7 +469,13 @@ def main():
     parser.add_argument("--outdir", default=DEFAULT_OUTDIR)
     parser.add_argument("--iteration", type=int, default=0, help="slot index 0..TOTAL_DAILY_SLOTS-1")
     parser.add_argument("--geo", default="US")
+    parser.add_argument("--slots", type=int, default=None, help="override TOTAL_DAILY_SLOTS (env) for this run")
+    parser.add_argument("--all", action="store_true", help="ignore slotting and run all publishers")
+    parser.add_argument("--verbose", action="store_true", help="enable debug logging")
     args = parser.parse_args()
+
+    if args.verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
 
     targets = load_json(args.targets)
     proxies = load_json(args.proxies)
@@ -465,12 +485,45 @@ def main():
     ensure_dir(run_root)
 
     pubs = targets.get("publishers", [])
-    pub_to_slots = allocate_slots(pubs, TOTAL_DAILY_SLOTS)
-    with open(os.path.join(run_root, "slot_map.json"), "w", encoding="utf-8") as f:
-        json.dump(pub_to_slots, f, indent=2)
+    total_slots = args.slots if args.slots is not None else TOTAL_DAILY_SLOTS
+    if total_slots < 1:
+        total_slots = TOTAL_DAILY_SLOTS
 
-    selected = [p for p in pubs if p["name"] in pub_to_slots and args.iteration in pub_to_slots[p["name"]]]
-    logging.info("Iteration %s selected publishers: %s", args.iteration, [p["name"] for p in selected])
+    pub_to_slots = allocate_slots(pubs, total_slots)
+
+    # write slot_map for this run and a latest snapshot at top-level outdir
+    slot_map_path = os.path.join(run_root, "slot_map.json")
+    with open(slot_map_path, "w", encoding="utf-8") as f:
+        json.dump(pub_to_slots, f, indent=2)
+    try:
+        latest_map_path = os.path.join(args.outdir, "slot_map_latest.json")
+        with open(latest_map_path, "w", encoding="utf-8") as f2:
+            json.dump({"total_slots": total_slots, "mapping": pub_to_slots}, f2, indent=2)
+    except Exception:
+        logging.debug("Failed writing slot_map_latest.json", exc_info=True)
+
+    # logging: compute weights per slot and page counts for debugging
+    slot_weights = {i: 0.0 for i in range(total_slots)}
+    slot_pages = {i: 0 for i in range(total_slots)}
+    name_to_pub = {p["name"]: p for p in pubs}
+    for name, slots in pub_to_slots.items():
+        w = float(name_to_pub.get(name, {}).get("weight_pct", 0.0))
+        pages_count = len(name_to_pub.get(name, {}).get("pages", []))
+        for s in slots:
+            slot_weights[s] = slot_weights.get(s, 0.0) + w
+            slot_pages[s] = slot_pages.get(s, 0) + pages_count
+    logging.info("Slot weights summary (slot:index->weight_pct_sum,page_count): %s",
+                 {i: {"weight_sum": round(slot_weights[i], 4), "pages": slot_pages[i]} for i in slot_weights})
+
+    # select publishers for this iteration
+    if args.all:
+        selected = pubs[:]  # all publishers
+        logging.info("Running with --all: selected all publishers (%s total)", len(selected))
+    else:
+        selected = [p for p in pubs if p["name"] in pub_to_slots and args.iteration in pub_to_slots[p["name"]]]
+        # order by weight_pct descending so higher-weight publishers processed first
+        selected = sorted(selected, key=lambda p: -float(p.get("weight_pct", 0)))
+        logging.info("Iteration %s selected publishers (ordered by weight): %s", args.iteration, [p["name"] for p in selected])
 
     # build page entries (desktop + mobile)
     page_entries = []
@@ -482,6 +535,7 @@ def main():
             page_entries.append((pub, pg, True))
     total_pages = len(page_entries)
 
+    # compute n_runs and timeouts based on pages count and target minutes
     n_runs_per_page, NAV_MS, WAIT_MS, GLOBAL_RUN_SEC = compute_timeouts_and_runs(total_pages,
                                                                                  target_minutes=TARGET_ITERATION_MINUTES,
                                                                                  flex_minutes=FLEX_MINUTES)
@@ -525,7 +579,8 @@ def main():
     # meta
     meta = {"timestamp": timestamp, "iteration": args.iteration, "selected_publishers": [p["name"] for p in selected],
             "total_pages": total_pages, "n_runs_per_page": n_runs_per_page,
-            "NAV_MS": NAV_MS, "WAIT_MS": WAIT_MS, "GLOBAL_PAGE_RUN_TIMEOUT_SEC": GLOBAL_RUN_SEC}
+            "NAV_MS": NAV_MS, "WAIT_MS": WAIT_MS, "GLOBAL_PAGE_RUN_TIMEOUT_SEC": GLOBAL_RUN_SEC,
+            "total_slots_used": total_slots}
     with open(os.path.join(run_root, "meta.json"), "w", encoding="utf-8") as jf:
         json.dump(meta, jf, indent=2)
 
