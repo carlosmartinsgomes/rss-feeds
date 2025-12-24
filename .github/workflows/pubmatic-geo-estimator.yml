@@ -1,0 +1,49 @@
+name: PubMatic Geo Revenue Estimator (Weekly)
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Domingo às 03:30 UTC (ajusta se quiseres)
+    - cron: "30 3 * * 0"
+
+jobs:
+  estimate-pubmatic-geo:
+    runs-on: [self-hosted, ip-172-31-78-172]
+
+    timeout-minutes: 120
+
+    env:
+      PYTHONUNBUFFERED: "1"
+      TOTAL_REQUESTS: "1000"
+      ALPHA: "5.0"
+      HTTP_TIMEOUT: "10"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python (sanity check)
+        run: |
+          python3 --version
+          pip3 --version
+
+      - name: Install dependencies
+        run: |
+          pip3 install --upgrade pip
+          pip3 install requests pandas openpyxl pycountry
+
+      - name: Run PubMatic geo revenue estimator
+        run: |
+          python3 estimate_pubmatic_country_percentages.py \
+            --domains-file domains.txt \
+            --out pubmatic_country_estimates.xlsx \
+            --total-requests $TOTAL_REQUESTS \
+            --alpha $ALPHA \
+            --timeout $HTTP_TIMEOUT
+
+      - name: Upload Excel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pubmatic-country-estimates
+          path: pubmatic_country_estimates.xlsx
+          retention-days: 30
