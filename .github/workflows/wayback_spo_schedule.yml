@@ -1,0 +1,62 @@
+name: Wayback SPO Analyzer (weekly)
+
+on:
+  schedule:
+    # Weekly run: Monday 03:00 UTC (ajusta se quiseres outro horário)
+    - cron: '0 3 * * 1'
+  workflow_dispatch: {}
+
+jobs:
+  run-wayback:
+    name: Run Wayback SPO Analyzer
+    runs-on: [self-hosted, ip-172-31-78-172]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          # If you maintain a requirements.txt in the repo, it will be used.
+          if [ -f requirements.txt ]; then
+            python -m pip install --upgrade pip
+            pip install -r requirements.txt
+          else
+            python -m pip install --upgrade pip
+            pip install requests pandas openpyxl pycountry
+          fi
+
+      - name: Prepare output filename (UTC date)
+        id: date
+        run: |
+          TODAY=$(date -u +%Y%m%d)
+          echo "today=${TODAY}" >> "$GITHUB_OUTPUT"
+
+      - name: Run Wayback SPO Analyzer
+        # Assumes wayback_spo_analyzer.py is in repo root and principaldomains exists
+        run: |
+          set -euo pipefail
+          OUT="wayback_spo_report_${{ steps.date.outputs.today }}.xlsx"
+          echo "[INFO] Running analyzer -> output: ${OUT}"
+          python3 wayback_spo_analyzer.py --domains-file principaldomains --log-file analise_log.json --out "${OUT}"
+
+      - name: Upload report & log as artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: wayback-spo-results-${{ steps.date.outputs.today }}
+          path: |
+            wayback_spo_report_${{ steps.date.outputs.today }}.xlsx
+            analise_log.json
