@@ -147,8 +147,8 @@
         {"label": "video_index", "url": "https://www.mlb.com/video"}
       ],
       "geos": [
-        {"country_code": "US", "pct": 71.73},
-        {"country_code": "CA", "pct": 9.60}
+        {"country_code": "US", "pct": 100}
+  
       ]
     },
     {
@@ -164,8 +164,8 @@
         {"label": "mobile_view", "url": "https://www.crunchyroll.com/"}
       ],
       "geos": [
-        {"country_code": "US", "pct": 35.59},
-        {"country_code": "BR", "pct": 8.76}
+        {"country_code": "US", "pct": 100}
+        
       ]
     }
   ]
