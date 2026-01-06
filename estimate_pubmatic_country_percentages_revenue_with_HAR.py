@@ -1135,7 +1135,7 @@ def main():
             res = analyze_domain_full(dom, priors_map, geo_resolver, total_requests=args.total_requests, alpha=args.alpha, timeout=args.timeout, simulate_variants=simulate_variants, har_dir=args.har_dir)
             results.append({
                 'domain': dom,
-                'pubmatic_signals_found': bool(hosts_detail),
+                'pubmatic_signals_found': bool(res.get('hosts_detail', [])),
                 'num_hosts_detected': len({h['host'] for h in hosts_detail}),
                 'observed_signal_sum': sum(observed.values()),
                 'confidence': round(meta['confidence_score'],3),
