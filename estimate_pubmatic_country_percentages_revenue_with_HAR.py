@@ -441,9 +441,7 @@ def extract_prebid_signals(html):
                         pass
                 for cm in re.finditer(r'"\s*currency\s*"\s*:\s*"(.*?)"', seg, flags=re.I):
                     out["currencies"].add(cm.group(1).upper())
-                for ccm in re.finditer(r'countries\s*[:=]\s*\[([^\]]+)\]
-
-', seg, flags=re.I):
+                for ccm in re.finditer(r'countries\s*[:=]\s*\[([^\]]+)\]', seg, flags=re.I):
                     arr = ccm.group(1)
                     for code in re.findall(r'["\']?([A-Za-z]{2})["\']?', arr):
                         out["geo_clues"].add(code.upper())
