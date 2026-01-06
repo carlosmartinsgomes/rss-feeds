@@ -1138,14 +1138,23 @@ def main():
             res = analyze_domain_full(dom, priors_map, geo_resolver, total_requests=args.total_requests, alpha=args.alpha, timeout=args.timeout, simulate_variants=simulate_variants, har_dir=args.har_dir)
             results.append({
                 'domain': dom,
-                'posterior_json': json.dumps(res.get('posterior',{})),
-                'est_by_country_json': json.dumps(res.get('est_by_country',{})),
-                'raw_score_json': json.dumps(res.get('raw_score',{})),
-                'observed_countries': json.dumps(res.get('observed_countries',{})),
-                'reliability_score': res.get('reliability', {}).get('confidence_score') if isinstance(res.get('reliability', {}), dict) else None,
-                'reliability_label': res.get('reliability', {}).get('reliability_label') if isinstance(res.get('reliability', {}), dict) else None,
-                'trusted': res.get('reliability', {}).get('trusted') if isinstance(res.get('reliability', {}), dict) else None
+                'pubmatic_signals_found': bool(hosts_detail),
+                'num_hosts_detected': len({h['host'] for h in hosts_detail}),
+                'observed_signal_sum': sum(observed.values()),
+                'confidence': round(meta['confidence_score'],3),
+                'reliability_label': meta['reliability_label'],
+                'ads_truncated': domain_signals.get('ads_truncated', False),
+                'geo_clues': list(domain_signals.get('prebid', {}).get('geo_clues', [])),
+                'confidence_har': meta['breakdown']['har'],
+                'confidence_prebid': meta['breakdown']['prebid'],
+                'confidence_ads': meta['breakdown']['ads_txt'],
+                'confidence_infra': meta['breakdown']['infra'],
+                'confidence_sim': meta['breakdown']['sim'],
+                'posterior_json': json.dumps(posterior),
+                'est_requests_json': json.dumps(est_by_country),
+                'hosts_detail_json': json.dumps(hosts_detail)
             })
+
             hosts_rows_all.extend(res.get('hosts_rows', []))
             prebid_rows.append(res.get('prebid_row', {}))
             adsids_rows.extend(res.get('ads_ids_rows', []))
