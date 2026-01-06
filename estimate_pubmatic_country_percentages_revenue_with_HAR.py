@@ -273,9 +273,7 @@ def try_parse_json_like(s, max_candidates=5):
         # normaliza aspas simples -> duplas
         txt = txt.replace("'", '"')
         # remove vírgulas a mais antes de ] ou }
-        txt = re.sub(r',\s*([\]
-
-\}])', r'\1', txt)
+        txt = re.sub(r',\s*([\]\}])', r'\1', txt)
         return txt
 
     for cand in candidates:
