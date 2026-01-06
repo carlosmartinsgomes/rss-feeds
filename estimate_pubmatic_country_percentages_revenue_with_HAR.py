@@ -1136,7 +1136,7 @@ def main():
             results.append({
                 'domain': dom,
                 'pubmatic_signals_found': bool(res.get('hosts_detail', [])),
-                'num_hosts_detected': len({h['host'] for h in 'hosts_detail'}),
+                'num_hosts_detected': len({h['host'] for h in res.get('hosts_detail', [])}),
                 'observed_signal_sum': sum(observed.values()),
                 'confidence': round(meta['confidence_score'],3),
                 'reliability_label': meta['reliability_label'],
