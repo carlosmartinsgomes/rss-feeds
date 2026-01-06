@@ -684,7 +684,8 @@ def analyze_har_for_domain(har_path):
 # -----------------------
 # Revenue-weighting logic (extended with HAR)
 # -----------------------
-def compute_revenue_scores(domain_signals, total_requests, priors_for_domain=None, alpha=SMOOTH_ALPHA):
+
+def compute_revenue_scores(domain_signals, total_requests, priors_for_domain=None, alpha=SMOOTH_ALPHA, simulate_variants=None):
     """
     Extended revenue scoring that also returns a reliability meta object.
     Returns: (posterior, est_by_country, score_dict, meta)
@@ -695,6 +696,8 @@ def compute_revenue_scores(domain_signals, total_requests, priors_for_domain=Non
     }
     """
     score = defaultdict(float)
+    if simulate_variants is None:
+        simulate_variants = []
     observed = domain_signals.get('observed_countries', Counter())
     prebid = domain_signals.get('prebid', {})
     pubmatic_ids = domain_signals.get('ads_txt_pubmatic_ids', [])
@@ -1007,7 +1010,8 @@ def analyze_domain_full(domain, priors_map, geo_resolver, total_requests=1000, a
             'prebid': prebid_sim,
             'ads_txt_pubmatic_ids': pubmatic_ids_sim
         })
-    posterior, est_by_country, raw_score, reliability_meta = compute_revenue_scores(domain_signals, total_requests, priors_for_domain=priors_map.get(domain), alpha=alpha)
+    posterior, est_by_country, raw_score, reliability_meta = compute_revenue_scores(domain_signals, total_requests, priors_for_domain=priors_map.get(domain), alpha=alpha, simulate_variants=simulate_variants)
+
     hosts_rows = []
     for hd in hosts_detail:
         hosts_rows.append({'domain': domain, 'host': hd.get('host'), 'ip': hd.get('ip'), 'country': hd.get('country')})
@@ -1123,6 +1127,7 @@ def main():
     sim_rows_all = []
     bycountry_rows = []
     har_analysis_rows = []
+    simulate_variants = []
 
     for dom in domains:
         try:
