@@ -3,7 +3,6 @@ name: PubMatic Revenue — semanal (HAR + crawler)
 on:
   schedule:
     # Weekly: Monday 03:00 UTC (ajusta se quiseres outro horário)
-    - cron: '*/5 * * * *'
     - cron: '0 14 * * 1'
   workflow_dispatch: {}
 
