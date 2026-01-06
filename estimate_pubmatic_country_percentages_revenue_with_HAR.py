@@ -1136,7 +1136,7 @@ def main():
             results.append({
                 'domain': dom,
                 'pubmatic_signals_found': bool(res.get('hosts_detail', [])),
-                'num_hosts_detected': len({h['host'] for h in hosts_detail}),
+                'num_hosts_detected': len({h['host'] for h in 'hosts_detail'}),
                 'observed_signal_sum': sum(observed.values()),
                 'confidence': round(meta['confidence_score'],3),
                 'reliability_label': meta['reliability_label'],
@@ -1147,9 +1147,9 @@ def main():
                 'confidence_ads': meta['breakdown']['ads_txt'],
                 'confidence_infra': meta['breakdown']['infra'],
                 'confidence_sim': meta['breakdown']['sim'],
-                'posterior_json': json.dumps(posterior),
-                'est_requests_json': json.dumps(est_by_country),
-                'hosts_detail_json': json.dumps(hosts_detail)
+                'posterior_json': json.dumps('posterior'),
+                'est_requests_json': json.dumps('est_by_country'),
+                'hosts_detail_json': json.dumps('hosts_detail')
             })
 
             hosts_rows_all.extend(res.get('hosts_rows', []))
