@@ -1044,16 +1044,23 @@ def analyze_domain_full(domain, priors_map, geo_resolver, total_requests=1000, a
         'posterior': posterior,
         'est_by_country': est_by_country,
         'raw_score': raw_score,
+
         'hosts_rows': hosts_rows,
         'prebid_row': prebid_row,
         'ads_ids_rows': ads_ids_rows,
         'sellers_rows': sellers_rows,
         'simulation_rows': sim_rows,
+
         'observed_countries': dict(observed),
         'har': har_data,
-        'reliability': reliability_meta
+        'reliability': reliability_meta,
+
+        # novos campos para o Excel
+        'ads_truncated': domain_signals.get('ads_truncated'),
+        'prebid_geo_clues': list(prebid.get('geo_clues', [])) if prebid else []
     }
     return result
+
 
 # -----------------------
 # CLI / Orchestration
@@ -1113,8 +1120,11 @@ def main():
     parser.add_argument('--har-dir', default=None, help='optional directory containing HAR files (per-domain)')
     args = parser.parse_args()
 
+    # carregar domains
     with open(args.domains_file, 'r', encoding='utf-8') as f:
         domains = [line.strip() for line in f if line.strip()]
+
+    # priors + sim variants + geo
     priors_map = load_priors_flexible(args.priors_file) if args.priors_file else {}
     simulate_variants = parse_simulate_args(args.simulate)
     geo_resolver = GeoResolver(maxmind_db_path=args.maxmind_db)
@@ -1127,55 +1137,89 @@ def main():
     sim_rows_all = []
     bycountry_rows = []
     har_analysis_rows = []
-    simulate_variants = []
 
     for dom in domains:
         try:
             print(f"[INFO] Processing {dom}...", file=sys.stderr)
-            res = analyze_domain_full(dom, priors_map, geo_resolver, total_requests=args.total_requests, alpha=args.alpha, timeout=args.timeout, simulate_variants=simulate_variants, har_dir=args.har_dir)
+            res = analyze_domain_full(
+                dom,
+                priors_map,
+                geo_resolver,
+                total_requests=args.total_requests,
+                alpha=args.alpha,
+                timeout=args.timeout,
+                simulate_variants=simulate_variants,
+                har_dir=args.har_dir
+            )
+
+            # metadados de fiabilidade
+            meta = res.get('reliability', {}) or {}
+            breakdown = meta.get('breakdown', {}) or {}
+
             results.append({
                 'domain': dom,
-                'pubmatic_signals_found': bool(res.get('hosts_detail', [])),
-                'num_hosts_detected': len({h['host'] for h in res.get('hosts_detail', [])}),
-                'observed_signal_sum': sum('observed'.values()),
-                'confidence': round(meta['confidence_score'],3),
-                'reliability_label': meta['reliability_label'],
-                'ads_truncated': domain_signals.get('ads_truncated', False),
-                'geo_clues': list(domain_signals.get('prebid', {}).get('geo_clues', [])),
-                'confidence_har': meta['breakdown']['har'],
-                'confidence_prebid': meta['breakdown']['prebid'],
-                'confidence_ads': meta['breakdown']['ads_txt'],
-                'confidence_infra': meta['breakdown']['infra'],
-                'confidence_sim': meta['breakdown']['sim'],
-                'posterior_json': json.dumps('posterior'),
-                'est_requests_json': json.dumps('est_by_country'),
-                'hosts_detail_json': json.dumps('hosts_detail')
+                'pubmatic_signals_found': bool(res.get('hosts_rows', [])),
+                'num_hosts_detected': len({h.get('host') for h in res.get('hosts_rows', []) if h.get('host')}),
+                'observed_signal_sum': sum(res.get('observed_countries', {}).values()),
+                'confidence': meta.get('confidence_score'),
+                'reliability_label': meta.get('reliability_label'),
+                'trusted': meta.get('trusted'),
+
+                # estes só existem se os tiveres adicionado em analyze_domain_full (ver patch abaixo)
+                'ads_truncated': res.get('ads_truncated'),
+                'geo_clues': ",".join(sorted(res.get('prebid_geo_clues', []))) if res.get('prebid_geo_clues') else None,
+
+                'confidence_har': breakdown.get('har'),
+                'confidence_prebid': breakdown.get('prebid'),
+                'confidence_ads': breakdown.get('ads_txt'),
+                'confidence_infra': breakdown.get('infra'),
+                'confidence_sim': breakdown.get('sim'),
+
+                'posterior_json': json.dumps(res.get('posterior', {})),
+                'est_requests_json': json.dumps(res.get('est_by_country', {})),
+                'raw_score_json': json.dumps(res.get('raw_score', {})),
             })
 
+            # outras sheets
             hosts_rows_all.extend(res.get('hosts_rows', []))
             prebid_rows.append(res.get('prebid_row', {}))
             adsids_rows.extend(res.get('ads_ids_rows', []))
             sellers_rows.extend(res.get('sellers_rows', []))
             sim_rows_all.extend(res.get('simulation_rows', []))
+
             for cc, pct in res.get('posterior', {}).items():
-                bycountry_rows.append({'domain': dom, 'country': cc, 'posterior_pct': round(pct*100,4), 'est_requests': res.get('est_by_country', {}).get(cc,0)})
+                bycountry_rows.append({
+                    'domain': dom,
+                    'country': cc,
+                    'posterior_pct': round(pct * 100, 4),
+                    'est_requests': res.get('est_by_country', {}).get(cc, 0)
+                })
+
             # HAR analysis rows
             hard = res.get('har')
             if hard:
                 har_analysis_rows.append({
                     'domain': dom,
                     'har_path': find_har_file_for_domain(args.har_dir, dom) if args.har_dir else None,
-                    'total_requests_in_har': hard.get('total_requests',0),
-                    'pubmatic_requests': hard.get('pubmatic_requests',0),
-                    'total_fills': sum(hard.get('fills_by_country',{}).values()) if isinstance(hard.get('fills_by_country',{}), dict) else 0,
-                    'requests_by_country': json.dumps(dict(hard.get('requests_by_country',{}))) if hard else None,
-                    'fills_by_country': json.dumps(dict(hard.get('fills_by_country',{}))) if hard else None
+                    'total_requests_in_har': hard.get('total_requests', 0),
+                    'pubmatic_requests': hard.get('pubmatic_requests', 0),
+                    'total_fills': sum(hard.get('fills_by_country', {}).values()) if isinstance(hard.get('fills_by_country', {}), dict) else 0,
+                    'requests_by_country': json.dumps(dict(hard.get('requests_by_country', {}))),
+                    'fills_by_country': json.dumps(dict(hard.get('fills_by_country', {})))
                 })
-                # also expand per-har rows
+                # também linhas por request
                 for hr in hard.get('har_rows', []):
-                    har_row = {'domain': dom, 'url': hr.get('url'), 'country': hr.get('country'), 'is_fill': hr.get('is_fill'), 'status': hr.get('status')}
+                    har_row = {
+                        'domain': dom,
+                        'url': hr.get('url'),
+                        'country': hr.get('country'),
+                        'is_fill': hr.get('is_fill'),
+                        'status': hr.get('status')
+                    }
                     har_analysis_rows.append(har_row)
+
             time.sleep(FETCH_DELAY)
+
         except Exception as e:
             print(f"[ERR] {dom} -> {e}\n{traceback.format_exc()}", file=sys.stderr)
             continue
@@ -1207,6 +1251,7 @@ def main():
             df_har.to_excel(writer, sheet_name='HAR_Analysis', index=False)
 
     print(f"[DONE] Wrote {args.out}")
+
 
 if __name__ == '__main__':
     main()
