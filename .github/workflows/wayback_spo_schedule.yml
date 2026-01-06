@@ -3,7 +3,7 @@ name: Wayback SPO Analyzer (weekly)
 on:
   schedule:
     # Weekly run: Monday 03:00 UTC (ajusta se quiseres outro horário)
-    - cron: '0 3 * * 1'
+    - cron: '0 18 * * 1'
   workflow_dispatch: {}
 
 jobs:
