@@ -63,8 +63,14 @@ GENERAL_KEYWORDS = ['prebid', 'pbjs', 'bidder', 'bid', 'adUnit', 'floor', 'floor
 DOMAIN_RE = re.compile(r'([a-z0-9\-_\.]+\.[a-z]{2,6})', re.IGNORECASE)
 # pbjs objects heuristics
 PBJS_OBJ_RE = re.compile(r'(pbjs\.adUnits\s*=\s*|pbjs\.que\.push\(|var\s+pbjs\s*=)', re.IGNORECASE)
-JSON_LIKE_RE = re.compile(r'(\{(?:[^{}]|(?R))*\})', re.DOTALL)
-ADUNIT_KEYWORDS = ['adUnits', 'adUnitCode', 'mediaTypes', 'bids', 'params', 'floor', 'floorPrice', 'currency', 'geo', 'countries', 'appliesTo']
+# JSON_LIKE_RE baseado em blocos simples; a extração real de JSON aninhado
+# é feita pela função extract_json_blocks (ver abaixo).
+JSON_LIKE_RE = re.compile(r'\{[^{}]*\}', re.DOTALL)
+
+ADUNIT_KEYWORDS = ['adUnits', 'adUnitCode', 'mediaTypes', 'bids', 'params',
+                   'floor', 'floorPrice', 'currency', 'countries', 'appliesTo',
+                   'ortb2', 'ortb2Imp', 'device', 'site']
+
 
 # geo API (fallback)
 GEO_API = "http://ip-api.com/json/{ip}?fields=status,countryCode,query,message"
@@ -209,25 +215,88 @@ class GeoResolver:
 # -----------------------
 # Prebid / JS heuristics
 # -----------------------
-def try_parse_json_like(s):
+def extract_json_blocks(text, max_blocks=50, max_len=20000):
+    """
+    Extrai blocos JSON aninhados de uma string usando contagem de chavetas.
+    É muito mais robusto do que tentar usar regex recursiva (que o Python não suporta).
+    """
+    blocks = []
+    if not text:
+        return blocks
+    n = len(text)
+    i = 0
+    while i < n:
+        if text[i] == '{':
+            depth = 0
+            start = i
+            j = i
+            while j < n:
+                ch = text[j]
+                if ch == '{':
+                    depth += 1
+                elif ch == '}':
+                    depth -= 1
+                    if depth == 0:
+                        end = j + 1
+                        candidate = text[start:end]
+                        if len(candidate) <= max_len:
+                            blocks.append(candidate)
+                        i = end
+                        break
+                j += 1
+            else:
+                i += 1
+        else:
+            i += 1
+        if len(blocks) >= max_blocks:
+            break
+    return blocks
+
+def try_parse_json_like(s, max_candidates=5):
+    """
+    Tenta extrair e parsear um ou mais blocos JSON de uma string potencialmente suja/minificada.
+    Usa extract_json_blocks para suportar JSON profundamente aninhado.
+    """
     if not s or not isinstance(s, str):
         return None
-    start = s.find('{')
-    end = s.rfind('}')
-    if start == -1 or end == -1 or end <= start:
-        return None
-    candidate = s[start:end+1]
-    candidate = candidate.replace('\r',' ').replace('\n',' ')
-    candidate = re.sub(r'\bundefined\b', 'null', candidate)
-    candidate = re.sub(r'\b([A-Za-z0-9_]+)\s*:', r'"\1":', candidate)
-    candidate = candidate.replace("'", '"')
-    candidate = re.sub(r',\s*([\]\}])', r'\1', candidate)
-    try:
-        return json.loads(candidate)
-    except Exception:
+
+    candidates = extract_json_blocks(s, max_blocks=max_candidates)
+    if not candidates:
         return None
 
+    def normalize_json_like(txt):
+        txt = txt.replace('\r', ' ').replace('\n', ' ')
+        # substitui undefined por null
+        txt = re.sub(r'\bundefined\b', 'null', txt)
+        # tenta colocar aspas em chaves simples estilo JS (muito heurístico)
+        txt = re.sub(r'(\{|,)\s*([A-Za-z_][A-Za-z0-9_]*)\s*:', r'\1 "\2":', txt)
+        # normaliza aspas simples -> duplas
+        txt = txt.replace("'", '"')
+        # remove vírgulas a mais antes de ] ou }
+        txt = re.sub(r',\s*([\]
+
+\}])', r'\1', txt)
+        return txt
+
+    for cand in candidates:
+        norm = normalize_json_like(cand)
+        try:
+            obj = json.loads(norm)
+            return obj
+        except Exception:
+            continue
+    return None
+
+
 def extract_prebid_signals(html):
+    """
+    Extrai sinais relevantes de Prebid/OpenWrap:
+      - número de adUnits
+      - floors médios
+      - moedas
+      - pistas de geo (countries, device.geo, ortb2.site, ortb2Imp, etc.)
+    Usa parsing heurístico com suporte para JSON aninhado.
+    """
     out = {
         "adunit_count": 0,
         "floors": [],
@@ -237,63 +306,157 @@ def extract_prebid_signals(html):
     }
     if not html:
         return out
+
     text = html
-    for m in re.finditer(r'(pbjs\.adUnits|pbjs\.que|pbjs\.addAdUnits|bidderSettings|bidderConfig)', text, flags=re.I):
-        start = max(0, m.start()-500)
-        end = min(len(text), m.end()+2000)
-        seg = text[start:end]
-        out["raw_matches"].append(seg[:1000])
-        parsed = try_parse_json_like(seg)
-        if parsed:
-            def recurse(obj):
-                if isinstance(obj, dict):
-                    for k,v in obj.items():
-                        lk = str(k).lower()
-                        if lk in ('adunits','adunit'):
+
+    # 1) Procurar padrões óbvios de Prebid / pbjs / openwrap
+    prebid_markers = [
+        r'pbjs\.adUnits', r'pbjs\.que', r'pbjs\.addAdUnits',
+        r'bidderSettings', r'bidderConfig', r'openwrap', r'ow\.pbjs'
+    ]
+
+    for pat in prebid_markers:
+        for m in re.finditer(pat, text, flags=re.I):
+            start = max(0, m.start()-800)
+            end = min(len(text), m.end()+4000)
+            seg = text[start:end]
+            out["raw_matches"].append(seg[:2000])
+
+            parsed = try_parse_json_like(seg, max_candidates=8)
+            if parsed:
+                def recurse(obj):
+                    if isinstance(obj, dict):
+                        lk_keys = {str(k).lower(): k for k in obj.keys()}
+
+                        # adUnits / adUnitCode
+                        if 'adunits' in lk_keys:
+                            v = obj[lk_keys['adunits']]
                             if isinstance(v, list):
                                 out["adunit_count"] += len(v)
-                        if 'floor' in lk or 'floorprice' in lk or 'cpm' in lk:
-                            try:
-                                val = float(v) if v not in (None, '') else None
-                                if val is not None:
-                                    curr = obj.get('currency') or obj.get('curr') or obj.get('currencyCode') or None
-                                    if curr:
-                                        out["currencies"].add(str(curr).upper())
-                                    out["floors"].append((val, (curr or '').upper()))
-                            except Exception:
-                                pass
-                        if lk in ('geo','countries','appliesto','appliesto'):
-                            if isinstance(v, list):
-                                for it in v:
-                                    try:
-                                        out["geo_clues"].add(str(it).upper())
-                                    except:
-                                        pass
-                            elif isinstance(v, dict):
-                                for it in v.get('countries',[]):
-                                    out["geo_clues"].add(str(it).upper())
-                        recurse(v)
-                elif isinstance(obj, list):
-                    for it in obj:
-                        recurse(it)
-            try:
-                recurse(parsed)
-            except Exception:
-                pass
-        else:
-            for fm in re.finditer(r'(?:"|\'|)floor(?:Price|_price|)\s*"\s*[:=]\s*(?:"|\')?([0-9]+(?:\.[0-9]+)?)', seg, flags=re.I):
+
+                        # floors, floorPrice, bidfloor, cpm
+                        for lk, orig_k in lk_keys.items():
+                            v = obj[orig_k]
+                            if any(key in lk for key in ['floor', 'floorprice', 'bidfloor', 'cpm']):
+                                try:
+                                    if isinstance(v, (int, float, str)) and str(v).strip() not in ('', 'none', 'null'):
+                                        val = float(v)
+                                        curr = obj.get('currency') or obj.get('curr') or obj.get('currencyCode')
+                                        if curr:
+                                            out["currencies"].add(str(curr).upper())
+                                        out["floors"].append((val, (curr or '').upper()))
+                                except Exception:
+                                    pass
+
+                        # currencies explícitas
+                        for kopt in ('currency', 'curr', 'currencyCode'):
+                            if kopt in lk_keys:
+                                cv = obj[lk_keys[kopt]]
+                                try:
+                                    if isinstance(cv, str) and len(cv) <= 4:
+                                        out["currencies"].add(cv.upper())
+                                except Exception:
+                                    pass
+
+                        # geo / countries / appliesTo
+                        for gk in ('geo', 'countries', 'appliesto', 'appliesTo'):
+                            if gk.lower() in lk_keys:
+                                gv = obj[lk_keys[gk.lower()]]
+                                if isinstance(gv, list):
+                                    for it in gv:
+                                        try:
+                                            code = str(it).upper()
+                                            if len(code) == 2:
+                                                out["geo_clues"].add(code)
+                                        except:
+                                            pass
+                                elif isinstance(gv, dict):
+                                    for it in gv.get('countries', []):
+                                        try:
+                                            code = str(it).upper()
+                                            if len(code) == 2:
+                                                out["geo_clues"].add(code)
+                                        except:
+                                            pass
+
+                        # ortb2 / ortb2Imp / device.geo / site
+                        # ortb2.site.country, ortb2.site.content.language, device.geo.country
+                        if 'ortb2' in lk_keys:
+                            o2 = obj[lk_keys['ortb2']]
+                            if isinstance(o2, dict):
+                                site = o2.get('site', {})
+                                if isinstance(site, dict):
+                                    ctry = site.get('country') or site.get('ref') or None
+                                    if isinstance(ctry, str) and len(ctry) == 2:
+                                        out["geo_clues"].add(ctry.upper())
+                                    lang = site.get('content', {}).get('language') if isinstance(site.get('content'), dict) else None
+                                    if isinstance(lang, str) and len(lang) == 2:
+                                        out["geo_clues"].add(lang.upper())
+                                device = o2.get('device', {})
+                                if isinstance(device, dict):
+                                    geo = device.get('geo', {})
+                                    if isinstance(geo, dict):
+                                        ctry = geo.get('country')
+                                        if isinstance(ctry, str) and len(ctry) == 2:
+                                            out["geo_clues"].add(ctry.upper())
+
+                        if 'ortb2imp' in lk_keys:
+                            o2i = obj[lk_keys['ortb2imp']]
+                            if isinstance(o2i, list):
+                                for it in o2i:
+                                    if isinstance(it, dict):
+                                        geo = it.get('geo') or {}
+                                        if isinstance(geo, dict):
+                                            ctry = geo.get('country')
+                                            if isinstance(ctry, str) and len(ctry) == 2:
+                                                out["geo_clues"].add(ctry.upper())
+
+                        # device.geo fora de ortb2
+                        if 'device' in lk_keys:
+                            dev = obj[lk_keys['device']]
+                            if isinstance(dev, dict):
+                                geo = dev.get('geo', {})
+                                if isinstance(geo, dict):
+                                    ctry = geo.get('country')
+                                    if isinstance(ctry, str) and len(ctry) == 2:
+                                        out["geo_clues"].add(ctry.upper())
+
+                        # recursion
+                        for v in obj.values():
+                            recurse(v)
+
+                    elif isinstance(obj, list):
+                        for it in obj:
+                            recurse(it)
+
                 try:
-                    val = float(fm.group(1))
-                    out["floors"].append((val,''))
-                except:
+                    recurse(parsed)
+                except Exception:
                     pass
-            for cm in re.finditer(r'"\s*currency\s*"\s*:\s*"(.*?)"', seg, flags=re.I):
-                out["currencies"].add(cm.group(1).upper())
-            for ccm in re.finditer(r'countries\s*[:=]\s*\[([^\]]+)\]', seg, flags=re.I):
-                arr = ccm.group(1)
-                for code in re.findall(r'["\']?([A-Za-z]{2})["\']?', arr):
-                    out["geo_clues"].add(code.upper())
+            else:
+                # fallback extremamente heurístico, apenas se nada parseável foi encontrado
+                for fm in re.finditer(r'"\s*floor(?:Price|_price|)\s*"\s*[:=]\s*"?([0-9]+(?:\.[0-9]+)?)', seg, flags=re.I):
+                    try:
+                        val = float(fm.group(1))
+                        out["floors"].append((val, ''))
+                    except:
+                        pass
+                for cm in re.finditer(r'"\s*currency\s*"\s*:\s*"(.*?)"', seg, flags=re.I):
+                    out["currencies"].add(cm.group(1).upper())
+                for ccm in re.finditer(r'countries\s*[:=]\s*
+
+\[([^\]
+
+]+)\]
+
+', seg, flags=re.I):
+                    arr = ccm.group(1)
+                    for code in re.findall(r'["\']?([A-Za-z]{2})["\']?', arr):
+                        out["geo_clues"].add(code.upper())
+
+    # limpeza final
     out["currencies"] = set([c for c in out["currencies"] if c])
+    out["geo_clues"] = set([g for g in out["geo_clues"] if isinstance(g, str) and len(g) == 2])
     return out
 
 # -----------------------
@@ -313,10 +476,17 @@ def fetch_ads_txt(domain, timeout=10):
     return None, None, None
 
 def parse_ads_txt_entries(ads_txt):
+    """
+    Parse simples de ads.txt em (adsystem, seller_id, relationship).
+    Ignora linhas comentadas (#) e marca truncamento heurístico.
+    """
     if not ads_txt:
-        return []
+        return [], False
+
     entries = []
-    for ln in ads_txt.splitlines():
+    lines = ads_txt.splitlines()
+    for ln in lines:
+        raw = ln
         ln = ln.strip()
         if not ln:
             continue
@@ -327,7 +497,17 @@ def parse_ads_txt_entries(ads_txt):
         parts = [p.strip() for p in ln.split(',')]
         if len(parts) >= 3:
             entries.append((parts[0].lower(), parts[1].lower(), parts[2].upper()))
-    return entries
+
+    # heurística de truncamento: última linha não termina em newline
+    truncated = False
+    if not ads_txt.endswith('\n') and len(lines) > 0:
+        last = lines[-1]
+        # se a última linha não tiver vírgulas suficientes, é suspeita
+        if last.count(',') < 2 and not last.strip().startswith('#'):
+            truncated = True
+
+    return entries, truncated
+
 
 def try_fetch_sellers_json_for_adsystem(adsystem_domain, timeout=8):
     candidates = [
@@ -417,8 +597,9 @@ def analyze_har_for_domain(har_path):
                             text = post.get('text') if isinstance(post, dict) else None
                             # try to extract country clues from post or url
                             country = None
+                            
                             if text:
-                                # look for "country": "JP" or "country_code"
+                                # tentar vários campos comuns: country, countryCode, geo.country, device.geo.country
                                 m = re.search(r'"country"\s*[:=]\s*"?([A-Za-z]{2})"?', text)
                                 if m:
                                     country = m.group(1).upper()
@@ -426,6 +607,11 @@ def analyze_har_for_domain(har_path):
                                     m2 = re.search(r'"countryCode"\s*[:=]\s*"?([A-Za-z]{2})"?', text)
                                     if m2:
                                         country = m2.group(1).upper()
+                                    else:
+                                        m3 = re.search(r'"geo"\s*:\s*\{[^}]*"country"\s*:\s*"?([A-Za-z]{2})"?', text)
+                                        if m3:
+                                            country = m3.group(1).upper()
+
                             # check response for fill-like content
                             status = resp.get('status')
                             content = ''
@@ -466,9 +652,19 @@ def analyze_har_for_domain(har_path):
                         text = post.get('text') if isinstance(post, dict) else None
                         country = None
                         if text:
+                            # tentar vários campos comuns: country, countryCode, geo.country
                             m = re.search(r'"country"\s*[:=]\s*"?([A-Za-z]{2})"?', text)
                             if m:
                                 country = m.group(1).upper()
+                            else:
+                                m2 = re.search(r'"countryCode"\s*[:=]\s*"?([A-Za-z]{2})"?', text)
+                                if m2:
+                                    country = m2.group(1).upper()
+                                else:
+                                    m3 = re.search(r'"geo"\s*:\s*\{[^}]*"country"\s*:\s*"?([A-Za-z]{2})"?', text)
+                                    if m3:
+                                        country = m3.group(1).upper()
+
                         status = resp.get('status')
                         content = ''
                         cont = resp.get('content', {})
@@ -671,6 +867,11 @@ def compute_revenue_scores(domain_signals, total_requests, priors_for_domain=Non
     comp_sim = sim_contrib
 
     raw_confidence = (W_HAR * comp_har + W_PREBID * comp_prebid + W_ADS * comp_ads + W_INFRA * comp_infra + W_SIM * comp_sim)
+    # penalização leve se ads.txt estiver truncado/suspeito
+    ads_trunc = domain_signals.get('ads_truncated', False)
+    if ads_trunc:
+        raw_confidence *= 0.85
+
     confidence_score = int(round(max(0.0, min(1.0, raw_confidence)) * 100))
 
     # label mapping
@@ -736,12 +937,14 @@ def analyze_domain_full(domain, priors_map, geo_resolver, total_requests=1000, a
                 observed[cc] += 1
     ads_status, ads_text, ads_final = fetch_ads_txt(domain, timeout=timeout)
     time.sleep(FETCH_DELAY)
-    ads_entries = parse_ads_txt_entries(ads_text) if ads_text else []
+    ads_entries, ads_truncated = parse_ads_txt_entries(ads_text) if ads_text else ([], False)
+
     pubmatic_ids = []
     for adsys, seller, rel in ads_entries:
         if 'pubmatic' in adsys:
             role = 'DIRECT' if rel.startswith('DIRECT') else 'RESELLER'
             pubmatic_ids.append((seller, role))
+
     sellers_validation = {}
     adsystems = set([adsys for adsys,_,_ in ads_entries])
     for adsys in adsystems:
@@ -767,7 +970,8 @@ def analyze_domain_full(domain, priors_map, geo_resolver, total_requests=1000, a
         'ads_txt_pubmatic_ids': pubmatic_ids,
         'sellers_validation': sellers_validation,
         'simulation_variants': [],
-        'har': har_data
+        'har': har_data,
+        'ads_truncated': ads_truncated
     }
     # simulation variants
     for sv in simulate_variants:
