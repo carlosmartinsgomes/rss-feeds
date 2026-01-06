@@ -63,7 +63,7 @@ GENERAL_KEYWORDS = ['prebid', 'pbjs', 'bidder', 'bid', 'adUnit', 'floor', 'floor
 DOMAIN_RE = re.compile(r'([a-z0-9\-_\.]+\.[a-z]{2,6})', re.IGNORECASE)
 # pbjs objects heuristics
 PBJS_OBJ_RE = re.compile(r'(pbjs\.adUnits\s*=\s*|pbjs\.que\.push\(|var\s+pbjs\s*=)', re.IGNORECASE)
-JSON_LIKE_RE = re.compile(r'(\{(?:[^{}]|(?R))*\})', re.DOTALL)
+JSON_LIKE_RE = re.compile(r'\{[^{}]*\}', re.DOTALL)
 ADUNIT_KEYWORDS = ['adUnits', 'adUnitCode', 'mediaTypes', 'bids', 'params', 'floor', 'floorPrice', 'currency', 'geo', 'countries', 'appliesTo']
 
 # geo API (fallback)
