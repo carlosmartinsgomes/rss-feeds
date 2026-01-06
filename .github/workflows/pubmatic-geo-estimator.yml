@@ -1,49 +1,104 @@
-name: PubMatic Geo Revenue Estimator (Weekly)
+name: PubMatic Revenue — semanal (HAR + crawler)
 
 on:
-  workflow_dispatch:
   schedule:
-    # Domingo às 03:30 UTC (ajusta se quiseres)
-    - cron: "30 3 * * 0"
+    # Weekly: Monday 03:00 UTC (ajusta se quiseres outro horário)
+    - cron: '0 14 * * 1'
+  workflow_dispatch: {}
 
 jobs:
-  estimate-pubmatic-geo:
+  analyze:
+    name: Run analysis (self-hosted)
     runs-on: [self-hosted, ip-172-31-78-172]
-
-    timeout-minutes: 120
-
+    timeout-minutes: 180
     env:
-      PYTHONUNBUFFERED: "1"
-      TOTAL_REQUESTS: "1000"
-      ALPHA: "5.0"
-      HTTP_TIMEOUT: "10"
+      PYTHONUNBUFFERED: 1
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Python (sanity check)
-        run: |
-          python3 --version
-          pip3 --version
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
 
-      - name: Install dependencies
+      - name: Create virtualenv and upgrade pip
         run: |
-          pip3 install --upgrade pip
-          pip3 install requests pandas openpyxl pycountry
+          python -m venv .venv
+          . .venv/bin/activate
+          python -m pip install --upgrade pip setuptools wheel
 
-      - name: Run PubMatic geo revenue estimator
+      - name: Install runtime dependencies
         run: |
-          python3 estimate_pubmatic_country_percentages.py \
-            --domains-file domains.txt \
-            --out pubmatic_country_estimates.xlsx \
-            --total-requests $TOTAL_REQUESTS \
-            --alpha $ALPHA \
-            --timeout $HTTP_TIMEOUT
+          . .venv/bin/activate
+          # core libs required by the script; geoip2/ijson are optional but installed
+          pip install requests pandas openpyxl pycountry geoip2 ijson
+
+      - name: Ensure priors.csv exists (optional example)
+        run: |
+          if [ ! -f priors.csv ]; then
+            echo "domain,US,GB,JP,IN" > priors.csv
+            echo "example.com,0.6,0.1,0.2,0.1" >> priors.csv
+            echo "Generated example priors.csv"
+          else
+            echo "priors.csv exists, will be used as-is"
+          fi
+
+      - name: Prepare HAR dir (optional)
+        run: |
+          # ensure a ./hars directory exists if you plan to upload HARs in the repo
+          mkdir -p ./hars
+          ls -la ./hars || true
+
+      - name: Run PubMatic revenue analysis
+        env:
+          # Configure these via repository Secrets / Variables as appropriate
+          # If you don't use MaxMind, leave MAXMIND_DB_PATH empty or unset in Secrets.
+          MAXMIND_DB_PATH: ${{ secrets.MAXMIND_DB_PATH }}
+          # Optional: override HAR dir, priors file, total requests
+          HAR_DIR: ./hars
+          PRIORS_FILE: priors.csv
+          TOTAL_REQUESTS: '1000'
+        run: |
+          . .venv/bin/activate
+          set -euo pipefail
+
+          OUTFILE="pubmatic_country_revenue_estimates_with_har.xlsx"
+          SCRIPT="estimate_pubmatic_country_percentages_revenue_with_HAR.py"
+          DOMAINS_FILE="principaldomains"
+
+          if [ ! -f "$SCRIPT" ]; then
+            echo "ERROR: $SCRIPT not found in repo root. Exiting."
+            exit 2
+          fi
+          if [ ! -f "$DOMAINS_FILE" ]; then
+            echo "ERROR: $DOMAINS_FILE not found. Please add your domains file to the repo or change the workflow."
+            exit 3
+          fi
+
+          ARGS="--domains-file $DOMAINS_FILE --out $OUTFILE --priors-file $PRIORS_FILE --total-requests $TOTAL_REQUESTS --har-dir $HAR_DIR --timeout 10"
+
+          if [ -n "${MAXMIND_DB_PATH:-}" ]; then
+            echo "Using MaxMind DB at $MAXMIND_DB_PATH"
+            ARGS="$ARGS --maxmind-db $MAXMIND_DB_PATH"
+          fi
+
+          echo "Running: python $SCRIPT $ARGS"
+          python "$SCRIPT" $ARGS
 
       - name: Upload Excel artifact
         uses: actions/upload-artifact@v4
         with:
-          name: pubmatic-country-estimates
-          path: pubmatic_country_estimates.xlsx
-          retention-days: 30
+          name: pubmatic-report
+          path: pubmatic_country_revenue_estimates_with_har.xlsx
+
+      - name: Upload logs (optional)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pubmatic-logs
+          path: |
+            analyselog.json
+            analise_log.json
+            # add other log filenames your script writes (silently ignore if missing)
