@@ -92,13 +92,3 @@ jobs:
         with:
           name: pubmatic-report
           path: pubmatic_country_revenue_estimates_with_har.xlsx
-
-      - name: Upload logs (optional)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: pubmatic-logs
-          path: |
-            analyselog.json
-            analise_log.json
-            # add other log filenames your script writes (silently ignore if missing)
