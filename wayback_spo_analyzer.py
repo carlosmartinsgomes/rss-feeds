@@ -1191,7 +1191,7 @@ def main():
     parser.add_argument("--out", default=OUT_XLSX)
     args = parser.parse_args()
 
-    global SLEEP_MIN, SLEEP_MAX
+    
     SLEEP_MIN = args.sleep_min
     SLEEP_MAX = args.sleep_max
 
