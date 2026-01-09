@@ -1182,20 +1182,27 @@ def generate_report(all_results, out_xlsx=OUT_XLSX):
 # CLI / Orchestration
 # -------------------------
 def main():
-    parser = argparse.ArgumentParser(description="Wayback SPO Analyzer: CDX + Bisection for ads.txt changes + PubMatic scoring")
-    parser.add_argument("--domains-file", default="principaldomains", help="file with domains one per line")
+    parser = argparse.ArgumentParser(description="Wayback SPO Analyzer: CDX + Bisection for ads.txt\r\nchanges + PubMatic scoring")
+    parser.add_argument("--domains-file", default="principaldomains", help="file with domains one\r\nper line")
     parser.add_argument("--log-file", default=ANALYSIS_LOG, help="analysis log JSON path")
-    parser.add_argument("--from-default", default=START_DATE, help="default start YYYYMMDD (inclusive)")
-    parser.add_argument("--sleep-min", type=float, default=SLEEP_MIN)
-    parser.add_argument("--sleep-max", type=float, default=SLEEP_MAX)
+    parser.add_argument("--from-default", default=START_DATE, help="default start YYYYMMDD\r\n(inclusive)")
+    # Removemos os defaults para evitar o UnboundLocalError
+    parser.add_argument("--sleep-min", type=float, help=f"Min sleep (default: {SLEEP_MIN})")
+    parser.add_argument("--sleep-max", type=float, help=f"Max sleep (default: {SLEEP_MAX})")
     parser.add_argument("--out", default=OUT_XLSX)
     args = parser.parse_args()
 
-    
-    SLEEP_MIN = args.sleep_min
-    SLEEP_MAX = args.sleep_max
+    # Agora sim, ajustamos as globais (que afetam outras funções) se o user passou o argumento.
+    if args.sleep_min is not None:
+        global SLEEP_MIN
+        SLEEP_MIN = args.sleep_min
+    if args.sleep_max is not None:
+        global SLEEP_MAX
+        SLEEP_MAX = args.sleep_max
 
     domains = read_domains(args.domains_file)
+    # ... o resto da função main continua abaixo ...
+
     log = load_log(args.log_file)
     all_results = []
     today = datetime.utcnow().strftime("%Y%m%d")
