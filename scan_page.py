@@ -304,10 +304,7 @@ def compute_timeouts_and_runs(
 
     nav = max(NAV_TIMEOUT_MIN, min(NAV_TIMEOUT_MAX, nav))
     wait = max(WAIT_AFTER_LOAD_MIN, min(WAIT_AFTER_LOAD_MAX, wait))
-    global_run_timeout = max(
-        GLOBAL_PAGE_RUN_TIMEOUT_MIN,
-        min(GLOBAL_PAGE_RUN_TIMEOUT_MAX, safety),
-    )
+    global_run_timeout = max( GLOBAL_PAGE_RUN_TIMEOUT_MIN, min( GLOBAL_PAGE_RUN_TIMEOUT_MAX, (NAV_TIMEOUT_MS / 1000) + (WAIT_AFTER_LOAD_MS / 1000) + 30 ) )
     return int(n_runs), int(nav * 1000), int(wait * 1000), int(global_run_timeout)
 
 
