@@ -233,6 +233,39 @@ def cdx_query(url_pattern, from_ts=None, to_ts=None, filters=None, limit=10000):
         params["to"] = to_ts
 
     r = safe_request(CDX_API, params=params, timeout=300, allow_redirects=True)
+
+    # <<< INSERE ESTE SNIPPET DE DEBUG AQUI >>>
+    try:
+        print("[DEBUG CDX] requested:", CDX_API)
+        print("[DEBUG CDX] params:", params)
+        if r is None:
+            print("[DEBUG CDX] response is None")
+        else:
+            print("[DEBUG CDX] status_code:", getattr(r, "status_code", None))
+            # mostra a url final (com parâmetros) que o requests fez
+            try:
+                print("[DEBUG CDX] final_url:", r.request.url)
+            except Exception:
+                pass
+            # tenta interpretar como JSON (se for), senão mostra prefix do texto
+            ctype = r.headers.get("Content-Type", "") if r is not None else ""
+            if r is not None and "application/json" in ctype:
+                try:
+                    js = r.json()
+                    print("[DEBUG CDX] json_type:", type(js), "len:", (len(js) if hasattr(js, "__len__") else "unknown"))
+                    # mostra as primeiras 2 entradas para inspecção
+                    if isinstance(js, list):
+                        print("[DEBUG CDX] json[0..2]:", js[:3])
+                except Exception as e:
+                    print("[DEBUG CDX] json parse error:", e)
+                    print("[DEBUG CDX] text_snippet:", (r.text or "")[:2000])
+            else:
+                print("[DEBUG CDX] content-type:", ctype)
+                print("[DEBUG CDX] text_snippet:", (r.text or "")[:2000])
+    except Exception as ex_debug:
+        print("[DEBUG CDX] debug printing failed:", ex_debug)
+    # <<< FIM DO SNIPPET DE DEBUG >>>
+
     if not r:
         print(f"[WARN] CDX query failed for {url_pattern}")
         return []
