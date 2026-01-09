@@ -408,9 +408,7 @@ def try_parse_json_like(s, max_candidates=5):
         txt = re.sub(r'\bundefined\b', 'null', txt)
         txt = re.sub(r'(\{|,)\s*([A-Za-z_][A-Za-z0-9_]*)\s*:', r'\1 "\2":', txt)
         txt = txt.replace("'", '"')
-        txt = re.sub(r',\s*([\]
-
-\}])', r'\1', txt)
+        txt = re.sub(r',\s*([\]\}])', r'\1', txt)
         return txt
 
     for cand in candidates:
