@@ -44,6 +44,7 @@ import math
 import pandas as pd
 import pycountry
 from requests.utils import requote_uri
+from urllib.parse import urlparse
 
 # -------------------------
 # Configuráveis
@@ -219,55 +220,140 @@ def save_log(log, path=ANALYSIS_LOG):
 # CDX & Wayback helpers
 # -------------------------
 def cdx_query(url_pattern, from_ts=None, to_ts=None, filters=None, limit=10000):
-    params = {
-        "url": url_pattern,
-        "output": "json",
-        "fl": "timestamp,original,statuscode,digest,length",
-        "limit": str(limit),
-    }
-    if filters:
-        params["filter"] = filters
-    if from_ts:
-        params["from"] = from_ts
-    if to_ts:
-        params["to"] = to_ts
-
-    r = safe_request(CDX_API, params=params, timeout=300, allow_redirects=True)
-
-    if not r:
-        print(f"[WARN] CDX query failed for {url_pattern}")
-        return []
-    if r.status_code != 200:
-        print(f"[WARN] CDX returned status {r.status_code} for {url_pattern}")
+    """
+    Query CDX with multiple URL variants to increase hit-rate:
+      - try the exact url_pattern first
+      - if empty, try https/http with and without www
+      - also try matchType=host and matchType=prefix variants
+    Combine and deduplicate snapshots by (timestamp,digest) (fallback to original).
+    """
+    def _rows_from_response(r):
+        if not r:
+            return []
+        if r.status_code != 200:
+            return []
         try:
-            _ = r.json()
+            data = r.json()
+        except Exception:
+            return []
+        if not isinstance(data, list) or len(data) < 2:
+            return []
+        rows = data[1:]
+        out_list = []
+        for row in rows:
+            if len(row) < 5:
+                continue
+            ts, orig, status, digest, length = row[0], row[1], row[2], row[3], row[4]
+            try:
+                length = int(length) if length else None
+            except Exception:
+                length = None
+            out_list.append(Snapshot(timestamp=ts, original=orig, statuscode=status, digest=digest, length=length))
+        return out_list
+
+    def _query_once(pattern, match_type=None):
+        params = {
+            "url": pattern,
+            "output": "json",
+            "fl": "timestamp,original,statuscode,digest,length",
+            "limit": str(limit),
+        }
+        if filters:
+            params["filter"] = filters
+        if from_ts:
+            params["from"] = from_ts
+        if to_ts:
+            params["to"] = to_ts
+        if match_type:
+            params["matchType"] = match_type
+        r = safe_request(CDX_API, params=params, timeout=300, allow_redirects=True)
+        return _rows_from_response(r)
+
+    # Attempt list
+    collected = {}
+    results = []
+
+    # 1) Try exactly what user passed
+    try:
+        primary_rows = _query_once(url_pattern, match_type=None)
+        for s in primary_rows:
+            key = (s.timestamp, s.digest or s.original)
+            if key not in collected:
+                collected[key] = s
+                results.append(s)
+    except Exception:
+        primary_rows = []
+
+    # If we already have rows, return them
+    if results:
+        results.sort(key=lambda x: x.timestamp)
+        return results
+
+    # Derive host and path
+    host = url_pattern
+    path = ""
+    if '/' in url_pattern:
+        host, rest = url_pattern.split('/', 1)
+        path = rest.lstrip('/')
+    else:
+        host = url_pattern
+        path = ""
+
+    # 2) Try https/http with and without www, preserving the same path if present
+    schemes = ["https://", "http://"]
+    www_variants = ["", "www."]
+    for scheme in schemes:
+        for www in www_variants:
+            if path:
+                candidate = f"{scheme}{www}{host}/{path}"
+            else:
+                candidate = f"{scheme}{www}{host}/"
+            try:
+                rows = _query_once(candidate)
+                for s in rows:
+                    key = (s.timestamp, s.digest or s.original)
+                    if key not in collected:
+                        collected[key] = s
+                        results.append(s)
+            except Exception:
+                continue
+        # quick exit if found
+        if results:
+            break
+
+    # 3) Try prefix match (useful when path might be stored differently)
+    if not results and path:
+        prefix_candidate = f"{host}/{path}"
+        try:
+            rows = _query_once(prefix_candidate, match_type="prefix")
+            for s in rows:
+                key = (s.timestamp, s.digest or s.original)
+                if key not in collected:
+                    collected[key] = s
+                    results.append(s)
         except Exception:
             pass
-        return []
 
-    try:
-        data = r.json()
-    except Exception:
-        print(f"[WARN] CDX returned non-json for {url_pattern}")
-        return []
-
-    if not isinstance(data, list) or len(data) < 2:
-        return []
-
-    rows = data[1:]
-    out = []
-    for row in rows:
-        if len(row) < 5:
-            continue
-        ts, orig, status, digest, length = row[0], row[1], row[2], row[3], row[4]
+    # 4) Try host match to find any /ads.txt saved under that host (then we'll filter)
+    if not results:
         try:
-            length = int(length) if length else None
+            rows = _query_once(f"{host}/", match_type="host")
+            for s in rows:
+                # If original ends with ads.txt we keep it (helps avoid unrelated content)
+                try:
+                    if s.original and s.original.lower().endswith("ads.txt"):
+                        key = (s.timestamp, s.digest or s.original)
+                        if key not in collected:
+                            collected[key] = s
+                            results.append(s)
+                except Exception:
+                    continue
         except Exception:
-            length = None
-        out.append(Snapshot(timestamp=ts, original=orig, statuscode=status, digest=digest, length=length))
-    out.sort(key=lambda s: s.timestamp)
-    return out
+            pass
 
+    # Final sort and return
+    results.sort(key=lambda x: x.timestamp)
+    return results
 
 def wayback_fetch(snapshot: Snapshot, follow_redirects=True):
     # Requote the original URL to avoid issues with special characters when embedding in the path
