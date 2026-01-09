@@ -1229,6 +1229,7 @@ def main():
     df_prebid = pd.DataFrame(prebid_rows)
     df_adsids = pd.DataFrame(adsids_rows)
     df_sellers = pd.DataFrame(sellers_rows)
+    df_sellers = df_sellers.drop_duplicates()
     df_sim = pd.DataFrame(sim_rows_all)
     df_bycountry = pd.DataFrame(bycountry_rows)
     df_har = pd.DataFrame(har_analysis_rows)
