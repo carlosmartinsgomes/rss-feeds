@@ -232,7 +232,7 @@ def cdx_query(url_pattern, from_ts=None, to_ts=None, filters=None, limit=10000):
     if to_ts:
         params["to"] = to_ts
 
-    r = safe_request(CDX_API, params=params, timeout=30, allow_redirects=True)
+    r = safe_request(CDX_API, params=params, timeout=300, allow_redirects=True)
     if not r:
         print(f"[WARN] CDX query failed for {url_pattern}")
         return []
@@ -272,7 +272,7 @@ def wayback_fetch(snapshot: Snapshot, follow_redirects=True):
     # Requote the original URL to avoid issues with special characters when embedding in the path
     orig_quoted = requote_uri(snapshot.original)
     url = WAYBACK_GET.format(ts=snapshot.timestamp, orig=orig_quoted)
-    r = safe_request(url, timeout=30, allow_redirects=follow_redirects)
+    r = safe_request(url, timeout=300, allow_redirects=follow_redirects)
     if not r:
         print(f"[WARN] wayback_fetch: failed to fetch {snapshot.original} @ {snapshot.timestamp}")
         return None, None, None
