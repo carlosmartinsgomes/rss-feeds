@@ -910,7 +910,7 @@ def capture_single_run(
             
             if watchdog_triggered:
                 logging.warning("Watchdog triggered — skipping waits and finishing run early")
-
+                raise Exception("WatchdogTimeout")
             # extra wait for late calls
             if not (
                 GLOBAL_PAGE_RUN_TIMEOUT_SEC
