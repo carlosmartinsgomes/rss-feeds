@@ -6,57 +6,30 @@ on:
     - cron: '0 18 * * 1'
   workflow_dispatch: {}
 
+
 jobs:
   run-wayback:
-    name: Run Wayback SPO Analyzer
     runs-on: [self-hosted, ip-172-31-78-172]
 
     steps:
-      - name: Checkout repository
+      - name: Checkout repo
         uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Cache pip
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
-
       - name: Install dependencies
         run: |
-          # If you maintain a requirements.txt in the repo, it will be used.
-          if [ -f requirements.txt ]; then
-            python -m pip install --upgrade pip
-            pip install -r requirements.txt
-          else
-            python -m pip install --upgrade pip
-            pip install requests pandas openpyxl pycountry
-          fi
+          pip install -r requirements.txt
 
-      - name: Prepare output filename (UTC date)
-        id: date
+      - name: Run analyzer
         run: |
-          TODAY=$(date -u +%Y%m%d)
-          echo "today=${TODAY}" >> "$GITHUB_OUTPUT"
+          python wayback_spo_analyzer.py --domains-file principaldomains --log-file analise_log.json --out wayback_output.xlsx
 
-      - name: Run Wayback SPO Analyzer
-        # Assumes wayback_spo_analyzer.py is in repo root and principaldomains exists
-        run: |
-          set -euo pipefail
-          OUT="wayback_spo_report_${{ steps.date.outputs.today }}.xlsx"
-          echo "[INFO] Running analyzer -> output: ${OUT}"
-          python3 wayback_spo_analyzer.py --domains-file principaldomains --log-file analise_log.json --out "${OUT}"
-
-      - name: Upload report & log as artifacts
-        uses: actions/upload-artifact@v3
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
-          name: wayback-spo-results-${{ steps.date.outputs.today }}
-          path: |
-            wayback_spo_report_${{ steps.date.outputs.today }}.xlsx
-            analise_log.json
+          name: wayback-report
+          path: wayback_output.xlsx
