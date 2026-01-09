@@ -30,7 +30,7 @@ import logging
 import threading
 import random
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from math import floor
 from collections import defaultdict, Counter
@@ -123,8 +123,9 @@ logging.basicConfig(
 # -------------------------------------------------------------------
 # helpers
 # -------------------------------------------------------------------
-def timestamp_str() -> str:
-    return datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+def timestamp_str():
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
 
 
 def load_json(p: str):
@@ -400,17 +401,13 @@ def capture_single_run(
     try:
         browser = playwright.chromium.launch(**launch_args)
 
+        watchdog_triggered = False
+
         def _kill_browser():
-            try:
-                logging.warning("Watchdog triggered: forcing browser/context close for %s", safe)
-                with suppress(Exception):
-                    if context:
-                        context.close()
-                with suppress(Exception):
-                    if browser:
-                        browser.close()
-            except Exception:
-                pass
+            nonlocal watchdog_triggered
+            watchdog_triggered = True
+            logging.warning("Watchdog triggered for %s — will close browser safely after run", safe)
+
 
         try:
             if GLOBAL_PAGE_RUN_TIMEOUT_SEC and GLOBAL_PAGE_RUN_TIMEOUT_SEC > 0:
@@ -910,6 +907,10 @@ def capture_single_run(
                     )
                 except Exception:
                     pass
+            
+            if watchdog_triggered:
+                logging.warning("Watchdog triggered — skipping waits and finishing run early")
+                raise Exception("WatchdogTimeout")
 
             # extra wait for late calls
             if not (
@@ -936,11 +937,12 @@ def capture_single_run(
             if timer:
                 timer.cancel()
         with suppress(Exception):
-            if context:
+            if context and not context.is_closed():
                 context.close()
         with suppress(Exception):
-            if browser:
+            if browser and browser.is_connected():
                 browser.close()
+
 
     # Build compact ordered entries
     compact_list = []
