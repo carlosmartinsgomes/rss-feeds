@@ -298,17 +298,25 @@ def compute_timeouts_and_runs(
     else:
         n_runs = max(1, BASE_N_RUNS_PER_PAGE)
 
+    # nominal time slices (seconds)
     nav = per_page_budget * 0.45
     wait = per_page_budget * 0.30
     safety = per_page_budget * 0.20
 
+    # clamp nav / wait to configured min/max (these are seconds)
     nav = max(NAV_TIMEOUT_MIN, min(NAV_TIMEOUT_MAX, nav))
     wait = max(WAIT_AFTER_LOAD_MIN, min(WAIT_AFTER_LOAD_MAX, wait))
+
+    # ensure global timeout covers nav + wait + small buffer, but stays within configured global bounds
+    min_global_needed = nav + wait + 5.0  # 5s buffer to avoid races
     global_run_timeout = max(
         GLOBAL_PAGE_RUN_TIMEOUT_MIN,
-        min(GLOBAL_PAGE_RUN_TIMEOUT_MAX, safety),
+        min(min_global_needed, GLOBAL_PAGE_RUN_TIMEOUT_MAX),
     )
+
+    # return n_runs, nav_ms, wait_ms, global_run_timeout_seconds
     return int(n_runs), int(nav * 1000), int(wait * 1000), int(global_run_timeout)
+
 
 
 # -------------------------------------------------------------------
