@@ -222,10 +222,16 @@ def save_log(log, path=ANALYSIS_LOG):
 def cdx_query(url_pattern, from_ts=None, to_ts=None, filters=None, limit=10000):
     """
     Query CDX with multiple URL variants to increase hit-rate:
-      - try the exact url_pattern first
-      - if empty, try https/http with and without www
-      - also try matchType=host and matchType=prefix variants
-    Combine and deduplicate snapshots by (timestamp,digest) (fallback to original).
+      - try the exact url_pattern
+      - try https/http with and without www
+      - try prefix and host matchType
+    Collect all unique snapshots (dedup by (timestamp,digest) with fallback to original)
+    and record which variant(s) returned each snapshot.
+
+    Returns:
+       (list_of_snapshots, variant_map)
+       - list_of_snapshots: sorted list of Snapshot
+       - variant_map: dict keyed by (timestamp, digest_or_original) -> set(variant_strings)
     """
     def _rows_from_response(r):
         if not r:
@@ -269,27 +275,27 @@ def cdx_query(url_pattern, from_ts=None, to_ts=None, filters=None, limit=10000):
         r = safe_request(CDX_API, params=params, timeout=300, allow_redirects=True)
         return _rows_from_response(r)
 
-    # Attempt list
-    collected = {}
+    collected = {}  # key -> Snapshot
+    variant_map = defaultdict(set)  # key -> set(variant_str)
     results = []
 
-    # 1) Try exactly what user passed
-    try:
-        primary_rows = _query_once(url_pattern, match_type=None)
-        for s in primary_rows:
+    # Helper to add rows with variant
+    def _add_rows(rows, variant_label):
+        for s in rows:
             key = (s.timestamp, s.digest or s.original)
             if key not in collected:
                 collected[key] = s
                 results.append(s)
+            variant_map[key].add(variant_label)
+
+    # 1) Exact as passed
+    try:
+        rows = _query_once(url_pattern, match_type=None)
+        _add_rows(rows, "exact")
     except Exception:
-        primary_rows = []
+        pass
 
-    # If we already have rows, return them
-    if results:
-        results.sort(key=lambda x: x.timestamp)
-        return results
-
-    # Derive host and path
+    # 2) Try https/http and www variants (keeps collecting, do not early-exit)
     host = url_pattern
     path = ""
     if '/' in url_pattern:
@@ -299,7 +305,6 @@ def cdx_query(url_pattern, from_ts=None, to_ts=None, filters=None, limit=10000):
         host = url_pattern
         path = ""
 
-    # 2) Try https/http with and without www, preserving the same path if present
     schemes = ["https://", "http://"]
     www_variants = ["", "www."]
     for scheme in schemes:
@@ -309,51 +314,37 @@ def cdx_query(url_pattern, from_ts=None, to_ts=None, filters=None, limit=10000):
             else:
                 candidate = f"{scheme}{www}{host}/"
             try:
-                rows = _query_once(candidate)
-                for s in rows:
-                    key = (s.timestamp, s.digest or s.original)
-                    if key not in collected:
-                        collected[key] = s
-                        results.append(s)
+                rows = _query_once(candidate, match_type=None)
+                _add_rows(rows, f"{scheme}{www}exact")
             except Exception:
                 continue
-        # quick exit if found
-        if results:
-            break
 
-    # 3) Try prefix match (useful when path might be stored differently)
-    if not results and path:
+    # 3) prefix match (when path may vary slightly)
+    if path:
         prefix_candidate = f"{host}/{path}"
         try:
             rows = _query_once(prefix_candidate, match_type="prefix")
-            for s in rows:
-                key = (s.timestamp, s.digest or s.original)
-                if key not in collected:
-                    collected[key] = s
-                    results.append(s)
+            _add_rows(rows, "prefix")
         except Exception:
             pass
 
-    # 4) Try host match to find any /ads.txt saved under that host (then we'll filter)
-    if not results:
-        try:
-            rows = _query_once(f"{host}/", match_type="host")
-            for s in rows:
-                # If original ends with ads.txt we keep it (helps avoid unrelated content)
-                try:
-                    if s.original and s.original.lower().endswith("ads.txt"):
-                        key = (s.timestamp, s.digest or s.original)
-                        if key not in collected:
-                            collected[key] = s
-                            results.append(s)
-                except Exception:
-                    continue
-        except Exception:
-            pass
+    # 4) host match: get everything under the host and filter locally for 'ads.txt' endings
+    try:
+        rows = _query_once(f"{host}/", match_type="host")
+        # keep only those whose original endswith ads.txt to reduce noise
+        for s in rows:
+            try:
+                if s.original and s.original.lower().endswith("ads.txt"):
+                    _add_rows([s], "host")
+            except Exception:
+                continue
+    except Exception:
+        pass
 
-    # Final sort and return
+    # Sort final results by timestamp
     results.sort(key=lambda x: x.timestamp)
-    return results
+    return results, {k: sorted(list(v)) for k, v in variant_map.items()}
+
 
 def wayback_fetch(snapshot: Snapshot, follow_redirects=True):
     # Requote the original URL to avoid issues with special characters when embedding in the path
@@ -877,21 +868,25 @@ def analyze_domain(domain, from_date, to_date):
         "ssp_id_rows": [],
         "host_rows": [],
         "human_summary": [],
-        "pubmatic_score": None
+        "pubmatic_score": None,
+        "snapshot_variants": {}  # new: mapping key -> [variants]
     }
 
     ads_path = domain.rstrip('/') + "/ads.txt"
-    snaps = cdx_query(ads_path, from_ts=from_date, to_ts=to_date,
-                      filters=["statuscode:200", "statuscode:301", "statuscode:302"], limit=20000)
+    snaps, variant_map = cdx_query(ads_path, from_ts=from_date, to_ts=to_date,
+                                  filters=["statuscode:200", "statuscode:301", "statuscode:302"], limit=20000)
     sleep_random()
     used_subdomain_mode = False
     if not snaps:
         wildcard_pattern = domain.rstrip('/') + "/*ads.txt"
-        snaps = cdx_query(wildcard_pattern, from_ts=from_date, to_ts=to_date,
-                          filters=["statuscode:200", "statuscode:301", "statuscode:302"], limit=20000)
+        snaps, variant_map = cdx_query(wildcard_pattern, from_ts=from_date, to_ts=to_date,
+                                      filters=["statuscode:200", "statuscode:301", "statuscode:302"], limit=20000)
         used_subdomain_mode = True
     if not snaps:
         return results
+
+    # persist variant_map into results for auditing
+    results["snapshot_variants"] = {f"{k[0]}|{k[1]}": variant_map.get(k, []) for k in variant_map.keys()}
 
     results["snapshots_count"] = len(snaps)
     by_year = Counter()
@@ -1052,6 +1047,9 @@ def analyze_domain(domain, from_date, to_date):
                 results["human_summary"].append(f"{ssp.upper()} foi REMOVIDO como SSP para {domain} entre {window[0]} e {window[1]}.")
             else:
                 results["human_summary"].append(f"{ssp.upper()} mudou assinatura para {domain} entre {window[0]} e {window[1]}.")
+        # add variant info to snapshots_records for audit
+        key_lo = (snaps_reduced[lo].timestamp, snaps_reduced[lo].digest or snaps_reduced[lo].original)
+        key_hi = (snaps_reduced[hi].timestamp, snaps_reduced[hi].digest or snaps_reduced[hi].original)
         snapshots_records.append({
             "domain": domain,
             "pos_lo": lo,
@@ -1063,7 +1061,9 @@ def analyze_domain(domain, from_date, to_date):
             "length_lo": snaps_reduced[lo].length,
             "length_hi": snaps_reduced[hi].length,
             "suspect_lo": sig_lo["suspect"],
-            "suspect_hi": sig_hi["suspect"]
+            "suspect_hi": sig_hi["suspect"],
+            "variant_lo": variant_map.get(key_lo, []),
+            "variant_hi": variant_map.get(key_hi, [])
         })
 
     presence_by_index = []
@@ -1235,7 +1235,9 @@ def generate_report(all_results, out_xlsx=OUT_XLSX):
                 "length_lo": sr.get("length_lo"),
                 "length_hi": sr.get("length_hi"),
                 "suspect_lo": sr.get("suspect_lo"),
-                "suspect_hi": sr.get("suspect_hi")
+                "suspect_hi": sr.get("suspect_hi"),
+                "variant_lo": ",".join(sr.get("variant_lo", [])) if sr.get("variant_lo") else "",
+                "variant_hi": ",".join(sr.get("variant_hi", [])) if sr.get("variant_hi") else ""
             })
 
         for m in res.get("ads_managers", []):
