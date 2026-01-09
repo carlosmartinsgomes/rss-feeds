@@ -1182,6 +1182,7 @@ def generate_report(all_results, out_xlsx=OUT_XLSX):
 # CLI / Orchestration
 # -------------------------
 def main():
+    global SLEEP_MIN, SLEEP_MAX  # MOVIDO PARA A PRIMEIRA LINHA DA FUNÇÃO
     parser = argparse.ArgumentParser(description="Wayback SPO Analyzer: CDX + Bisection for ads.txt\r\nchanges + PubMatic scoring")
     parser.add_argument("--domains-file", default="principaldomains", help="file with domains one\r\nper line")
     parser.add_argument("--log-file", default=ANALYSIS_LOG, help="analysis log JSON path")
@@ -1194,18 +1195,16 @@ def main():
 
     # Agora sim, ajustamos as globais (que afetam outras funções) se o user passou o argumento.
     if args.sleep_min is not None:
-        global SLEEP_MIN
         SLEEP_MIN = args.sleep_min
     if args.sleep_max is not None:
-        global SLEEP_MAX
         SLEEP_MAX = args.sleep_max
 
     domains = read_domains(args.domains_file)
-    # ... o resto da função main continua abaixo ...
-
     log = load_log(args.log_file)
     all_results = []
     today = datetime.utcnow().strftime("%Y%m%d")
+        # ... (o resto da função main continua)
+
 
     for dom in domains:
         print(f"[INFO] Domain {dom}")
