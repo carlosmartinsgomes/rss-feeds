@@ -418,12 +418,62 @@ def capture_single_run(
 
 
         try:
-            if GLOBAL_PAGE_RUN_TIMEOUT_SEC and GLOBAL_PAGE_RUN_TIMEOUT_SEC > 0:
-                timer = threading.Timer(GLOBAL_PAGE_RUN_TIMEOUT_SEC, _kill_browser)
+            # Calcular um timeout mínimo necessário em ms baseado nos waits reais desta run
+            # NAV_TIMEOUT_MS e WAIT_AFTER_LOAD_MS são passados para capture_single_run (em ms).
+            min_needed_ms = 0
+            try:
+                min_needed_ms = int(NAV_TIMEOUT_MS) + int(WAIT_AFTER_LOAD_MS)
+            except Exception:
+                min_needed_ms = int(NAV_TIMEOUT_MS or 0) + int(WAIT_AFTER_LOAD_MS or 0)
+
+            # Se estamos a usar extended_wait, acrescenta o tempo extendido (opts fornece ms)
+            if opts and opts.get("extended_wait"):
+                try:
+                    ext_ms = int(opts.get("extended_wait_ms", 0))
+                except Exception:
+                    ext_ms = 0
+                # manter o mesmo cap que usas para extended waits no resto do código
+                ext_ms = min(90000, max(5000, ext_ms))
+                min_needed_ms += ext_ms
+
+            # Se simulamos ações humanas, acrescenta pequena margem extra
+            if opts and opts.get("simulate_human"):
+                min_needed_ms += 5000  # 5s extra para simulação humana
+
+            # buffer para evitar corridas / timings imprecisos
+            buffer_ms = 5000
+
+            # desired timeout em segundos
+            desired_timeout_sec = (min_needed_ms + buffer_ms) / 1000.0
+
+            # Usa o maior entre o global passado e o desired, para garantir cobertura.
+            # Se GLOBAL_PAGE_RUN_TIMEOUT_SEC for None/0, usa desired.
+            base_global = GLOBAL_PAGE_RUN_TIMEOUT_SEC or 0
+            timeout_to_use = max(base_global, desired_timeout_sec)
+
+            # Não deixar exceder o máximo configurado (GLOBAL_PAGE_RUN_TIMEOUT_MAX)
+            try:
+                timeout_to_use = min(timeout_to_use, float(GLOBAL_PAGE_RUN_TIMEOUT_MAX))
+            except Exception:
+                # se algo correr mal com a constante, aceita timeout_to_use tal como está
+                pass
+
+            # Finalmente inicia o timer se timeout_to_use for > 0
+            if timeout_to_use and float(timeout_to_use) > 0:
+                timer = threading.Timer(float(timeout_to_use), _kill_browser)
                 timer.daemon = True
                 timer.start()
+                logging.debug(
+                    "Watchdog timer started (sec=%s) for %s (nav_ms=%s wait_ms=%s ext_ms=%s)",
+                    timeout_to_use,
+                    safe,
+                    NAV_TIMEOUT_MS,
+                    WAIT_AFTER_LOAD_MS,
+                    opts.get("extended_wait_ms") if opts else None,
+                )
         except Exception:
             logging.exception("Failed to start watchdog timer", exc_info=True)
+
 
         # device-aware context
         device = None
