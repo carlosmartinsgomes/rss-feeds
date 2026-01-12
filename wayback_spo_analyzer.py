@@ -51,7 +51,7 @@ from urllib.parse import urlparse
 # -------------------------
 CDX_API = "https://web.archive.org/cdx/search/cdx"
 WAYBACK_GET = "https://web.archive.org/web/{ts}/{orig}"
-START_DATE = "20200101"  # start period fallback
+START_DATE = "20240101"  # start period fallback
 ANALYSIS_LOG = "analise_log.json"
 OUT_XLSX = "wayback_spo_report.xlsx"
 
@@ -150,6 +150,52 @@ def _compute_backoff(attempt):
     val = min(BACKOFF_MAX, base + jitter)
     return val
 
+def _log_504_response(r, url, params):
+    """
+    Append debug info for 504 responses to cdx_504_debug.log (timestamped).
+    Trunca o body para evitar ficheiros enormes.
+    """
+    try:
+        path = "cdx_504_debug.log"
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write("\n--- 504 DEBUG %s ---\n" % datetime.utcnow().isoformat())
+            fh.write("URL: %s\n" % url)
+            if params:
+                try:
+                    fh.write("Params: %s\n" % json.dumps(params, ensure_ascii=False))
+                except Exception:
+                    fh.write(f"Params(repr): {repr(params)}\n")
+            fh.write("Status: %s\n" % (None if r is None else r.status_code))
+            fh.write("Response headers:\n")
+            try:
+                for k, v in (r.headers or {}).items():
+                    fh.write(f"{k}: {v}\n")
+            except Exception:
+                fh.write("  <failed to read headers>\n")
+            # body (try text then bytes) - truncated
+            body = None
+            try:
+                body = r.text
+            except Exception:
+                try:
+                    body = (r.content or b"")[:4096]
+                except Exception:
+                    body = "<unreadable>"
+            if body is None:
+                fh.write("Body: <none>\n")
+            else:
+                body_str = body if isinstance(body, str) else repr(body)
+                if len(body_str) > 4000:
+                    fh.write("Body (truncated 4000 chars):\n")
+                    fh.write(body_str[:4000] + "\n...[truncated]\n")
+                else:
+                    fh.write("Body:\n")
+                    fh.write(body_str + "\n")
+            fh.write("--- end 504 ---\n")
+    except Exception as e:
+        # não falhar a execução principal por causa do debug
+        print(f"[DEBUG] _log_504_response failed: {e}")
+
 
 def safe_request(url, params=None, timeout=20, allow_redirects=True, max_retries=MAX_RETRIES):
     """
@@ -181,6 +227,8 @@ def safe_request(url, params=None, timeout=20, allow_redirects=True, max_retries
 
         status = r.status_code
         if status in RETRY_STATUS_CODES:
+            if status == 504:
+                _log_504_response(r, url, params)
             # calcula wait (respeita Retry-After quando presente)
             retry_after = r.headers.get("Retry-After")
             if retry_after:
@@ -944,7 +992,7 @@ def analyze_domain(domain, from_date, to_date):
 
     cur_year = datetime.utcnow().year
     per_year = {}
-    for y in range(2020, cur_year + 1):
+    for y in range(2024, cur_year + 1):
         per_year[y] = by_year.get(y, 0)
     results["per_year_counts"] = per_year
     results["longest_gap_days"] = max_gap
