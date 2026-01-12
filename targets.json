@@ -6,7 +6,6 @@
       "weight_pct": 22.9111,
       "pages": [
         {"label": "homepage", "url": "https://www.imdb.com/"},
-        {"block_non_ad_resources": true},
         {"label": "top250", "url": "https://www.imdb.com/chart/top/"},
         {"label": "moviemeter", "url": "https://www.imdb.com/chart/moviemeter/"},
         {"label": "video_index", "url": "https://www.imdb.com/trailers/"},
@@ -22,7 +21,6 @@
       "weight_pct": 21.8587,
       "pages": [
         {"label": "homepage", "url": "https://www.foxnews.com/"},
-        {"block_non_ad_resources": true},
         {"label": "politics", "url": "https://www.foxnews.com/politics"},
         {"label": "us", "url": "https://www.foxnews.com/us"},
         {"label": "video_index", "url": "https://www.foxnews.com/video"},
@@ -38,7 +36,6 @@
       "weight_pct": 16.6366,
       "pages": [
         {"label": "homepage", "url": "https://x.com/"},
-        {"block_non_ad_resources": true},
         {"label": "explore", "url": "https://x.com/explore"},
         {"label": "example_profile", "url": "https://x.com/elonmusk"},
         {"label": "video_example", "url": "https://x.com/elonmusk/status/<id>"},
@@ -54,7 +51,6 @@
       "weight_pct": 7.6234,
       "pages": [
         {"label": "homepage", "url": "https://nextdoor.com/"},
-        {"block_non_ad_resources": true},
         {"label": "neighborhoods", "url": "https://nextdoor.com/nearby/"},
         {"label": "business_faves", "url": "https://business.nextdoor.com/en-us/small-business/neighborhood-faves"},
         {"label": "feed_video", "url": "https://nextdoor.com/"},
@@ -70,7 +66,6 @@
       "weight_pct": 3.3512,
       "pages": [
         {"label": "homepage", "url": "https://nypost.com/"},
-        {"block_non_ad_resources": true},
         {"label": "entertainment", "url": "https://nypost.com/section/entertainment/"},
         {"label": "tags", "url": "https://nypost.com/tag/best/"},
         {"label": "video_index", "url": "https://nypost.com/"},
@@ -86,7 +81,6 @@
       "weight_pct": 2.5916,
       "pages": [
         {"label": "homepage", "url": "https://soundcloud.com/"},
-        {"block_non_ad_resources": true},
         {"label": "charts", "url": "https://soundcloud.com/charts"},
         {"label": "search", "url": "https://soundcloud.com/search"},
         {"label": "charts_play", "url": "https://soundcloud.com/charts"},
@@ -102,7 +96,6 @@
       "weight_pct": 2.5622,
       "pages": [
         {"label": "homepage", "url": "https://www.toyota.com/"},
-        {"block_non_ad_resources": true},
         {"label": "all_vehicles", "url": "https://www.toyota.com/all-vehicles/"},
         {"label": "model_example", "url": "https://www.toyota.com/camry/"},
         {"label": "media_gallery", "url": "https://www.toyota.com/4runner/media/"},
@@ -118,7 +111,6 @@
       "weight_pct": 1.8150,
       "pages": [
         {"label": "homepage", "url": "https://www.kayak.com/"},
-        {"block_non_ad_resources": true},
         {"label": "flights", "url": "https://www.kayak.com/flights"},
         {"label": "hotels", "url": "https://www.kayak.com/hotels"},
         {"label": "travel_blog", "url": "https://www.kayak.com/travel-blog"},
@@ -134,7 +126,6 @@
       "weight_pct": 1.7681,
       "pages": [
         {"label": "homepage", "url": "https://www.foxsports.com/"},
-        {"block_non_ad_resources": true},
         {"label": "scores", "url": "https://www.foxsports.com/scores"},
         {"label": "league_hub", "url": "https://www.foxsports.com/nfl"},
         {"label": "video_index", "url": "https://www.foxsports.com/video"},
@@ -150,7 +141,6 @@
       "weight_pct": 7.0129,
       "pages": [
         {"label": "homepage", "url": "https://www.mlb.com/"},
-        {"block_non_ad_resources": true},
         {"label": "news", "url": "https://www.mlb.com/news"},
         {"label": "Standings/Stats", "url": "https://www.mlb.com/stats"},
         {"label": "scores", "url": "https://www.mlb.com/scores"},
@@ -167,7 +157,6 @@
       "weight_pct": 4.5459,
       "pages": [
         {"label": "homepage", "url": "https://www.crunchyroll.com/"},
-        {"block_non_ad_resources": true},
         {"label": "series", "url": "https://www.crunchyroll.com/series"},
         {"label": "news", "url": "https://www.crunchyroll.com/news"},
         {"label": "watch", "url": "https://www.crunchyroll.com/watch"},
