@@ -56,18 +56,18 @@ except Exception as e:
 # -------------------------------------------------------------------
 TOTAL_DAILY_SLOTS = int(os.environ.get("TOTAL_DAILY_SLOTS", "6"))
 BASE_N_RUNS_PER_PAGE = int(os.environ.get("BASE_N_RUNS_PER_PAGE", "1"))
-TARGET_ITERATION_MINUTES = int(os.environ.get("TARGET_ITERATION_MINUTES", "60"))
+TARGET_ITERATION_MINUTES = int(os.environ.get("TARGET_ITERATION_MINUTES", "90"))
 FLEX_MINUTES = int(os.environ.get("FLEX_MINUTES", "15"))
 
 NAV_TIMEOUT_MIN = float(os.environ.get("NAV_TIMEOUT_MIN", "3"))
-NAV_TIMEOUT_MAX = float(os.environ.get("NAV_TIMEOUT_MAX", "120"))
+NAV_TIMEOUT_MAX = float(os.environ.get("NAV_TIMEOUT_MAX", "300"))
 WAIT_AFTER_LOAD_MIN = float(os.environ.get("WAIT_AFTER_LOAD_MIN", "1"))
-WAIT_AFTER_LOAD_MAX = float(os.environ.get("WAIT_AFTER_LOAD_MAX", "60"))
+WAIT_AFTER_LOAD_MAX = float(os.environ.get("WAIT_AFTER_LOAD_MAX", "180"))
 GLOBAL_PAGE_RUN_TIMEOUT_MIN = float(
-    os.environ.get("GLOBAL_PAGE_RUN_TIMEOUT_MIN", "8")
+    os.environ.get("GLOBAL_PAGE_RUN_TIMEOUT_MIN", "30")
 )
 GLOBAL_PAGE_RUN_TIMEOUT_MAX = float(
-    os.environ.get("GLOBAL_PAGE_RUN_TIMEOUT_MAX", "600")
+    os.environ.get("GLOBAL_PAGE_RUN_TIMEOUT_MAX", "1200")
 )
 
 DEFAULT_OUTDIR = os.environ.get("OUTDIR", "output")
@@ -441,7 +441,7 @@ def capture_single_run(
                 min_needed_ms += 5000  # 5s extra para simulação humana
 
             # buffer para evitar corridas / timings imprecisos
-            buffer_ms = 5000
+            buffer_ms = 30000
 
             # desired timeout em segundos
             desired_timeout_sec = (min_needed_ms + buffer_ms) / 1000.0
@@ -1264,7 +1264,7 @@ def main():
     parser.add_argument(
         "--extended-wait-ms",
         type=int,
-        default=90000,
+        default=180000,
         help="ms to wait when --extended-wait (default 90000ms)",
     )
     parser.add_argument(
