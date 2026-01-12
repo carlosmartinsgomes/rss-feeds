@@ -60,14 +60,14 @@ TARGET_ITERATION_MINUTES = int(os.environ.get("TARGET_ITERATION_MINUTES", "90"))
 FLEX_MINUTES = int(os.environ.get("FLEX_MINUTES", "15"))
 
 NAV_TIMEOUT_MIN = float(os.environ.get("NAV_TIMEOUT_MIN", "3"))
-NAV_TIMEOUT_MAX = float(os.environ.get("NAV_TIMEOUT_MAX", "300"))
+NAV_TIMEOUT_MAX = float(os.environ.get("NAV_TIMEOUT_MAX", "400"))
 WAIT_AFTER_LOAD_MIN = float(os.environ.get("WAIT_AFTER_LOAD_MIN", "1"))
-WAIT_AFTER_LOAD_MAX = float(os.environ.get("WAIT_AFTER_LOAD_MAX", "180"))
+WAIT_AFTER_LOAD_MAX = float(os.environ.get("WAIT_AFTER_LOAD_MAX", "360"))
 GLOBAL_PAGE_RUN_TIMEOUT_MIN = float(
     os.environ.get("GLOBAL_PAGE_RUN_TIMEOUT_MIN", "30")
 )
 GLOBAL_PAGE_RUN_TIMEOUT_MAX = float(
-    os.environ.get("GLOBAL_PAGE_RUN_TIMEOUT_MAX", "1200")
+    os.environ.get("GLOBAL_PAGE_RUN_TIMEOUT_MAX", "2500")
 )
 
 DEFAULT_OUTDIR = os.environ.get("OUTDIR", "output")
@@ -1264,8 +1264,8 @@ def main():
     parser.add_argument(
         "--extended-wait-ms",
         type=int,
-        default=180000,
-        help="ms to wait when --extended-wait (default 90000ms)",
+        default=300000,
+        help="ms to wait when --extended-wait (default 300000ms)",
     )
     parser.add_argument(
         "--ad-domains-file",
