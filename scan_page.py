@@ -388,8 +388,27 @@ def capture_single_run(
 
     launch_args = {
         "headless": not opts.get("headful", False),
-        "args": ["--no-sandbox", "--disable-setuid-sandbox"],
+        "args": [
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-gpu",
+            "--disable-software-rasterizer",
+            "--disable-extensions",
+            "--disable-background-networking",
+            "--disable-background-timer-throttling",
+            "--disable-breakpad",
+            "--disable-client-side-phishing-detection",
+            "--disable-default-apps",
+            "--disable-hang-monitor",
+            "--disable-popup-blocking",
+            "--disable-prompt-on-repost",
+            "--disable-sync",
+            "--metrics-recording-only",
+            "--mute-audio",
+        ],
     }
+
     ctx_args = {"ignore_https_errors": True}
     if proxy_url:
         launch_args["proxy"] = {"server": proxy_url}
