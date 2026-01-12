@@ -150,51 +150,65 @@ def _compute_backoff(attempt):
     val = min(BACKOFF_MAX, base + jitter)
     return val
 
-def _log_504_response(r, url, params):
+def _log_504_response_and_print(r, url, params):
     """
-    Append debug info for 504 responses to cdx_504_debug.log (timestamped).
-    Trunca o body para evitar ficheiros enormes.
+    Log + print conciso para respostas 504.
+    - escreve em cdx_504_debug.log (append)
+    - imprime um resumo no stdout (visível durante 'Run analyzer')
     """
     try:
+        now = datetime.utcnow().isoformat()
         path = "cdx_504_debug.log"
+        # Extrair alguns headers úteis (Cloudflare / proxy)
+        server = (r.headers or {}).get("Server", "")
+        cf_ray = (r.headers or {}).get("CF-RAY", "")
+        cf_cache = (r.headers or {}).get("CF-Cache-Status", "")
+        retry_after = (r.headers or {}).get("Retry-After", "")
+        summary = (f"[504-LOG {now}] URL={url} status={(None if r is None else r.status_code)} "
+                   f"Server={server} CF-RAY={cf_ray} CF-Cache={cf_cache} Retry-After={retry_after}")
+        # Print imediato para veres durante a execução
+        print(summary)
+
+        # Escrever ficheiro (body truncado para não encher disco)
         with open(path, "a", encoding="utf-8") as fh:
-            fh.write("\n--- 504 DEBUG %s ---\n" % datetime.utcnow().isoformat())
-            fh.write("URL: %s\n" % url)
+            fh.write("\n----- 504 DEBUG %s -----\n" % now)
+            fh.write(summary + "\n")
             if params:
                 try:
                     fh.write("Params: %s\n" % json.dumps(params, ensure_ascii=False))
                 except Exception:
-                    fh.write(f"Params(repr): {repr(params)}\n")
-            fh.write("Status: %s\n" % (None if r is None else r.status_code))
+                    fh.write("Params(repr): %s\n" % repr(params))
             fh.write("Response headers:\n")
             try:
                 for k, v in (r.headers or {}).items():
                     fh.write(f"{k}: {v}\n")
             except Exception:
                 fh.write("  <failed to read headers>\n")
-            # body (try text then bytes) - truncated
+
+            # Body (tenta text, fallback content), truncado
             body = None
             try:
                 body = r.text
             except Exception:
                 try:
-                    body = (r.content or b"")[:4096]
+                    body = (r.content or b"").decode("utf-8", errors="replace")
                 except Exception:
                     body = "<unreadable>"
             if body is None:
                 fh.write("Body: <none>\n")
             else:
-                body_str = body if isinstance(body, str) else repr(body)
-                if len(body_str) > 4000:
-                    fh.write("Body (truncated 4000 chars):\n")
-                    fh.write(body_str[:4000] + "\n...[truncated]\n")
+                max_chars = 8000
+                if len(body) > max_chars:
+                    fh.write("Body (truncated %d chars):\n" % max_chars)
+                    fh.write(body[:max_chars] + "\n...[truncated]\n")
                 else:
                     fh.write("Body:\n")
-                    fh.write(body_str + "\n")
-            fh.write("--- end 504 ---\n")
+                    fh.write(body + "\n")
+            fh.write("----- end 504 -----\n")
     except Exception as e:
-        # não falhar a execução principal por causa do debug
-        print(f"[DEBUG] _log_504_response failed: {e}")
+        # Não deixar o logger quebrar o fluxo principal
+        print(f"[DEBUG] _log_504_response_and_print failed: {e}")
+
 
 
 def safe_request(url, params=None, timeout=20, allow_redirects=True, max_retries=MAX_RETRIES):
@@ -228,9 +242,10 @@ def safe_request(url, params=None, timeout=20, allow_redirects=True, max_retries
         status = r.status_code
         if status in RETRY_STATUS_CODES:
             if status == 504:
-                _log_504_response(r, url, params)
-            # calcula wait (respeita Retry-After quando presente)
+                # imprime e grava imediatamente para diagnóstico
+                _log_504_response_and_print(r, url, params)
             retry_after = r.headers.get("Retry-After")
+
             if retry_after:
                 try:
                     wait = int(retry_after)
