@@ -30,6 +30,7 @@ import logging
 import threading
 import random
 import re
+import pandas as pd
 from datetime import datetime, timezone
 from pathlib import Path
 from math import floor
@@ -1144,8 +1145,10 @@ def capture_single_run(
     }
 
     try:
-        with open(summary_file, "w", encoding="utf-8") as sf:
-            json.dump(summary, sf, indent=2)
+    df = pd.DataFrame([summary])
+    xlsx_path = summary_file.replace(".json", ".xlsx")
+    df.to_excel(xlsx_path, index=False)
+
     except Exception:
         logging.exception("Failed to write summary json to %s", summary_file)
 
