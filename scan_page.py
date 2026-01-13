@@ -1145,9 +1145,9 @@ def capture_single_run(
     }
 
     try:
-    df = pd.DataFrame([summary])
-    xlsx_path = summary_file.replace(".json", ".xlsx")
-    df.to_excel(xlsx_path, index=False)
+        df = pd.DataFrame([summary])
+        xlsx_path = summary_file.replace(".json", ".xlsx")
+        df.to_excel(xlsx_path, index=False)
 
     except Exception:
         logging.exception("Failed to write summary json to %s", summary_file)
