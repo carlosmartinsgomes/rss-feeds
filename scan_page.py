@@ -307,12 +307,9 @@ def compute_timeouts_and_runs(
     nav = max(NAV_TIMEOUT_MIN, min(NAV_TIMEOUT_MAX, nav))
     wait = max(WAIT_AFTER_LOAD_MIN, min(WAIT_AFTER_LOAD_MAX, wait))
 
-    # ensure global timeout covers nav + wait + small buffer, but stays within configured global bounds
-    min_global_needed = nav + wait + 5.0  # 5s buffer to avoid races
-    global_run_timeout = max(
-        GLOBAL_PAGE_RUN_TIMEOUT_MIN,
-        min(min_global_needed, GLOBAL_PAGE_RUN_TIMEOUT_MAX),
-    )
+    # deixamos o cálculo fino do timeout global para dentro do capture_single_run
+    global_run_timeout = 0
+
 
     # return n_runs, nav_ms, wait_ms, global_run_timeout_seconds
     return int(n_runs), int(nav * 1000), int(wait * 1000), int(global_run_timeout)
@@ -460,7 +457,7 @@ def capture_single_run(
                 min_needed_ms += 5000  # 5s extra para simulação humana
 
             # buffer para evitar corridas / timings imprecisos
-            buffer_ms = 30000
+            buffer_ms = max(60000, int(WAIT_AFTER_LOAD_MS) * 2)
 
             # desired timeout em segundos
             desired_timeout_sec = (min_needed_ms + buffer_ms) / 1000.0
@@ -985,26 +982,29 @@ def capture_single_run(
                 except Exception:
                     pass
             
+            # se o watchdog disparou, não fazemos mais waits; terminamos o run o mais depressa possível
             if watchdog_triggered:
-                logging.warning("Watchdog triggered — skipping waits and finishing run early")
-                raise Exception("WatchdogTimeout")
-            # extra wait for late calls
-            if not (
-                GLOBAL_PAGE_RUN_TIMEOUT_SEC
-                and (time.time() - start_time) > GLOBAL_PAGE_RUN_TIMEOUT_SEC
-            ):
-                try:
-                    page.wait_for_timeout(WAIT_AFTER_LOAD_MS)
-                except Exception:
-                    pass
+                logging.warning(
+                    "Watchdog triggered — skipping waits and finishing run early for %s",
+                    url,)
+            else:
+                # extra wait for late calls
+                if not (
+                    GLOBAL_PAGE_RUN_TIMEOUT_SEC
+                    and (time.time() - start_time) > GLOBAL_PAGE_RUN_TIMEOUT_SEC):
+                    try:
+                        page.wait_for_timeout(WAIT_AFTER_LOAD_MS)
+                    except Exception:
+                        pass
+            
+                # optionally extended wait to capture refresh auctions
+                if opts.get("extended_wait"):
+                    try:
+                        ew_ms = opts.get("extended_wait_ms", 90000)
+                        page.wait_for_timeout(min(90000, max(5000, ew_ms)))
+                    except Exception:
+                        pass
 
-            # optionally extended wait to capture refresh auctions
-            if opts.get("extended_wait"):
-                try:
-                    ew_ms = opts.get("extended_wait_ms", 90000)
-                    page.wait_for_timeout(min(90000, max(5000, ew_ms)))
-                except Exception:
-                    pass
 
     except Exception as e:
         logging.exception("Error during capture: %s", e)
