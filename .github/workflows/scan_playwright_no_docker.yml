@@ -56,7 +56,10 @@ jobs:
             --targets targets.json \
             --iteration "${ITERATION}" \
             --geo "${GEO}" \
-            --outdir output
+            --outdir output \
+            --block-non-ad-resources \
+            --extended-wait-ms 30000
+
 
 
       - name: Archive output (optional)
