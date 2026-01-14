@@ -1,0 +1,158 @@
+{
+  "publishers": [
+    {
+      "name": "IMDB",
+      "domain": "imdb.com",
+      "weight_pct": 10.3,
+      "pages": [
+        {"label": "homepage", "url": "https://www.imdb.com/"},
+        {"label": "top250", "url": "https://www.imdb.com/chart/top/"},
+        {"label": "moviemeter", "url": "https://www.imdb.com/chart/moviemeter/"},
+        {"label": "trailers", "url": "https://www.imdb.com/trailers/"},
+        {"label": "mobile_view", "url": "https://m.imdb.com/"}
+      ],
+      "geos": [{"country_code": "US", "pct": 100}]
+    },
+
+    {
+      "name": "Fox News",
+      "domain": "foxnews.com",
+      "weight_pct": 13.8,
+      "pages": [
+        {"label": "homepage", "url": "https://www.foxnews.com/"},
+        {"label": "politics", "url": "https://www.foxnews.com/politics"},
+        {"label": "us", "url": "https://www.foxnews.com/us"},
+        {"label": "video_index", "url": "https://www.foxnews.com/video"},
+        {"label": "mobile_view", "url": "https://m.foxnews.com/"}
+      ],
+      "geos": [{"country_code": "US", "pct": 100}]
+    },
+
+    {
+      "name": "X (ex-Twitter)",
+      "domain": "x.com",
+      "weight_pct": 51.3,
+      "pages": [
+        {"label": "homepage", "url": "https://x.com/"},
+        {"label": "explore", "url": "https://x.com/explore"},
+        {"label": "example_profile", "url": "https://x.com/elonmusk"},
+        {"label": "video_example", "url": "https://x.com/elonmusk/status/1846223123456789123"},
+        {"label": "mobile_view", "url": "https://mobile.x.com/"}
+      ],
+      "geos": [{"country_code": "US", "pct": 100}]
+    },
+
+    {
+      "name": "Nextdoor",
+      "domain": "nextdoor.com",
+      "weight_pct": 5.26,
+      "pages": [
+        {"label": "homepage", "url": "https://nextdoor.com/"},
+        {"label": "neighborhoods", "url": "https://nextdoor.com/nearby/"},
+        {"label": "business_faves", "url": "https://business.nextdoor.com/en-us/small-business/neighborhood-faves"},
+        {"label": "feed_video", "url": "https://nextdoor.com/news_feed/"},
+        {"label": "mobile_view", "url": "https://m.nextdoor.com/"}
+      ],
+      "geos": [{"country_code": "US", "pct": 100}]
+    },
+
+    {
+      "name": "New York Post",
+      "domain": "nypost.com",
+      "weight_pct": 4.24,
+      "pages": [
+        {"label": "homepage", "url": "https://nypost.com/"},
+        {"label": "entertainment", "url": "https://nypost.com/section/entertainment/"},
+        {"label": "tags", "url": "https://nypost.com/tag/best/"},
+        {"label": "video_index", "url": "https://nypost.com/video/"},
+        {"label": "mobile_view", "url": "https://nypost.com/"}
+      ],
+      "geos": [{"country_code": "US", "pct": 100}]
+    },
+
+    {
+      "name": "SoundCloud",
+      "domain": "soundcloud.com",
+      "weight_pct": 1.77,
+      "pages": [
+        {"label": "homepage", "url": "https://soundcloud.com/"},
+        {"label": "charts", "url": "https://soundcloud.com/charts"},
+        {"label": "search", "url": "https://soundcloud.com/search"},
+        {"label": "discover", "url": "https://soundcloud.com/discover"},
+        {"label": "mobile_view", "url": "https://m.soundcloud.com/"}
+      ],
+      "geos": [{"country_code": "US", "pct": 100}]
+    },
+
+    {
+      "name": "KAYAK",
+      "domain": "kayak.com",
+      "weight_pct": 1.32,
+      "pages": [
+        {"label": "homepage", "url": "https://www.kayak.com/"},
+        {"label": "flights", "url": "https://www.kayak.com/flights"},
+        {"label": "hotels", "url": "https://www.kayak.com/hotels"},
+        {"label": "travel_blog", "url": "https://www.kayak.com/travel-blog"},
+        {"label": "mobile_view", "url": "https://www.kayak.com/"}
+      ],
+      "geos": [{"country_code": "US", "pct": 100}]
+    },
+
+    {
+      "name": "FOX Sports",
+      "domain": "foxsports.com",
+      "weight_pct": 1.29,
+      "pages": [
+        {"label": "homepage", "url": "https://www.foxsports.com/"},
+        {"label": "scores", "url": "https://www.foxsports.com/scores"},
+        {"label": "league_hub", "url": "https://www.foxsports.com/nfl"},
+        {"label": "video_index", "url": "https://www.foxsports.com/video"},
+        {"label": "mobile_view", "url": "https://m.foxsports.com/"}
+      ],
+      "geos": [{"country_code": "US", "pct": 100}]
+    },
+
+    {
+      "name": "Major League Baseball (MLB)",
+      "domain": "mlb.com",
+      "weight_pct": 5.48,
+      "pages": [
+        {"label": "homepage", "url": "https://www.mlb.com/"},
+        {"label": "news", "url": "https://www.mlb.com/news"},
+        {"label": "stats", "url": "https://www.mlb.com/stats"},
+        {"label": "scores", "url": "https://www.mlb.com/scores"},
+        {"label": "video_index", "url": "https://www.mlb.com/video"}
+      ],
+      "geos": [{"country_code": "US", "pct": 100}]
+    },
+
+    {
+      "name": "Crunchyroll",
+      "domain": "crunchyroll.com",
+      "weight_pct": 3.48,
+      "pages": [
+        {"label": "homepage", "url": "https://www.crunchyroll.com/"},
+        {"label": "series", "url": "https://www.crunchyroll.com/series"},
+        {"label": "news", "url": "https://www.crunchyroll.com/news"},
+        {"label": "watch", "url": "https://www.crunchyroll.com/watch"},
+        {"label": "videos", "url": "https://www.crunchyroll.com/videos"},
+        {"label": "mobile_view", "url": "https://www.crunchyroll.com/"}
+      ],
+      "geos": [{"country_code": "US", "pct": 100}]
+    },
+
+    {
+      "name": "Goodreads",
+      "domain": "goodreads.com",
+      "weight_pct": 1.81,
+      "pages": [
+        {"label": "homepage", "url": "https://www.goodreads.com/"},
+        {"label": "lists", "url": "https://www.goodreads.com/list"},
+        {"label": "genres", "url": "https://www.goodreads.com/genres"},
+        {"label": "recommendations", "url": "https://www.goodreads.com/recommendations"},
+        {"label": "mobile_view", "url": "https://www.goodreads.com/"}
+      ],
+      "geos": [{"country_code": "US", "pct": 100}]
+    }
+  ]
+}
