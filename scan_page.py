@@ -1428,12 +1428,70 @@ def main():
                     opts,
                 )
                 results.append(agg)
-
+    
     summary_path = os.path.join(run_root, "run_summary.json")
+    
+    # 1) Guardar o JSON como antes (opcional mas útil para debug)
     with open(summary_path, "w", encoding="utf-8") as f:
         json.dump(results, f, indent=2)
-
-    logging.info("Run complete. Summary written to %s", summary_path)
+    
+    # 2) Transformar results (lista de summaries) em DataFrame
+    df = pd.DataFrame(results)
+    
+    # 3) Garantir que estas colunas existem (ajusta os nomes se forem diferentes)
+    # pub_adtech_share  -> share da PubMatic
+    # avg_cpm_pubmatic  -> CPM PubMatic
+    # avg_cpm_market    -> CPM mercado
+    # pub_win_rate      -> win rate da PubMatic
+    # domain            -> publisher
+    # weight_pct        -> vem do targets.json (vamos já juntar)
+    
+    # 3.1) Ler targets.json para ir buscar o weight_pct
+    targets = json.load(open("targets.json", "r", encoding="utf-8"))
+    weights = {p["domain"]: p["weight_pct"] / 100.0 for p in targets["publishers"]}
+    
+    df["weight_pct"] = df["domain"].map(weights)
+    
+    # 4) Calcular deltas simples (baseline = média do próprio dia)
+    df["share_delta"] = df["pubmatic_adtech_share"] / df["pubmatic_adtech_share"].mean() - 1
+    df["price_delta"] = df["ssp_financials"].apply(
+        lambda s: s.get("pubmatic_cpm", 0) / s.get("market_cpm", 1) - 1
+        if isinstance(s, dict) else 0
+    )
+    df["winrate_delta"] = df["pub_win_rate"] / df["pub_win_rate"].mean() - 1
+    
+    # 5) Score por publisher
+    df["score_publisher"] = (
+        0.4 * df["share_delta"] +
+        0.4 * df["price_delta"] +
+        0.2 * df["winrate_delta"]
+    )
+    
+    # 6) Score ponderado
+    df["score_weighted"] = df["score_publisher"] * df["weight_pct"]
+    
+    # 7) Score global diário
+    score_global = df["score_weighted"].sum()
+    
+    # 8) Adicionar linha final com score global
+    global_row = {
+        "domain": "__GLOBAL_DAILY__",
+        "pubmatic_adtech_share": None,
+        "pub_win_rate": None,
+        "weight_pct": 1.0,
+        "share_delta": None,
+        "price_delta": None,
+        "winrate_delta": None,
+        "score_publisher": None,
+        "score_weighted": score_global,
+    }
+    df = pd.concat([df, pd.DataFrame([global_row])], ignore_index=True)
+    
+    # 9) Escrever para Excel
+    xlsx_path = summary_path.replace(".json", ".xlsx")
+    df.to_excel(xlsx_path, index=False)
+    
+    logging.info("Run complete. Summary written to %s and %s", summary_path, xlsx_path)
 
 
 if __name__ == "__main__":
