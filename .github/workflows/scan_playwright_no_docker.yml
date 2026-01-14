@@ -1,0 +1,110 @@
+name: PubMatic Pipeline
+
+on:
+  schedule:
+    - cron: "0 6 * * *"   # Slot 0  (06:00 UTC)
+    - cron: "0 9 * * *"   # Slot 1  (09:00 UTC)
+    - cron: "0 12 * * *"  # Slot 2  (12:00 UTC)
+    - cron: "0 15 * * *"  # Slot 3  (15:00 UTC)
+    - cron: "0 18 * * *"  # Slot 4  (18:00 UTC)
+    - cron: "0 21 * * *"  # Slot 5  (21:00 UTC)
+
+  workflow_dispatch:
+
+jobs:
+  run-slot:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Determine slot
+        id: slot
+        run: |
+          HOUR=$(date -u +"%H")
+          if   [ "$HOUR" = "06" ]; then echo "slot=0" >> $GITHUB_OUTPUT
+          elif [ "$HOUR" = "09" ]; then echo "slot=1" >> $GITHUB_OUTPUT
+          elif [ "$HOUR" = "12" ]; then echo "slot=2" >> $GITHUB_OUTPUT
+          elif [ "$HOUR" = "15" ]; then echo "slot=3" >> $GITHUB_OUTPUT
+          elif [ "$HOUR" = "18" ]; then echo "slot=4" >> $GITHUB_OUTPUT
+          elif [ "$HOUR" = "21" ]; then echo "slot=5" >> $GITHUB_OUTPUT
+          else echo "slot=unknown" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Select publishers for this slot
+        id: publishers
+        run: |
+          SLOT="${{ steps.slot.outputs.slot }}"
+
+          if [ "$SLOT" = "0" ]; then
+            echo "pubs=X.com,FoxNews" >> $GITHUB_OUTPUT
+
+          elif [ "$SLOT" = "1" ]; then
+            echo "pubs=X.com,IMDB" >> $GITHUB_OUTPUT
+
+          elif [ "$SLOT" = "2" ]; then
+            echo "pubs=X.com,MLB" >> $GITHUB_OUTPUT
+
+          elif [ "$SLOT" = "3" ]; then
+            echo "pubs=Nextdoor,NYPost" >> $GITHUB_OUTPUT
+
+          elif [ "$SLOT" = "4" ]; then
+            DAY=$(date -u +"%d")
+            if [ $((DAY % 2)) -eq 0 ]; then
+              echo "pubs=Crunchyroll,Goodreads" >> $GITHUB_OUTPUT
+            else
+              echo "pubs=Crunchyroll,SoundCloud" >> $GITHUB_OUTPUT
+            fi
+
+          elif [ "$SLOT" = "5" ]; then
+            DAY=$(date -u +"%d")
+            if [ $((DAY % 2)) -eq 0 ]; then
+              echo "pubs=Kayak" >> $GITHUB_OUTPUT
+            else
+              echo "pubs=FoxSports" >> $GITHUB_OUTPUT
+            fi
+
+          else
+            echo "pubs=X.com" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run scan for selected publishers
+        run: |
+          IFS=',' read -ra PUBLIST <<< "${{ steps.publishers.outputs.pubs }}"
+          for PUB in "${PUBLIST[@]}"; do
+            python scan_pages.py --config targets.json --publisher "$PUB"
+          done
+
+      - name: Compute daily score if needed
+        run: |
+          # If slot 5 ran → compute score
+          if [ "${{ steps.slot.outputs.slot }}" = "5" ]; then
+            python compute_scores.py
+            exit 0
+          fi
+
+          # If slot 5 did NOT run today → fallback
+          TODAY=$(date -u +"%Y-%m-%d")
+          if [ ! -f "artifacts/$TODAY/score_done.flag" ]; then
+            python compute_scores.py
+          fi
+
+      - name: Aggregate weekly/biweekly/monthly scores
+        run: |
+          TODAY=$(date -u +"%Y-%m-%d")
+          if [ -f "artifacts/$TODAY/score_done.flag" ]; then
+            python aggregate_scores.py
+          else
+            echo "Score diário ainda não calculado — não agrego."
+          fi
+
