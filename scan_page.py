@@ -249,7 +249,7 @@ def allocate_slots(publishers, total_slots: int):
         desired = int(floor(raw))
         if desired < 1:
             desired = 1
-        rows.append({"name": p["name"], "desired": desired, "raw": raw, "weight": w})
+        rows.append({"name": p["domain"], "desired": desired, "raw": raw, "weight": w})
 
     copies = []
     for r in rows:
@@ -1295,12 +1295,27 @@ def main():
         default=None,
         help="optional file with ad-tech substrings, one per line",
     )
+    # --- PATCH: adicionar argumentos usados pelo .yml ---
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="targets.json",
+        help="Path to targets.json (default: targets.json)"
+    )
+    
+    parser.add_argument(
+        "--publisher",
+        type=str,
+        help="Run only a specific publisher (domain name)"
+    )
+    # --- FIM DO PATCH ---
+
     args = parser.parse_args()
 
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
 
-    targets = load_json(args.targets)
+    targets = load_json(args.config)
     proxies = load_json(args.proxies)
     ensure_dir(args.outdir)
     timestamp = timestamp_str()
@@ -1318,6 +1333,13 @@ def main():
             logging.debug("Failed loading ad domains file", exc_info=True)
 
     pubs = targets.get("publishers", [])
+    # --- PATCH: filtrar publisher se --publisher for usado ---
+    if args.publisher:
+        pubs = [p for p in pubs if p.get("domain") == args.publisher]
+        if not pubs:
+            raise ValueError(f"Publisher '{args.publisher}' não encontrado no targets.json")
+    # --- FIM DO PATCH ---
+
     total_slots = args.slots if args.slots is not None else TOTAL_DAILY_SLOTS
     if total_slots < 1:
         total_slots = TOTAL_DAILY_SLOTS
@@ -1336,7 +1358,7 @@ def main():
 
     slot_weights = {i: 0.0 for i in range(total_slots)}
     slot_pages = {i: 0 for i in range(total_slots)}
-    name_to_pub = {p["name"]: p for p in pubs}
+    name_to_pub = {p["domain"]: p for p in pubs}
     for name, slots in pub_to_slots.items():
         w = float(name_to_pub.get(name, {}).get("weight_pct", 0.0))
         pages_count = len(name_to_pub.get(name, {}).get("pages", []))
@@ -1354,7 +1376,7 @@ def main():
         selected_publishers = pubs
     else:
         for p in pubs:
-            slots = pub_to_slots.get(p["name"], [])
+            slots = pub_to_slots.get(p["domain"], [])
             if iteration in slots:
                 selected_publishers.append(p)
 
@@ -1384,7 +1406,7 @@ def main():
 
     with sync_playwright() as pw:
         for pub in selected_publishers:
-            name = pub["name"]
+            name = pub["domain"]
             pages = pub.get("pages", [])
             proxy_geo = args.geo
             proxy_url = None
