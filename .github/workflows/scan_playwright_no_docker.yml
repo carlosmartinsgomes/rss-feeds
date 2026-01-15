@@ -41,48 +41,55 @@ jobs:
           else echo "slot=unknown" >> $GITHUB_OUTPUT
           fi
 
+      # ---------------------------------------------------------
+      # 2. Escolher publishers por slot (slotting ideal)
+      # ---------------------------------------------------------
       - name: Select publishers for this slot
         id: publishers
         run: |
-          SLOT="${{ steps.slot.outputs.slot }}"
+          SLOT=${{ steps.slot.outputs.slot }}
 
           if [ "$SLOT" = "0" ]; then
-            echo "pubs=X.com,FoxNews" >> $GITHUB_OUTPUT
+            PUBS="X.com,FoxNews,IMDB,MLB"
 
           elif [ "$SLOT" = "1" ]; then
-            echo "pubs=X.com,IMDB" >> $GITHUB_OUTPUT
+            PUBS="X.com,FoxNews,IMDB,Nextdoor"
 
           elif [ "$SLOT" = "2" ]; then
-            echo "pubs=X.com,MLB" >> $GITHUB_OUTPUT
+            PUBS="X.com,FoxNews,IMDB,NYPost"
 
           elif [ "$SLOT" = "3" ]; then
-            echo "pubs=Nextdoor,NYPost" >> $GITHUB_OUTPUT
+            PUBS="X.com,FoxNews,IMDB,Crunchyroll"
 
           elif [ "$SLOT" = "4" ]; then
-            DAY=$(date -u +"%d")
-            if [ $((DAY % 2)) -eq 0 ]; then
-              echo "pubs=Crunchyroll,Goodreads" >> $GITHUB_OUTPUT
+            # Alternância para publishers pequenos
+            if [ $(( $(date -u +%s) % 2 )) -eq 0 ]; then
+              PUBS="Goodreads,Kayak"
             else
-              echo "pubs=Crunchyroll,SoundCloud" >> $GITHUB_OUTPUT
+              PUBS="SoundCloud,FoxSports"
             fi
 
           elif [ "$SLOT" = "5" ]; then
-            DAY=$(date -u +"%d")
-            if [ $((DAY % 2)) -eq 0 ]; then
-              echo "pubs=Kayak" >> $GITHUB_OUTPUT
-            else
-              echo "pubs=FoxSports" >> $GITHUB_OUTPUT
-            fi
+            # Slot crítico → só publishers financeiros críticos
+            PUBS="X.com,FoxNews,IMDB"
 
           else
-            echo "pubs=X.com" >> $GITHUB_OUTPUT
+            echo "Slot desconhecido — não correr scans."
+            PUBS=""
           fi
 
-      - name: Run scan for selected publishers
+          echo "pubs=$PUBS" >> $GITHUB_OUTPUT
+
+      # ---------------------------------------------------------
+      # 3. Correr scan_pages.py para cada publisher selecionado
+      # ---------------------------------------------------------
+      - name: Run scans
+        if: ${{ steps.publishers.outputs.pubs != '' }}
         run: |
           IFS=',' read -ra PUBLIST <<< "${{ steps.publishers.outputs.pubs }}"
           for PUB in "${PUBLIST[@]}"; do
-            python scan_page.py --config targets.json --publisher "$PUB"
+            echo "Running scan for $PUB"
+            python scan_pages.py --config targets.json --publisher "$PUB"
           done
 
       - name: Compute daily score if needed
