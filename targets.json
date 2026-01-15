@@ -1,0 +1,110 @@
+{
+  "publishers": [
+    {
+      "domain": "X.com",
+      "weight_pct": 51.3,
+      "pages": [
+        "https://x.com",
+        "https://x.com/home",
+        "https://m.x.com",
+        "https://x.com/i/article/1",
+        "https://m.x.com/i/article/1",
+        "https://x.com/i/video/1"
+      ]
+    },
+    {
+      "domain": "FoxNews",
+      "weight_pct": 13.8,
+      "pages": [
+        "https://www.foxnews.com",
+        "https://m.foxnews.com",
+        "https://www.foxnews.com/us",
+        "https://m.foxnews.com/us",
+        "https://video.foxnews.com"
+      ]
+    },
+    {
+      "domain": "IMDB",
+      "weight_pct": 10.3,
+      "pages": [
+        "https://www.imdb.com",
+        "https://m.imdb.com",
+        "https://www.imdb.com/news",
+        "https://m.imdb.com/news",
+        "https://www.imdb.com/video"
+      ]
+    },
+    {
+      "domain": "MLB",
+      "weight_pct": 5.48,
+      "pages": [
+        "https://www.mlb.com",
+        "https://m.mlb.com",
+        "https://www.mlb.com/news",
+        "https://m.mlb.com/news"
+      ]
+    },
+    {
+      "domain": "Nextdoor",
+      "weight_pct": 5.26,
+      "pages": [
+        "https://nextdoor.com",
+        "https://m.nextdoor.com",
+        "https://nextdoor.com/news",
+        "https://m.nextdoor.com/news"
+      ]
+    },
+    {
+      "domain": "NYPost",
+      "weight_pct": 4.24,
+      "pages": [
+        "https://nypost.com",
+        "https://m.nypost.com",
+        "https://nypost.com/news",
+        "https://m.nypost.com/news"
+      ]
+    },
+    {
+      "domain": "Crunchyroll",
+      "weight_pct": 3.48,
+      "pages": [
+        "https://www.crunchyroll.com",
+        "https://m.crunchyroll.com",
+        "https://www.crunchyroll.com/news",
+        "https://m.crunchyroll.com/news"
+      ]
+    },
+    {
+      "domain": "Goodreads",
+      "weight_pct": 1.81,
+      "pages": [
+        "https://www.goodreads.com",
+        "https://m.goodreads.com"
+      ]
+    },
+    {
+      "domain": "SoundCloud",
+      "weight_pct": 1.77,
+      "pages": [
+        "https://soundcloud.com",
+        "https://m.soundcloud.com"
+      ]
+    },
+    {
+      "domain": "Kayak",
+      "weight_pct": 1.32,
+      "pages": [
+        "https://www.kayak.com",
+        "https://m.kayak.com"
+      ]
+    },
+    {
+      "domain": "FoxSports",
+      "weight_pct": 1.29,
+      "pages": [
+        "https://www.foxsports.com",
+        "https://m.foxsports.com"
+      ]
+    }
+  ]
+}
