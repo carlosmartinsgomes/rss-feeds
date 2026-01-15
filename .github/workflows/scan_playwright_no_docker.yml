@@ -82,7 +82,7 @@ jobs:
         run: |
           IFS=',' read -ra PUBLIST <<< "${{ steps.publishers.outputs.pubs }}"
           for PUB in "${PUBLIST[@]}"; do
-            python scan_pages.py --config targets.json --publisher "$PUB"
+            python scan_page.py --config targets.json --publisher "$PUB"
           done
 
       - name: Compute daily score if needed
