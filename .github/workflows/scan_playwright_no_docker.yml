@@ -13,7 +13,7 @@ on:
 
 jobs:
   run-slot:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, ip-172-31-78-172]
 
     steps:
       - name: Checkout repo
