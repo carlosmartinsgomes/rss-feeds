@@ -1372,13 +1372,20 @@ def main():
 
     iteration = args.iteration
     selected_publishers = []
-    if args.all:
+    
+    # --- PATCH: se --publisher foi usado, ignorar slotting interno ---
+    if args.publisher:
+        # Já filtraste pubs lá em cima, portanto aqui é só correr esse(s) publisher(s)
+        selected_publishers = pubs
+    elif args.all:
         selected_publishers = pubs
     else:
         for p in pubs:
             slots = pub_to_slots.get(p["domain"], [])
             if iteration in slots:
                 selected_publishers.append(p)
+    # --- FIM DO PATCH ---
+
 
     num_pages = sum(len(p.get("pages", [])) for p in selected_publishers)
     n_runs, nav_ms, wait_ms, global_timeout_sec = compute_timeouts_and_runs(num_pages)
@@ -1468,9 +1475,9 @@ def main():
     # domain            -> publisher
     # weight_pct        -> vem do targets.json (vamos já juntar)
     
-    # 3.1) Ler targets.json para ir buscar o weight_pct
-    targets = json.load(open("targets.json", "r", encoding="utf-8"))
-    weights = {p["domain"]: p["weight_pct"] / 100.0 for p in targets["publishers"]}
+    # 3.1) Usar o targets já carregado no início para ir buscar o weight_pct
+    weights = {p["domain"]: p["weight_pct"] / 100.0 for p in targets.get("publishers", [])}
+
     
     df["weight_pct"] = df["domain"].map(weights)
     
