@@ -36,10 +36,10 @@ jobs:
           pip install -r requirements.txt
 
       # ---------------------------------------------------------
-      # 1. Determinar slot com base na hora UTC
+      # 1. Determinar slot base com base na hora UTC
       # ---------------------------------------------------------
-      - name: Determine slot
-        id: slot
+      - name: Determine base slot
+        id: slot_base
         run: |
           HOUR=$(date -u +"%H")
           if   [ "$HOUR" = "06" ]; then echo "slot=0" >> $GITHUB_OUTPUT
@@ -52,13 +52,18 @@ jobs:
           fi
 
       # ---------------------------------------------------------
-      # Manual slot override (workflow_dispatch)
-      # Se o workflow for acionado manualmente, usa o slot escolhido
+      # 1.b Slot final: usa manual_slot se for workflow_dispatch,
+      # caso contrário usa o slot_base
       # ---------------------------------------------------------
-      - name: Override slot for manual run
-        if: ${{ github.event_name == 'workflow_dispatch' }}
+      - name: Resolve final slot
+        id: slot
         run: |
-          echo "slot=${{ github.event.inputs.manual_slot }}" >> $GITHUB_OUTPUT
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "slot=${{ github.event.inputs.manual_slot }}" >> $GITHUB_OUTPUT
+          else
+            echo "slot=${{ steps.slot_base.outputs.slot }}" >> $GITHUB_OUTPUT
+          fi
+
 
 
       # ---------------------------------------------------------
