@@ -1299,13 +1299,15 @@ def main():
         type=str,
         help="Run only a specific publisher (domain name)"
     )
-    # --- FIM DO PATCH ---
+    
     parser.add_argument(
         "--debug-fast",
         action="store_true",
         help="Run in fast debug mode (no waits, no browser delays)"
     )
-
+    
+    # --- FIM DO PATCH ---
+    
     args = parser.parse_args()
 
     if args.verbose:
