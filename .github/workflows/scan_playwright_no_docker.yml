@@ -7,9 +7,15 @@ on:
     - cron: "0 12 * * *"  # Slot 2  (12:00 UTC)
     - cron: "0 15 * * *"  # Slot 3  (15:00 UTC)
     - cron: "0 18 * * *"  # Slot 4  (18:00 UTC)
-    - cron: "0 20 * * *"  # Slot 5  (21:00 UTC)
+    - cron: "0 21 * * *"  # Slot 5  (21:00 UTC)
 
-  workflow_dispatch:
+    workflow_dispatch:
+      inputs:
+        manual_slot:
+          description: "Escolhe o slot (0–5) para correr manualmente"
+          required: true
+          default: "0"
+
 
 jobs:
   run-slot:
@@ -43,6 +49,16 @@ jobs:
           elif [ "$HOUR" = "21" ]; then echo "slot=5" >> $GITHUB_OUTPUT
           else echo "slot=unknown" >> $GITHUB_OUTPUT
           fi
+
+      # ---------------------------------------------------------
+      # Manual slot override (workflow_dispatch)
+      # Se o workflow for acionado manualmente, usa o slot escolhido
+      # ---------------------------------------------------------
+      - name: Override slot for manual run
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          echo "slot=${{ github.event.inputs.manual_slot }}" >> $GITHUB_OUTPUT
+
 
       # ---------------------------------------------------------
       # 2. Correr scan_page.py em modo GLOBAL
