@@ -1459,70 +1459,64 @@ def main():
                 )
                 results.append(agg)
     
-    summary_path = os.path.join(run_root, "run_summary.json")
-    
-    # 1) Guardar o JSON como antes (opcional mas útil para debug)
-    with open(summary_path, "w", encoding="utf-8") as f:
-        json.dump(results, f, indent=2)
-    
-    # 2) Transformar results (lista de summaries) em DataFrame
-    df = pd.DataFrame(results)
-    
-    # 3) Garantir que estas colunas existem (ajusta os nomes se forem diferentes)
-    # pub_adtech_share  -> share da PubMatic
-    # avg_cpm_pubmatic  -> CPM PubMatic
-    # avg_cpm_market    -> CPM mercado
-    # pub_win_rate      -> win rate da PubMatic
-    # domain            -> publisher
-    # weight_pct        -> vem do targets.json (vamos já juntar)
-    
-    # 3.1) Usar o targets já carregado no início para ir buscar o weight_pct
-    weights = {p["domain"]: p["weight_pct"] / 100.0 for p in targets.get("publishers", [])}
+        summary_path = os.path.join(run_root, "run_summary.json")
 
+        # 1) Guardar o JSON com os resultados agregados (por página)
+        # results é uma lista de dicts, cada um com:
+        # - domain, page_label, geo, iteration
+        # - avg_total_requests, avg_pubmatic_requests
+        # - runs: lista de summaries individuais (um por run)
+        with open(summary_path, "w", encoding="utf-8") as f:
+            json.dump(results, f, indent=2)
     
-    df["weight_pct"] = df["domain"].map(weights)
+        # 2) Opcional: escrever um Excel "bruto" só para inspeção rápida
+        #    Aqui não fazemos scoring, só normalizamos a estrutura.
+        try:
+            # Flatten: uma linha por run individual
+            flat_rows = []
+            for agg in results:
+                domain = agg.get("domain")
+                page_label = agg.get("page_label")
+                geo = agg.get("geo")
+                iteration = agg.get("iteration")
+                for run in agg.get("runs", []):
+                    row = {
+                        "domain": domain,
+                        "page_label": page_label,
+                        "geo": geo,
+                        "iteration": iteration,
+                        "timestamp": run.get("timestamp"),
+                        "total_requests": run.get("total_requests"),
+                        "pubmatic_requests": run.get("pubmatic_requests"),
+                        "pubmatic_adtech_share": run.get("pubmatic_adtech_share"),
+                        "pub_bids": run.get("pub_bids"),
+                        "pub_wins": run.get("pub_wins"),
+                        "pub_win_rate": run.get("pub_win_rate"),
+                        "avg_bid_latency_ms": run.get("avg_bid_latency_ms"),
+                        "p95_bid_latency_ms": run.get("p95_bid_latency_ms"),
+                        "bidder_count_avg": run.get("bidder_count_avg"),
+                        "direct_wins": run.get("direct_wins"),
+                        "reseller_wins": run.get("reseller_wins"),
+                        "refresh_wins": run.get("refresh_wins"),
+                        "ssp_financials": run.get("ssp_financials"),
+                        "ssp_share_of_voice": run.get("ssp_share_of_voice"),
+                    }
+                    flat_rows.append(row)
     
-    # 4) Calcular deltas simples (baseline = média do próprio dia)
-    df["share_delta"] = df["pubmatic_adtech_share"] / df["pubmatic_adtech_share"].mean() - 1
-    df["price_delta"] = df["ssp_financials"].apply(
-        lambda s: s.get("pubmatic_cpm", 0) / s.get("market_cpm", 1) - 1
-        if isinstance(s, dict) else 0
-    )
-    df["winrate_delta"] = df["pub_win_rate"] / df["pub_win_rate"].mean() - 1
+            if flat_rows:
+                df = pd.DataFrame(flat_rows)
+                xlsx_path = summary_path.replace(".json", ".xlsx")
+                df.to_excel(xlsx_path, index=False)
+                logging.info(
+                    "Run complete. Summary written to %s and %s",
+                    summary_path,
+                    xlsx_path,
+                )
+            else:
+                logging.info("Run complete. Summary written to %s (no runs to export to Excel)", summary_path)
+        except Exception:
+            logging.exception("Failed to write Excel summary for %s", summary_path)
     
-    # 5) Score por publisher
-    df["score_publisher"] = (
-        0.4 * df["share_delta"] +
-        0.4 * df["price_delta"] +
-        0.2 * df["winrate_delta"]
-    )
     
-    # 6) Score ponderado
-    df["score_weighted"] = df["score_publisher"] * df["weight_pct"]
-    
-    # 7) Score global diário
-    score_global = df["score_weighted"].sum()
-    
-    # 8) Adicionar linha final com score global
-    global_row = {
-        "domain": "__GLOBAL_DAILY__",
-        "pubmatic_adtech_share": None,
-        "pub_win_rate": None,
-        "weight_pct": 1.0,
-        "share_delta": None,
-        "price_delta": None,
-        "winrate_delta": None,
-        "score_publisher": None,
-        "score_weighted": score_global,
-    }
-    df = pd.concat([df, pd.DataFrame([global_row])], ignore_index=True)
-    
-    # 9) Escrever para Excel
-    xlsx_path = summary_path.replace(".json", ".xlsx")
-    df.to_excel(xlsx_path, index=False)
-    
-    logging.info("Run complete. Summary written to %s and %s", summary_path, xlsx_path)
-
-
-if __name__ == "__main__":
-    main()
+    if __name__ == "__main__":
+        main()
