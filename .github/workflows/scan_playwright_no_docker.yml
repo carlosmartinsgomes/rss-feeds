@@ -81,7 +81,7 @@ jobs:
           echo "pubs=$PUBS" >> $GITHUB_OUTPUT
 
       # ---------------------------------------------------------
-      # 3. Correr scan_pages.py para cada publisher selecionado
+      # 3. Correr scan_page.py para cada publisher selecionado
       # ---------------------------------------------------------
       - name: Run scans
         if: ${{ steps.publishers.outputs.pubs != '' }}
@@ -89,7 +89,7 @@ jobs:
           IFS=',' read -ra PUBLIST <<< "${{ steps.publishers.outputs.pubs }}"
           for PUB in "${PUBLIST[@]}"; do
             echo "Running scan for $PUB"
-            python scan_pages.py --config targets.json --publisher "$PUB"
+            python scan_page.py --config targets.json --publisher "$PUB"
           done
 
       - name: Compute daily score if needed
