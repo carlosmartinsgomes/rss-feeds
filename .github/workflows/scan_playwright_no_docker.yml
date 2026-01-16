@@ -1,0 +1,75 @@
+name: PubMatic Pipeline
+
+on:
+  schedule:
+    - cron: "0 6 * * *"   # Slot 0  (06:00 UTC)
+    - cron: "0 9 * * *"   # Slot 1  (09:00 UTC)
+    - cron: "0 12 * * *"  # Slot 2  (12:00 UTC)
+    - cron: "0 15 * * *"  # Slot 3  (15:00 UTC)
+    - cron: "0 18 * * *"  # Slot 4  (18:00 UTC)
+    - cron: "0 21 * * *"  # Slot 5  (21:00 UTC)
+
+  workflow_dispatch:
+
+jobs:
+  run-slot:
+    runs-on: [self-hosted, ip-172-31-78-172]
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      # ---------------------------------------------------------
+      # 1. Determinar slot com base na hora UTC
+      # ---------------------------------------------------------
+      - name: Determine slot
+        id: slot
+        run: |
+          HOUR=$(date -u +"%H")
+          if   [ "$HOUR" = "06" ]; then echo "slot=0" >> $GITHUB_OUTPUT
+          elif [ "$HOUR" = "09" ]; then echo "slot=1" >> $GITHUB_OUTPUT
+          elif [ "$HOUR" = "12" ]; then echo "slot=2" >> $GITHUB_OUTPUT
+          elif [ "$HOUR" = "15" ]; then echo "slot=3" >> $GITHUB_OUTPUT
+          elif [ "$HOUR" = "18" ]; then echo "slot=4" >> $GITHUB_OUTPUT
+          elif [ "$HOUR" = "21" ]; then echo "slot=5" >> $GITHUB_OUTPUT
+          else echo "slot=unknown" >> $GITHUB_OUTPUT
+          fi
+
+      # ---------------------------------------------------------
+      # 2. Correr scan_page.py em modo GLOBAL
+      #    O scan_page.py decide automaticamente quais publishers
+      #    pertencem ao slot, com base no weight_pct.
+      # ---------------------------------------------------------
+      - name: Run global slot scan
+        if: ${{ steps.slot.outputs.slot != 'unknown' }}
+        run: |
+          SLOT=${{ steps.slot.outputs.slot }}
+          echo "Running global scan for slot $SLOT"
+          python scan_page.py --config targets.json --iteration "$SLOT"
+
+      # ---------------------------------------------------------
+      # 3. Calcular score diário apenas no slot 5
+      # ---------------------------------------------------------
+      - name: Compute daily score
+        if: ${{ steps.slot.outputs.slot == '5' }}
+        run: |
+          echo "Computing daily score..."
+          python compute_scores.py
+
+      # ---------------------------------------------------------
+      # 4. Agregar scores semanais/mensais apenas após score diário
+      # ---------------------------------------------------------
+      - name: Aggregate weekly/biweekly/monthly scores
+        if: ${{ steps.slot.outputs.slot == '5' }}
+        run: |
+          echo "Aggregating scores..."
+          python aggregate_scores.py
