@@ -1318,9 +1318,19 @@ def main():
     targets = load_json(args.config)
     proxies = load_json(args.proxies)
     ensure_dir(args.outdir)
-    timestamp = timestamp_str()
-    run_root = os.path.join(args.outdir, timestamp)
+
+    # --- PATCH: criar diretório por dia + subdiretório por run ---
+    from datetime import datetime
+    
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    day_root = os.path.join(args.outdir, today)
+    ensure_dir(day_root)
+    
+    timestamp = timestamp_str()  # mantém a tua função de timestamp como está
+    run_root = os.path.join(day_root, timestamp)
     ensure_dir(run_root)
+    # --- FIM DO PATCH ---
+
 
     # load ad-domains
     ad_strings = DEFAULT_ADTECH_STRINGS[:]
