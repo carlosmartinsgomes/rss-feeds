@@ -9,12 +9,13 @@ on:
     - cron: "0 18 * * *"  # Slot 4  (18:00 UTC)
     - cron: "0 21 * * *"  # Slot 5  (21:00 UTC)
 
-    workflow_dispatch:
-      inputs:
-        manual_slot:
-          description: "Escolhe o slot (0–5) para correr manualmente"
-          required: true
-          default: "0"
+  workflow_dispatch:
+    inputs:
+      manual_slot:
+        description: "Escolhe o slot (0–5) para correr manualmente"
+        required: true
+        default: "0"
+
 
 
 jobs:
