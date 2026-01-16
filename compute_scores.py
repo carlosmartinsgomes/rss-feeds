@@ -257,8 +257,35 @@ def main():
     scores_path = scores_dir / "scores_pubmatic_vs_market.xlsx"
     df_scored.to_excel(scores_path, index=False)
 
+    # ---------------------------------------------------------
+    # Guardar score global diário num histórico simples
+    # ---------------------------------------------------------
+    history_path = Path(args.outdir) / "scores_history.csv"
+    today = day_str  # já vem em formato YYYY-MM-DD
+
+    new_row = pd.DataFrame([{
+        "date": today,
+        "score_daily": score_global
+    }])
+
+    if history_path.exists():
+        hist = pd.read_csv(history_path)
+        hist = pd.concat([hist, new_row], ignore_index=True)
+    else:
+        hist = new_row
+
+    hist.to_csv(history_path, index=False)
+
+    # Criar flag para evitar duplicações (por dia)
+    flag_path = Path(args.outdir) / day_str / "score_done.flag"
+    with open(flag_path, "w") as f:
+        f.write("done")
+
     print(f"Score global diário (ponderado): {score_global:.4f}")
     print(f"Scores escritos em: {scores_path}")
+    print(f"Score diário registado em: {history_path}")
+    print(f"Flag criado em: {flag_path}")
+
 
 
 if __name__ == "__main__":
