@@ -2,7 +2,7 @@ import os
 import pandas as pd
 from datetime import datetime, timedelta
 
-ARTIFACTS_ROOT = "artifacts"
+ARTIFACTS_ROOT = "output"
 
 def load_history():
     """Lê o scores_history.csv com os scores diários."""
