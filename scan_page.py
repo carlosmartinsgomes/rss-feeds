@@ -1144,15 +1144,6 @@ def capture_single_run(
         "ssp_share_of_voice": ssp_share_of_voice,
     }
 
-    try:
-        df = pd.DataFrame(results)   # results é uma lista de summaries individuais
-        xlsx_path = summary_path.replace(".json", ".xlsx")
-        df.to_excel(xlsx_path, index=False)
-
-
-    except Exception:
-        logging.exception("Failed to write summary json to %s", summary_file)
-
     logging.info(
         "Run finished %s pub_wins=%s pub_bids=%s pub_adtech_share=%.4f win_rate=%s",
         safe,
