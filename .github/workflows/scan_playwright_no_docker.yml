@@ -42,14 +42,14 @@ jobs:
         id: slot_base
         run: |
           HOUR=$(date -u +"%H")
-          if   [ "$HOUR" = "06" ]; then echo "slot=0" >> $GITHUB_OUTPUT
-          elif [ "$HOUR" = "09" ]; then echo "slot=1" >> $GITHUB_OUTPUT
-          elif [ "$HOUR" = "12" ]; then echo "slot=2" >> $GITHUB_OUTPUT
-          elif [ "$HOUR" = "15" ]; then echo "slot=3" >> $GITHUB_OUTPUT
-          elif [ "$HOUR" = "18" ]; then echo "slot=4" >> $GITHUB_OUTPUT
-          elif [ "$HOUR" = "21" ]; then echo "slot=5" >> $GITHUB_OUTPUT
-          else echo "slot=unknown" >> $GITHUB_OUTPUT
+          if   [ "$HOUR" -ge 06 ] && [ "$HOUR" -lt 09 ]; then echo "slot=0"
+          elif [ "$HOUR" -ge 09 ] && [ "$HOUR" -lt 12 ]; then echo "slot=1"
+          elif [ "$HOUR" -ge 12 ] && [ "$HOUR" -lt 15 ]; then echo "slot=2"
+          elif [ "$HOUR" -ge 15 ] && [ "$HOUR" -lt 18 ]; then echo "slot=3"
+          elif [ "$HOUR" -ge 18 ] && [ "$HOUR" -lt 21 ]; then echo "slot=4"
+          else echo "slot=5"
           fi
+
 
       # ---------------------------------------------------------
       # 1.b Slot final: usa manual_slot se for workflow_dispatch,
