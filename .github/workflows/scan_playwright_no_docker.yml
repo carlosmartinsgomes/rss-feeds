@@ -85,6 +85,12 @@ jobs:
       #    O scan_page.py decide automaticamente quais publishers
       #    pertencem ao slot, com base no weight_pct.
       # ---------------------------------------------------------
+      - name: DEBUG — Show real working directory
+        run: |
+          echo "PWD = $(pwd)"
+          echo "Listing files:"
+          ls -lah
+
       - name: Run global slot scan
         if: ${{ steps.slot.outputs.slot != 'unknown' }}
         working-directory: ${{ github.workspace }}
