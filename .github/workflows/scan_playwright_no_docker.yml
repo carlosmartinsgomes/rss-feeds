@@ -23,6 +23,13 @@ jobs:
     runs-on: [self-hosted, ip-172-31-78-172]
 
     steps:
+      - name: Clean workspace
+        run: |
+          echo "Cleaning workspace..."
+          git clean -fdx || true
+          rm -rf ./* || true
+
+    
       - name: Checkout repo
         uses: actions/checkout@v4
 
