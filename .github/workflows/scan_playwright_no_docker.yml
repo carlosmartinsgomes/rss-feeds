@@ -80,6 +80,7 @@ jobs:
       # ---------------------------------------------------------
       - name: Run global slot scan
         if: ${{ steps.slot.outputs.slot != 'unknown' }}
+        working-directory: ${{ github.workspace }}
         run: |
           SLOT=${{ steps.slot.outputs.slot }}
           echo "Running global scan for slot $SLOT"
