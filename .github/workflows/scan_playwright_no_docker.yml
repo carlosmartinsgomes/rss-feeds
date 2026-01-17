@@ -91,6 +91,12 @@ jobs:
           echo "Listing files:"
           ls -lah
 
+      - name: DEBUG — Show environment inside job
+        run: |
+          echo "Environment variables:"
+          env | sort
+    
+
       - name: Run global slot scan
         if: ${{ steps.slot.outputs.slot != 'unknown' }}
         working-directory: ${{ github.workspace }}
