@@ -24,10 +24,17 @@ jobs:
 
     steps:
       - name: Clean workspace
+        working-directory: ${{ github.workspace }}
         run: |
           echo "Cleaning workspace..."
           git clean -fdx || true
           rm -rf ./* || true
+
+      - name: Debug PWD
+        run: |
+          echo "PWD = $(pwd)"
+          echo "Listing:"
+          ls -lah
 
     
       - name: Checkout repo
