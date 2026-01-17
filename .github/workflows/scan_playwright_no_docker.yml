@@ -97,7 +97,7 @@ jobs:
         run: |
           SLOT=${{ steps.slot.outputs.slot }}
           echo "Running global scan for slot $SLOT"
-          python scan_page.py --config targets.json --iteration "$SLOT" --verbose
+          python ${{ github.workspace }}/scan_page.py --config targets.json --iteration "$SLOT" --verbose
 
       # ---------------------------------------------------------
       # 3. Calcular score diário apenas no slot 5
