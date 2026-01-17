@@ -1,0 +1,76 @@
+{
+  "publishers": [
+    {
+      "domain": "X.com",
+      "weight_pct": 50.0,
+      "pages": [
+        { "url": "https://x.com", "label": "homepage", "mobile": false },
+        { "url": "https://x.com/home", "label": "feed_home", "mobile": false },
+        { "url": "https://x.com/explore", "label": "explore", "mobile": false },
+        { "url": "https://m.x.com", "label": "mobile_homepage", "mobile": true },
+        { "url": "https://m.x.com/explore", "label": "mobile_explore", "mobile": true }
+      ]
+    },
+    {
+      "domain": "FoxNews",
+      "weight_pct": 15.0,
+      "pages": [
+        { "url": "https://www.foxnews.com", "label": "homepage", "mobile": false },
+        { "url": "https://www.foxnews.com/politics", "label": "politics", "mobile": false },
+        { "url": "https://www.foxnews.com/us", "label": "us", "mobile": false },
+        { "url": "https://m.foxnews.com", "label": "mobile_homepage", "mobile": true },
+        { "url": "https://m.foxnews.com/politics", "label": "mobile_politics", "mobile": true }
+      ]
+    },
+    {
+      "domain": "IMDB",
+      "weight_pct": 12.0,
+      "pages": [
+        { "url": "https://www.imdb.com", "label": "homepage", "mobile": false },
+        { "url": "https://www.imdb.com/chart/top", "label": "top_movies", "mobile": false },
+        { "url": "https://www.imdb.com/news", "label": "news", "mobile": false },
+        { "url": "https://m.imdb.com", "label": "mobile_homepage", "mobile": true },
+        { "url": "https://m.imdb.com/chart/top", "label": "mobile_top_movies", "mobile": true }
+      ]
+    },
+    {
+      "domain": "NYPost",
+      "weight_pct": 8.0,
+      "pages": [
+        { "url": "https://nypost.com", "label": "homepage", "mobile": false },
+        { "url": "https://nypost.com/news", "label": "news", "mobile": false },
+        { "url": "https://nypost.com/sports", "label": "sports", "mobile": false },
+        { "url": "https://m.nypost.com", "label": "mobile_homepage", "mobile": true },
+        { "url": "https://m.nypost.com/news", "label": "mobile_news", "mobile": true }
+      ]
+    },
+    {
+      "domain": "Crunchyroll",
+      "weight_pct": 6.0,
+      "pages": [
+        { "url": "https://www.crunchyroll.com", "label": "homepage", "mobile": false },
+        { "url": "https://www.crunchyroll.com/news", "label": "news", "mobile": false },
+        { "url": "https://www.crunchyroll.com/videos/anime", "label": "anime_videos", "mobile": false },
+        { "url": "https://m.crunchyroll.com", "label": "mobile_homepage", "mobile": true }
+      ]
+    },
+    {
+      "domain": "MLB",
+      "weight_pct": 5.0,
+      "pages": [
+        { "url": "https://www.mlb.com", "label": "homepage", "mobile": false },
+        { "url": "https://www.mlb.com/scores", "label": "scores", "mobile": false },
+        { "url": "https://m.mlb.com", "label": "mobile_homepage", "mobile": true }
+      ]
+    },
+    {
+      "domain": "Nextdoor",
+      "weight_pct": 4.0,
+      "pages": [
+        { "url": "https://nextdoor.com/news_feed", "label": "news_feed", "mobile": false },
+        { "url": "https://nextdoor.com/find-neighborhood", "label": "find_neighborhood", "mobile": false },
+        { "url": "https://m.nextdoor.com/news_feed", "label": "mobile_news_feed", "mobile": true }
+      ]
+    }
+  ]
+}
