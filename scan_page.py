@@ -1114,7 +1114,6 @@ def run_page_aggregated(
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--targets", default="targets.json")
     parser.add_argument("--proxies", default=DEFAULT_PROXY_FILE)
     parser.add_argument("--outdir", default=DEFAULT_OUTDIR)
     parser.add_argument(
