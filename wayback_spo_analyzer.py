@@ -30,7 +30,7 @@ Uso:
       --log-file analise_log.json \
       --out wayback_spo_report.xlsx
 """
-
+print("[BOOT] Script entrou no ficheiro")
 import argparse
 import requests
 import time
@@ -45,13 +45,13 @@ import pandas as pd
 import pycountry
 from requests.utils import requote_uri
 from urllib.parse import urlparse
-
+print("[BOOT] Imports concluídos")
 # -------------------------
 # Configuráveis
 # -------------------------
 CDX_API = "https://web.archive.org/cdx/search/cdx"
 WAYBACK_GET = "https://web.archive.org/web/{ts}/{orig}"
-START_DATE = "20250101"  # start period fallback
+START_DATE = "20260115"  # start period fallback
 ANALYSIS_LOG = "analise_log.json"
 OUT_XLSX = "wayback_spo_report.xlsx"
 
@@ -1163,7 +1163,7 @@ def analyze_domain(domain, from_date, to_date):
 
     cur_year = datetime.utcnow().year
     per_year = {}
-    for y in range(2025, cur_year + 1):
+    for y in range(2026, 2027):
         per_year[y] = by_year.get(y, 0)
     results["per_year_counts"] = per_year
     results["longest_gap_days"] = max_gap
