@@ -322,12 +322,16 @@ def save_log(log, path=ANALYSIS_LOG):
 # CDX & Wayback helpers
 # -------------------------
 def cdx_query(url_pattern, from_ts=None, to_ts=None, filters=None, limit=10000):
+    # PASSO 2 — log da query primária
+    print(f"[CDX] Querying primary CDX for {url_pattern}")
+
     """
     Robust CDX query with multi-variant attempts and monthly-chunk fallback.
     Returns: (list_of_snapshots, variant_map)
     - list_of_snapshots: sorted list of Snapshot objects
     - variant_map: dict keyed by (timestamp, digest_or_original) -> list(variant_strings)
     """
+
     def _rows_from_response(r):
         if not r:
             return [], getattr(r, "status_code", None)
@@ -392,7 +396,7 @@ def cdx_query(url_pattern, from_ts=None, to_ts=None, filters=None, limit=10000):
     except Exception:
         rows = []
 
-    # 2) https/http + www variants (do not early exit; collect everything)
+    # 2) https/http + www variants
     host = url_pattern
     path = ""
     if '/' in url_pattern:
@@ -417,7 +421,7 @@ def cdx_query(url_pattern, from_ts=None, to_ts=None, filters=None, limit=10000):
             except Exception:
                 continue
 
-    # 3) prefix match (useful when path may be stored differently)
+    # 3) prefix match
     if path:
         prefix_candidate = f"{host}/{path}"
         try:
@@ -443,12 +447,10 @@ def cdx_query(url_pattern, from_ts=None, to_ts=None, filters=None, limit=10000):
         results.sort(key=lambda x: x.timestamp)
         return results, {k: sorted(list(v)) for k, v in variant_map.items()}
 
-    # ----- FALLBACK: chunk by month (only if from_ts and to_ts specified) -----
+    # ----- FALLBACK: chunk by month -----
     if not from_ts or not to_ts:
-        # nothing more we can do
         return [], {}
 
-    # parse from_ts/to_ts: accept YYYYMMDD or YYYYMMDDHHMMSS (use YYYYMMDD for monthly boundaries)
     def _parse_yyyymmdd(s):
         if not s:
             return None
@@ -469,28 +471,28 @@ def cdx_query(url_pattern, from_ts=None, to_ts=None, filters=None, limit=10000):
     chunks = []
     cur = datetime(start_dt.year, start_dt.month, 1)
     while cur <= end_dt:
-        # last day of month: move to next month first day minus one day
         if cur.month == 12:
             nxt = datetime(cur.year + 1, 1, 1)
         else:
             nxt = datetime(cur.year, cur.month + 1, 1)
         chunk_end = nxt - timedelta(days=1)
         chunk_from_str = cur.strftime("%Y%m%d")
-        # set chunk_to as last second of day for safety (YYYYMMDD -> CDX will accept)
         chunk_to_str = chunk_end.strftime("%Y%m%d")
         chunks.append((chunk_from_str, chunk_to_str))
-        # advance
         cur = nxt
 
-    # Query each chunk using variant attempts (a lighter version: exact + https/www + prefix + host)
+    # Query each chunk
     for idx, (cf, ct) in enumerate(chunks, start=1):
-        print(f"[DEBUG CDX] chunk {idx}/{len(chunks)} -> {cf} .. {ct}")
+        # PASSO 3 — log de cada chunk mensal
+        print(f"[CDX] Monthly chunk {idx}/{len(chunks)} → {cf} .. {ct}")
+
         # exact
         try:
             rows, status = _query_once(url_pattern, match_type=None, f_from=cf, f_to=ct)
             _add_rows(rows, f"exact[{cf}:{ct}]", collected, results, variant_map)
         except Exception:
             rows = []
+
         # schemes/www
         for scheme in schemes:
             for www in www_variants:
@@ -503,6 +505,7 @@ def cdx_query(url_pattern, from_ts=None, to_ts=None, filters=None, limit=10000):
                     _add_rows(rows, f"{scheme}{www}exact[{cf}:{ct}]", collected, results, variant_map)
                 except Exception:
                     continue
+
         # prefix
         if path:
             try:
@@ -510,6 +513,7 @@ def cdx_query(url_pattern, from_ts=None, to_ts=None, filters=None, limit=10000):
                 _add_rows(rows, f"prefix[{cf}:{ct}]", collected, results, variant_map)
             except Exception:
                 pass
+
         # host
         try:
             rows, status = _query_once(f"{host}/", match_type="host", f_from=cf, f_to=ct)
@@ -522,11 +526,11 @@ def cdx_query(url_pattern, from_ts=None, to_ts=None, filters=None, limit=10000):
         except Exception:
             pass
 
-        # small sleep between chunks to be polite and avoid overwhelming CDX
         time.sleep(0.8 + random.random() * 0.6)
 
     results.sort(key=lambda x: x.timestamp)
     return results, {k: sorted(list(v)) for k, v in variant_map.items()}
+
 
 
 
