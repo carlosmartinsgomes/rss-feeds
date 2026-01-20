@@ -54,6 +54,14 @@ WAYBACK_GET = "https://web.archive.org/web/{ts}/{orig}"
 START_DATE = "20260115"  # start period fallback
 ANALYSIS_LOG = "analise_log.json"
 OUT_XLSX = "wayback_spo_report.xlsx"
+# -------------------------
+# Debug (temporary)
+# -------------------------
+DEBUG_MODE = True               # True enquanto despistes; depois põe False
+DEBUG_TIMEOUT = 30              # timeout curto para requests CDX enquanto debug
+DEBUG_MAX_RETRIES = 3           # retries reduzidos para debug
+DEBUG_LOG = "cdx_debug_trace.log"
+
 
 # sampling config
 SNAPSHOTS_PER_YEAR = 2
@@ -213,87 +221,105 @@ def _log_504_response_and_print(r, url, params):
 
 def safe_request(url, params=None, timeout=20, allow_redirects=True, max_retries=MAX_RETRIES):
     """
-    safe_request melhorada:
-      - faz retries com backoff para códigos transitórios (429, 5xx, 504)
-      - se for o endpoint CDX e esgotarem-se as tentativas, tenta um fallback HTTP/alteração de headers
-      - regista debug detalhado (como antes)
+    safe_request (DEBUGGED)
+    - prints/flushes each attempt, exception, status and backoff
+    - writes a concise trace to DEBUG_LOG
+    - honors DEBUG_MODE: if DEBUG_MODE True, reduces timeouts/retries where sensible
     """
     headers = {
         "User-Agent": "Mozilla/5.0 (compatible; WaybackSPOAnalyzer/1.0)",
         "Accept": "application/json, text/plain, */*",
         "Connection": "close"
     }
+
+    # honour debug overrides
+    if DEBUG_MODE:
+        effective_timeout = min(timeout, DEBUG_TIMEOUT)
+        effective_max_retries = min(max_retries, DEBUG_MAX_RETRIES)
+    else:
+        effective_timeout = timeout
+        effective_max_retries = max_retries
+
     attempt = 0
     tried_http_fallback = False
 
+    def _write_log(line):
+        try:
+            with open(DEBUG_LOG, "a", encoding="utf-8") as fh:
+                fh.write(f"{datetime.utcnow().isoformat()} {line}\n")
+        except Exception:
+            pass
+
+    # initial debug print
+    pre_msg = f"[safe_request] START url={url} params={params} timeout={effective_timeout} max_retries={effective_max_retries}"
+    print(pre_msg, flush=True)
+    _write_log(pre_msg)
+
     while True:
         try:
-            r = requests.get(url, params=params, timeout=timeout, allow_redirects=allow_redirects, headers=headers)
-        except Exception as e:
             attempt += 1
-            if attempt > max_retries:
-                print(f"[WARN] safe_request giving up after {attempt-1} retries on network error for {url}: {e}")
+            attempt_msg = f"[safe_request] attempt={attempt} GET {url} params={params} (timeout={effective_timeout})"
+            print(attempt_msg, flush=True)
+            _write_log(attempt_msg)
+
+            r = requests.get(url, params=params, timeout=effective_timeout, allow_redirects=allow_redirects, headers=headers)
+
+            status = getattr(r, "status_code", None)
+            got_msg = f"[safe_request] got response status={status} elapsed={getattr(r, 'elapsed', '')} url_final={getattr(r, 'url', '')}"
+            print(got_msg, flush=True)
+            _write_log(got_msg)
+
+            if status in RETRY_STATUS_CODES:
+                if status == 504:
+                    _log_504_response_and_print(r, url, params)
+                    _write_log(f"[safe_request] 504 details logged via _log_504_response_and_print")
+                retry_after = r.headers.get("Retry-After")
+                if retry_after:
+                    try:
+                        wait = int(retry_after)
+                    except Exception:
+                        try:
+                            retry_date = datetime.strptime(retry_after, "%a, %d %b %Y %H:%M:%S %Z")
+                            wait = (retry_date - datetime.utcnow()).total_seconds()
+                            if wait < 0:
+                                wait = _compute_backoff(attempt)
+                        except Exception:
+                            wait = _compute_backoff(attempt)
+                else:
+                    wait = _compute_backoff(attempt)
+
+                if attempt >= effective_max_retries:
+                    final_msg = f"[safe_request] max retries reached ({attempt}/{effective_max_retries}) status={status} returning response"
+                    print(final_msg, flush=True)
+                    _write_log(final_msg)
+                    return r
+
+                retry_msg = f"[safe_request] transient status={status}, will sleep {wait:.1f}s then retry ({attempt}/{effective_max_retries})"
+                print(retry_msg, flush=True)
+                _write_log(retry_msg)
+                time.sleep(max(0.1, wait))
+                continue
+
+            # success (non-transient code)
+            return r
+
+        except Exception as e:
+            exc_msg = f"[safe_request] exception attempt={attempt} error={repr(e)}"
+            print(exc_msg, flush=True)
+            _write_log(exc_msg)
+
+            if attempt >= effective_max_retries:
+                giveup_msg = f"[safe_request] giving up after {attempt} attempts due to network error: {e}"
+                print(giveup_msg, flush=True)
+                _write_log(giveup_msg)
                 return None
-            sleep_for = _compute_backoff(attempt - 1)
-            print(f"[DEBUG] network error fetching {url}: {e}. retry {attempt}/{max_retries} -> sleeping {sleep_for:.1f}s")
+
+            sleep_for = _compute_backoff(attempt)
+            backoff_msg = f"[safe_request] network error, sleeping {sleep_for:.1f}s before retry"
+            print(backoff_msg, flush=True)
+            _write_log(backoff_msg)
             time.sleep(sleep_for)
             continue
-
-        status = r.status_code
-        if status in RETRY_STATUS_CODES:
-            if status == 504:
-                # imprime e grava imediatamente para diagnóstico
-                _log_504_response_and_print(r, url, params)
-            retry_after = r.headers.get("Retry-After")
-
-            if retry_after:
-                try:
-                    wait = int(retry_after)
-                except Exception:
-                    try:
-                        retry_date = datetime.strptime(retry_after, "%a, %d %b %Y %H:%M:%S %Z")
-                        wait = (retry_date - datetime.utcnow()).total_seconds()
-                        if wait < 0:
-                            wait = _compute_backoff(attempt)
-                    except Exception:
-                        wait = _compute_backoff(attempt)
-            else:
-                wait = _compute_backoff(attempt)
-
-            attempt += 1
-            if attempt > max_retries:
-                print(f"[WARN] safe_request: max retries reached for {url} status={status}")
-                # Se for o CDX endpoint e ainda não tentámos fallback HTTP, tentamos agora
-                if ("web.archive.org/cdx/search/cdx" in url.lower()) and (not tried_http_fallback):
-                    tried_http_fallback = True
-                    fb_attempt = 0
-                    print(f"[DEBUG] safe_request: trying HTTP fallback for CDX endpoint (extra {FALLBACK_RETRIES} attempts)")
-                    # trocar https -> http na URL (se aplicável)
-                    if url.lower().startswith("https://"):
-                        fb_url = "http://" + url[len("https://"):]
-                    else:
-                        fb_url = url
-                    while fb_attempt < FALLBACK_RETRIES:
-                        fb_attempt += 1
-                        fb_wait = _compute_backoff(fb_attempt)
-                        print(f"[DEBUG] safe_request: HTTP-fallback attempt {fb_attempt}/{FALLBACK_RETRIES} (sleep {fb_wait:.1f}s)")
-                        time.sleep(fb_wait)
-                        try:
-                            r2 = requests.get(fb_url, params=params, timeout=timeout, allow_redirects=allow_redirects, headers=headers)
-                            if r2 is not None and r2.status_code not in RETRY_STATUS_CODES:
-                                return r2
-                            else:
-                                print(f"[DEBUG] safe_request: HTTP-fallback status {None if r2 is None else r2.status_code} for {fb_url}")
-                        except Exception as e2:
-                            print(f"[DEBUG] safe_request: HTTP-fallback network error for {fb_url}: {e2}")
-                    print("[WARN] safe_request: HTTP fallback exhausted")
-                return r
-            print(f"[DEBUG] safe_request: transient status {status} for {url}. retry {attempt}/{max_retries} sleeping {wait:.1f}s")
-            time.sleep(max(0.1, wait))
-            continue
-
-        # sucesso (ou outro status não considerado transitório)
-        return r
 
 
 
