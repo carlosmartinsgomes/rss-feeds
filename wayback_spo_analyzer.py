@@ -950,90 +950,159 @@ def binary_search_change(snaps, get_signature_fn, left_idx, right_idx, max_itera
 # -------------------------
 def compute_pubmatic_score(sig_cache, snaps_reduced, domain):
     """
-    Constrói um score 0-100 para PubMatic baseado em:
-      - presença em ads.txt
-      - número de IDs DIRECT
-      - persistência temporal
-      - exclusividade
-      - tech tokens no HTML
-      - sinais Prebid (floors, geo)
+    Novo scoring estruturado 0–100:
+      - Score_ads   (0–25)
+      - Score_share (0–25)
+      - Score_tech  (0–25)
+      - Score_geo   (0–25)
+
+    Devolve:
+      {
+        "score": float,
+        "score_ads": float,
+        "score_share": float,
+        "score_tech": float,
+        "score_geo": float
+      }
     """
-    score = 0.0
+
     max_score = 100.0
 
+    # --- coletores ---
     pub_presence = 0
     pub_direct_ids = set()
     pub_reseller_ids = set()
-    pub_exclusive_periods = 0
     pub_tech_hits = 0
     pub_prebid_geo = set()
     pub_prebid_floors = []
+    presence_by_index = []
 
     for idx, s in enumerate(snaps_reduced):
         fetched = sig_cache.get((s.timestamp, s.digest))
         if not fetched:
             continue
+
         sig = fetched.get("signature") or {}
+        html_info = fetched.get("html_info") or {}
+        prebid = html_info.get("prebid") or {}
+
+        # ads.txt
         if sig.get("pubmatic_ads"):
             pub_presence += 1
-            for sid in sig.get("pubmatic_list_direct", []):
-                pub_direct_ids.add(sid)
-            for sid in sig.get("pubmatic_list_reseller", []):
-                pub_reseller_ids.add(sid)
-        html_info = fetched.get("html_info") or {}
+            pub_direct_ids.update(sig.get("pubmatic_list_direct", []))
+            pub_reseller_ids.update(sig.get("pubmatic_list_reseller", []))
+
+        # tech
         if html_info.get("pubmatic_tech"):
             pub_tech_hits += 1
-        prebid = html_info.get("prebid") or {}
+
+        # prebid
         for g in prebid.get("geo_clues", []):
             pub_prebid_geo.add(g)
         for f, c in prebid.get("floors", []):
-            pub_prebid_floors.append(f)
+            try:
+                pub_prebid_floors.append(float(f))
+            except:
+                pass
+
+        # concorrência
+        ssp_count = 0
+        for ssp in SSP_DEFS.keys():
+            if sig.get(f"{ssp}_ads"):
+                ssp_count += 1
+        presence_by_index.append((idx, s.timestamp, ssp_count, sig, fetched))
+
+    # -------------------------
+    # 1) Score_ads (0–25)
+    # -------------------------
+    score_ads = 0.0
 
     if pub_presence > 0:
-        score += min(25.0, 5.0 * math.log1p(pub_presence))
+        score_ads += min(12.0, 4.0 * math.log1p(pub_presence))
 
-    if len(pub_direct_ids) > 0:
-        score += min(25.0, 6.0 * math.log1p(len(pub_direct_ids)))
+    n_direct = len(pub_direct_ids)
+    if n_direct > 0:
+        score_ads += min(9.0, 3.0 * math.log1p(n_direct))
 
-    if pub_tech_hits > 0:
-        score += min(15.0, 4.0 * math.log1p(pub_tech_hits))
+    total_ids = n_direct + len(pub_reseller_ids)
+    if total_ids > 0:
+        direct_ratio = n_direct / total_ids
+        score_ads += 4.0 * direct_ratio
 
-    if pub_prebid_geo:
-        score += min(15.0, 5.0 * len(pub_prebid_geo))
+    score_ads = min(25.0, score_ads)
 
-    if pub_prebid_floors:
-        avg_floor = sum(pub_prebid_floors) / max(1, len(pub_prebid_floors))
-        score += min(10.0, avg_floor * 1.5)
+    # -------------------------
+    # 2) Score_share (0–25)
+    # -------------------------
+    score_share = 0.0
+    share_values = []
+    exclusive_periods = 0
 
-    presence_by_index = []
-    for idx, s in enumerate(snaps_reduced):
-        fetched = sig_cache.get((s.timestamp, s.digest))
-        if not fetched:
-            continue
-        sig = fetched.get("signature")
-        count = 0
-        if sig:
-            for ssp in SSP_DEFS.keys():
-                if sig.get(f"{ssp}_ads"):
-                    count += 1
-        presence_by_index.append((idx, s.timestamp, count, sig, fetched))
+    for idx, ts, ssp_count, sig, fetched in presence_by_index:
+        if ssp_count > 0 and sig.get("pubmatic_ads"):
+            share_values.append(1.0 / ssp_count)
+
+    if share_values:
+        avg_share = sum(share_values) / len(share_values)
+        score_share += min(15.0, 30.0 * avg_share)
 
     for i in range(1, len(presence_by_index)):
         prev = presence_by_index[i - 1]
         cur = presence_by_index[i]
-        prev_count = prev[2]
-        cur_count = cur[2]
-        if prev_count >= 3 and cur_count == 1:
+        if prev[2] >= 3 and cur[2] == 1:
             cur_sig = cur[3] or {}
             remaining = [ssp for ssp in SSP_DEFS.keys() if cur_sig.get(f"{ssp}_ads")]
-            if len(remaining) == 1 and remaining[0] == "pubmatic":
-                pub_exclusive_periods += 1
+            if remaining == ["pubmatic"]:
+                exclusive_periods += 1
 
-    if pub_exclusive_periods > 0:
-        score += min(10.0, 5.0 * pub_exclusive_periods)
+    if exclusive_periods > 0:
+        score_share += min(10.0, 3.0 * exclusive_periods)
 
-    score = max(0.0, min(max_score, score))
-    return score
+    score_share = min(25.0, score_share)
+
+    # -------------------------
+    # 3) Score_tech (0–25)
+    # -------------------------
+    score_tech = 0.0
+
+    if pub_tech_hits > 0:
+        score_tech += min(12.0, 4.0 * math.log1p(pub_tech_hits))
+
+    if pub_prebid_geo:
+        score_tech += min(8.0, 2.0 * len(pub_prebid_geo))
+
+    if pub_prebid_floors:
+        avg_floor = sum(pub_prebid_floors) / len(pub_prebid_floors)
+        score_tech += min(5.0, avg_floor * 0.5)
+
+    score_tech = min(25.0, score_tech)
+
+    # -------------------------
+    # 4) Score_geo (0–25)
+    # -------------------------
+    score_geo = 0.0
+    strategic = {"US", "GB", "DE", "FR", "CA", "AU", "IN"}
+
+    if pub_prebid_geo:
+        score_geo += min(15.0, 3.0 * math.log1p(len(pub_prebid_geo)))
+        score_geo += min(10.0, 3.0 * len(pub_prebid_geo & strategic))
+
+    score_geo = min(25.0, score_geo)
+
+    # -------------------------
+    # Final
+    # -------------------------
+    final_score = score_ads + score_share + score_tech + score_geo
+    final_score = max(0.0, min(max_score, final_score))
+
+    return {
+        "score": final_score,
+        "score_ads": score_ads,
+        "score_share": score_share,
+        "score_tech": score_tech,
+        "score_geo": score_geo
+    }
+
 
 # -------------------------
 # High-level domain analysis
@@ -1166,8 +1235,26 @@ def analyze_domain(domain, from_date, to_date):
                 "original": s.original,
                 "html_info": {}
             }
+    
+        # primeiro colocamos no cache, para o compute_pubmatic_score o conseguir ler
         sig_cache[key] = fetched
+    
+        # adicionar score por snapshot (protegido com try para não quebrar o fluxo)
+        try:
+            pub_score_snapshot = compute_pubmatic_score(sig_cache, [s], domain)
+            fetched["pubmatic_snapshot_score"] = pub_score_snapshot["score"]
+            fetched["pubmatic_snapshot_subscores"] = {
+                "ads": pub_score_snapshot["score_ads"],
+                "share": pub_score_snapshot["score_share"],
+                "tech": pub_score_snapshot["score_tech"],
+                "geo": pub_score_snapshot["score_geo"]
+            }
+        except Exception:
+            # se por algum motivo falhar, seguimos sem scores por snapshot
+            pass
+    
         return fetched
+
 
     timestamps_to_index = {s.timestamp: i for i, s in enumerate(snaps_reduced)}
     sampled_indices = []
@@ -1367,7 +1454,34 @@ def analyze_domain(domain, from_date, to_date):
         )
 
     pub_score = compute_pubmatic_score(sig_cache, snaps_reduced, domain)
-    results["pubmatic_score"] = pub_score
+    results["pubmatic_score"] = pub_score["score"]
+    results["pubmatic_subscores"] = {
+        "ads": pub_score["score_ads"],
+        "share": pub_score["score_share"],
+        "tech": pub_score["score_tech"],
+        "geo": pub_score["score_geo"]
+    }
+    # guardar timeline de scores
+    timeline = []
+    for idx, s in enumerate(snaps_reduced):
+        fetched = sig_cache.get((s.timestamp, s.digest))
+        if not fetched:
+            continue
+        timeline.append({
+            "domain": domain,
+            "timestamp": s.timestamp,
+            "score": fetched.get("pubmatic_snapshot_score"),
+            "score_ads": fetched.get("pubmatic_snapshot_subscores", {}).get("ads"),
+            "score_share": fetched.get("pubmatic_snapshot_subscores", {}).get("share"),
+            "score_tech": fetched.get("pubmatic_snapshot_subscores", {}).get("tech"),
+            "score_geo": fetched.get("pubmatic_snapshot_subscores", {}).get("geo"),
+            "suspect": fetched.get("suspect"),
+            "length": fetched.get("length"),
+            "digest": fetched.get("digest")
+        })
+    
+    results["pubmatic_timeline"] = timeline
+
 
     return results
 
@@ -1383,9 +1497,13 @@ def generate_report(all_results, out_xlsx=OUT_XLSX):
     managers_rows = []
     human_rows = []
     pubmatic_rows = []
+    pubmatic_sub_rows = []
+    pubmatic_timeline_rows = []
 
     for res in all_results:
         domain = res["domain"]
+
+        # Summary
         summary_rows.append({
             "domain": domain,
             "from": res.get("from"),
@@ -1398,6 +1516,17 @@ def generate_report(all_results, out_xlsx=OUT_XLSX):
             "pubmatic_score": res.get("pubmatic_score")
         })
 
+        # PubMatic subscores (por domínio)
+        sub = res.get("pubmatic_subscores", {})
+        pubmatic_sub_rows.append({
+            "domain": domain,
+            "score_ads": sub.get("ads"),
+            "score_share": sub.get("share"),
+            "score_tech": sub.get("tech"),
+            "score_geo": sub.get("geo")
+        })
+
+        # Timeline de eventos (SSP added/removed/changed)
         for ev in res.get("events", []):
             timeline_rows.append({
                 "domain": domain,
@@ -1409,6 +1538,7 @@ def generate_report(all_results, out_xlsx=OUT_XLSX):
                 else json.dumps({"sig_lo": ev.get("sig_lo"), "sig_hi": ev.get("sig_hi")})
             })
 
+        # AdsSnapshots (janelas lo/hi + variantes)
         for sr in res.get("snapshots_records", []):
             adsdetail_rows.append({
                 "domain": domain,
@@ -1424,22 +1554,31 @@ def generate_report(all_results, out_xlsx=OUT_XLSX):
                 "variant_hi": ",".join(sr.get("variant_hi", [])) if sr.get("variant_hi") else ""
             })
 
+        # AdsManagers
         for m in res.get("ads_managers", []):
             managers_rows.append({"domain": domain, "manager": m})
 
+        # HumanSummary
         for hr in res.get("human_summary", []):
             human_rows.append({"domain": domain, "message": hr})
 
+        # Hosts (seller_id por snapshot)
         for h in res.get("host_rows", []):
             host_rows.append(h)
 
+        # SSP_IDs agregados
         for srow in res.get("ssp_id_rows", []):
             ssp_id_rows.append(srow)
 
+        # PubMatic score por domínio
         pubmatic_rows.append({
             "domain": domain,
             "pubmatic_score": res.get("pubmatic_score")
         })
+
+        # PubMatic timeline por snapshot
+        for row in res.get("pubmatic_timeline", []):
+            pubmatic_timeline_rows.append(row)
 
     with pd.ExcelWriter(out_xlsx, engine='openpyxl') as writer:
         pd.DataFrame(summary_rows).to_excel(writer, sheet_name="Summary", index=False)
@@ -1450,8 +1589,11 @@ def generate_report(all_results, out_xlsx=OUT_XLSX):
         pd.DataFrame(managers_rows).to_excel(writer, sheet_name="AdsManagers", index=False)
         pd.DataFrame(human_rows).to_excel(writer, sheet_name="HumanSummary", index=False)
         pd.DataFrame(pubmatic_rows).to_excel(writer, sheet_name="PubmaticScore", index=False)
+        pd.DataFrame(pubmatic_sub_rows).to_excel(writer, sheet_name="PubmaticSubscores", index=False)
+        pd.DataFrame(pubmatic_timeline_rows).to_excel(writer, sheet_name="PubmaticTimeline", index=False)
 
     print(f"Wrote report -> {out_xlsx}")
+
 
 # -------------------------
 # CLI / Orchestration
