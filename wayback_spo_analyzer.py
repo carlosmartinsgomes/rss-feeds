@@ -1108,6 +1108,7 @@ def compute_pubmatic_score(sig_cache, snaps_reduced, domain):
 # High-level domain analysis
 # -------------------------
 def analyze_domain(domain, from_date, to_date):
+    print(f"[WAYBACK] Starting analysis for {domain}")
     results = {
         "domain": domain,
         "from": from_date,
