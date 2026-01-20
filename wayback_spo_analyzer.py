@@ -1605,29 +1605,39 @@ def generate_report(all_results, out_xlsx=OUT_XLSX):
 # CLI / Orchestration
 # -------------------------
 def main():
-    global SLEEP_MIN, SLEEP_MAX  # MOVIDO PARA A PRIMEIRA LINHA DA FUNÇÃO
+    global SLEEP_MIN, SLEEP_MAX
+
+    print("[BOOT] Script started")
+
     parser = argparse.ArgumentParser(description="Wayback SPO Analyzer: CDX + Bisection for ads.txt\r\nchanges + PubMatic scoring")
     parser.add_argument("--domains-file", default="principaldomains", help="file with domains one\r\nper line")
     parser.add_argument("--log-file", default=ANALYSIS_LOG, help="analysis log JSON path")
     parser.add_argument("--from-default", default=START_DATE, help="default start YYYYMMDD\r\n(inclusive)")
-    # Removemos os defaults para evitar o UnboundLocalError
     parser.add_argument("--sleep-min", type=float, help=f"Min sleep (default: {SLEEP_MIN})")
     parser.add_argument("--sleep-max", type=float, help=f"Max sleep (default: {SLEEP_MAX})")
     parser.add_argument("--out", default=OUT_XLSX)
     args = parser.parse_args()
 
-    # Agora sim, ajustamos as globais (que afetam outras funções) se o user passou o argumento.
+    print(f"[BOOT] args.domains_file = {args.domains_file}")
+    print(f"[BOOT] args.log_file = {args.log_file}")
+    print(f"[BOOT] args.out = {args.out}")
+
+    # ajustar globais
     if args.sleep_min is not None:
         SLEEP_MIN = args.sleep_min
     if args.sleep_max is not None:
         SLEEP_MAX = args.sleep_max
 
+    print("[BOOT] Vou ler domains...")
     domains = read_domains(args.domains_file)
+    print(f"[BOOT] Li {len(domains)} domains")
+
+    print("[BOOT] Vou carregar log...")
     log = load_log(args.log_file)
+    print("[BOOT] Log carregado")
+
     all_results = []
     today = datetime.utcnow().strftime("%Y%m%d")
-        # ... (o resto da função main continua)
-
 
     for dom in domains:
         print(f"[INFO] Domain {dom}")
@@ -1648,6 +1658,7 @@ def main():
 
     generate_report(all_results, out_xlsx=args.out)
     save_log(log, args.log_file)
+    print(f"[BOOT] Finished. Wrote report -> {args.out}")
 
 
 if __name__ == "__main__":
