@@ -51,7 +51,7 @@ from urllib.parse import urlparse
 # -------------------------
 CDX_API = "https://web.archive.org/cdx/search/cdx"
 WAYBACK_GET = "https://web.archive.org/web/{ts}/{orig}"
-START_DATE = "20240101"  # start period fallback
+START_DATE = "20250101"  # start period fallback
 ANALYSIS_LOG = "analise_log.json"
 OUT_XLSX = "wayback_spo_report.xlsx"
 
@@ -1158,7 +1158,7 @@ def analyze_domain(domain, from_date, to_date):
 
     cur_year = datetime.utcnow().year
     per_year = {}
-    for y in range(2024, cur_year + 1):
+    for y in range(2025, cur_year + 1):
         per_year[y] = by_year.get(y, 0)
     results["per_year_counts"] = per_year
     results["longest_gap_days"] = max_gap
@@ -1178,6 +1178,9 @@ def analyze_domain(domain, from_date, to_date):
     median_len = median_length_of_snapshots(snaps_reduced)
 
     def get_sig_by_index_in_reduced(idx):
+        # log de progresso por snapshot
+        print(f"[WAYBACK] Fetching snapshot {idx+1}/{len(snaps_reduced)} for {domain}")
+    
         s = snaps_reduced[idx]
         key = (s.timestamp, s.digest)
         if key in sig_cache:
@@ -1236,10 +1239,8 @@ def analyze_domain(domain, from_date, to_date):
                 "html_info": {}
             }
     
-        # primeiro colocamos no cache, para o compute_pubmatic_score o conseguir ler
         sig_cache[key] = fetched
     
-        # adicionar score por snapshot (protegido com try para não quebrar o fluxo)
         try:
             pub_score_snapshot = compute_pubmatic_score(sig_cache, [s], domain)
             fetched["pubmatic_snapshot_score"] = pub_score_snapshot["score"]
@@ -1250,10 +1251,10 @@ def analyze_domain(domain, from_date, to_date):
                 "geo": pub_score_snapshot["score_geo"]
             }
         except Exception:
-            # se por algum motivo falhar, seguimos sem scores por snapshot
             pass
     
         return fetched
+
 
 
     timestamps_to_index = {s.timestamp: i for i, s in enumerate(snaps_reduced)}
