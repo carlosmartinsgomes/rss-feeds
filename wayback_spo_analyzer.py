@@ -16,7 +16,7 @@ WAYBACK_TIMEMAP = "https://web.archive.org/web/timemap/json/{}"
 # Wayback timemap helpers
 # -------------------------
 
-def get_timemap_snapshots(url: str, timeout: int = 20):
+def get_timemap_snapshots(url: str, timeout: int = 60):
     """
     Obtém todos os timestamps do Wayback via timemap (muito mais leve que CDX search).
     Retorna lista de strings 'YYYYMMDDhhmmss' ordenadas.
@@ -72,7 +72,7 @@ def monthly_sampling(timestamps):
     return sampled
 
 
-def fetch_ads_txt_snapshot(url: str, timestamp: str, timeout: int = 20):
+def fetch_ads_txt_snapshot(url: str, timestamp: str, timeout: int = 60):
     """
     Vai buscar o ads.txt de um snapshot específico.
     """
