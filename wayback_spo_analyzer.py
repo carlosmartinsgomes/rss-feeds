@@ -8,6 +8,9 @@ from collections import defaultdict
 
 import requests
 import pandas as pd
+import time
+from requests.exceptions import ConnectionError
+
 
 WAYBACK_TIMEMAP = "https://web.archive.org/web/timemap/json/{}"
 
@@ -52,7 +55,7 @@ def get_timemap_snapshots(url: str, timeout: int = 60):
 
 
 
-def monthly_sampling(timestamps):
+def monthly_sampling(timestamps, max_candidates_per_month=3):
     by_month = defaultdict(list)
     for ts in timestamps:
         year = int(ts[0:4])
@@ -63,8 +66,10 @@ def monthly_sampling(timestamps):
     for ym, tss in by_month.items():
         # ordenar do mais recente para o mais antigo
         tss_sorted = sorted(tss, reverse=True)
-        sampled[ym] = tss_sorted  # devolvemos lista ordenada, não só 1
+        # limitar o número de snapshots testados por mês
+        sampled[ym] = tss_sorted[:max_candidates_per_month]
     return sampled
+
 
 
 
@@ -80,13 +85,20 @@ def fetch_ads_txt_snapshot(url: str, timestamp: str, timeout: int = 60):
                 print(f"[WARN] snapshot status {r.status_code} for {url} @ {timestamp}", flush=True)
                 return None
 
+        except ConnectionError as e:
+            # Ligação recusada: não vale a pena insistir 3 vezes seguidas
+            print(f"[ERR] connection error for {url} @ {timestamp}: {e}", flush=True)
+            return None
+
         except Exception as e:
             print(f"[ERR] fetch snapshot failed (attempt {attempt+1}/3) for {url} @ {timestamp}: {e}", flush=True)
             if attempt == 2:
                 return None
-            continue
+            # pequeno backoff antes de tentar outra vez
+            time.sleep(2)
 
     return None
+
 
 
 
@@ -167,13 +179,13 @@ def analyze_domain(domain: str, start_year: int, end_year: int):
                 ts = candidate_ts
                 break
     
-        if ts is None:
+        if ts is None or ads is None:
             print(f"[WARN] No valid snapshot for {domain} {year}-{month:02d}", flush=True)
             continue
-
-        print(f"[WAYBACK] Fetching {domain} {year}-{month:02d} @ {ts}", flush=True)
-        ads = fetch_ads_txt_snapshot(base_url, ts)
+    
+        # já temos ads válido, não é preciso novo fetch
         score = compute_pubmatic_score(ads)
+
 
         changed = (last_share is None) or (score["share"] != last_share)
 
