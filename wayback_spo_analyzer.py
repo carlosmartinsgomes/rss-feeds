@@ -17,20 +17,21 @@ WAYBACK_TIMEMAP = "https://web.archive.org/web/timemap/json/{}"
 # -------------------------
 
 def get_timemap_snapshots(url: str, timeout: int = 60):
-    """
-    Obtém todos os timestamps do Wayback via timemap (muito mais leve que CDX search).
-    Retorna lista de strings 'YYYYMMDDhhmmss' ordenadas.
-    """
     tm_url = WAYBACK_TIMEMAP.format(url)
-    try:
-        r = requests.get(tm_url, timeout=timeout)
-    except Exception as e:
-        print(f"[ERR] timemap request failed for {url}: {e}", flush=True)
-        return []
 
-    if r.status_code != 200:
-        print(f"[WARN] timemap status {r.status_code} for {url}", flush=True)
-        return []
+    for attempt in range(3):
+        try:
+            r = requests.get(tm_url, timeout=timeout)
+            if r.status_code == 200:
+                break
+            else:
+                print(f"[WARN] timemap status {r.status_code} for {url}", flush=True)
+                return []
+        except Exception as e:
+            print(f"[WAYBACK] Timemap timeout (attempt {attempt+1}/3) for {url}", flush=True)
+            if attempt == 2:
+                return []
+            continue
 
     try:
         data = r.json()
@@ -39,9 +40,7 @@ def get_timemap_snapshots(url: str, timeout: int = 60):
         return []
 
     snaps = []
-    # primeira linha é header, o resto são snapshots
     for row in data[1:]:
-        # formato típico: [original_url, timestamp, ...]
         if len(row) < 2:
             continue
         ts = row[1]
@@ -52,12 +51,8 @@ def get_timemap_snapshots(url: str, timeout: int = 60):
     return snaps
 
 
+
 def monthly_sampling(timestamps):
-    """
-    Escolhe 1 snapshot por mês (sampling mensal).
-    timestamps: lista de strings 'YYYYMMDDhhmmss'
-    devolve: dict {(ano, mes): timestamp_escolhido}
-    """
     by_month = defaultdict(list)
     for ts in timestamps:
         year = int(ts[0:4])
@@ -66,28 +61,33 @@ def monthly_sampling(timestamps):
 
     sampled = {}
     for ym, tss in by_month.items():
-        tss.sort()
-        # escolhe o snapshot mais recente do mês
-        sampled[ym] = tss[-1]
+        # ordenar do mais recente para o mais antigo
+        tss_sorted = sorted(tss, reverse=True)
+        sampled[ym] = tss_sorted  # devolvemos lista ordenada, não só 1
     return sampled
 
 
+
 def fetch_ads_txt_snapshot(url: str, timestamp: str, timeout: int = 60):
-    """
-    Vai buscar o ads.txt de um snapshot específico.
-    """
     wb_url = f"https://web.archive.org/web/{timestamp}id_/{url}"
-    try:
-        r = requests.get(wb_url, timeout=timeout)
-    except Exception as e:
-        print(f"[ERR] fetch snapshot failed for {url} @ {timestamp}: {e}", flush=True)
-        return None
 
-    if r.status_code != 200:
-        print(f"[WARN] snapshot status {r.status_code} for {url} @ {timestamp}", flush=True)
-        return None
+    for attempt in range(3):
+        try:
+            r = requests.get(wb_url, timeout=timeout)
+            if r.status_code == 200:
+                return r.text
+            else:
+                print(f"[WARN] snapshot status {r.status_code} for {url} @ {timestamp}", flush=True)
+                return None
 
-    return r.text
+        except Exception as e:
+            print(f"[ERR] fetch snapshot failed (attempt {attempt+1}/3) for {url} @ {timestamp}: {e}", flush=True)
+            if attempt == 2:
+                return None
+            continue
+
+    return None
+
 
 
 # -------------------------
@@ -155,7 +155,22 @@ def analyze_domain(domain: str, start_year: int, end_year: int):
     history = []
     last_share = None
 
-    for (year, month), ts in sorted(monthly.items()):
+    for (year, month), ts_list in sorted(monthly.items()):
+        ts = None
+        ads = None
+    
+        # tentar snapshots do mês até encontrar um válido
+        for candidate_ts in ts_list:
+            print(f"[WAYBACK] Trying {domain} {year}-{month:02d} @ {candidate_ts}", flush=True)
+            ads = fetch_ads_txt_snapshot(base_url, candidate_ts)
+            if ads:
+                ts = candidate_ts
+                break
+    
+        if ts is None:
+            print(f"[WARN] No valid snapshot for {domain} {year}-{month:02d}", flush=True)
+            continue
+
         print(f"[WAYBACK] Fetching {domain} {year}-{month:02d} @ {ts}", flush=True)
         ads = fetch_ads_txt_snapshot(base_url, ts)
         score = compute_pubmatic_score(ads)
