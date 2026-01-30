@@ -22,7 +22,7 @@ jobs:
 
       - name: Run analyzer
         run: |
-          python wayback_spo_analyzer.py --domains-file principaldomains --log-file analise_log.json --out wayback_output.xlsx
+          python wayback_spo_analyzer.py --domains-file principaldomains --log-file "" --out wayback_output.xlsx
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
