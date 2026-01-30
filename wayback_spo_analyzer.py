@@ -143,14 +143,32 @@ def analyze_domain(domain: str, start_year: int, end_year: int):
     Pipeline otimizado: sampling mensal via timemap + métrica PubMatic.
     Retorna lista de registos (dicts) para o domínio.
     """
-    base_url = f"https://www.{domain}/ads.txt"
     print(f"[INFO] Domain {domain}", flush=True)
-    print(f"[WAYBACK] Getting timemap for {base_url}", flush=True)
 
-    timestamps = get_timemap_snapshots(base_url)
+    # Tentar variantes de URL
+    variants = [
+        f"https://www.{domain}/ads.txt",
+        f"https://{domain}/ads.txt",
+        f"http://www.{domain}/ads.txt",
+        f"http://{domain}/ads.txt",
+    ]
+    
+    base_url = None
+    timestamps = []
+    
+    for url in variants:
+        print(f"[WAYBACK] Trying variant {url}", flush=True)
+        ts = get_timemap_snapshots(url)
+        if ts:
+            base_url = url
+            timestamps = ts
+            print(f"[WAYBACK] Using variant {url}", flush=True)
+            break
+    
     if not timestamps:
-        print(f"[WARN] No snapshots for {domain}", flush=True)
+        print(f"[WARN] No snapshots for ANY variant of {domain}", flush=True)
         return []
+
 
     # filtrar por intervalo de anos
     filtered = [
