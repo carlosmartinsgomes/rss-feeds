@@ -1,15 +1,11 @@
-name: Wayback SPO Analyzer (weekly)
+name: Wayback Manual
 
 on:
-  schedule:
-    # Weekly run: Monday 03:00 UTC (ajusta se quiseres outro horário)
-    - cron: '0 18 * * 1'
   workflow_dispatch: {}
-
 
 jobs:
   run-wayback:
-    runs-on: [self-hosted, ip-172-31-78-172]
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repo
