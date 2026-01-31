@@ -108,30 +108,78 @@ def fetch_ads_txt_snapshot(url: str, timestamp: str, timeout: int = 60):
 
 def compute_pubmatic_score(ads_txt: str):
     """
-    Extrai métricas PubMatic de um ads.txt.
-    Retorna dict com:
-      - pubmatic_lines
-      - total_lines
-      - share (pubmatic_lines / total_lines)
+    Extrai métricas financeiras relevantes do ads.txt:
+      - PubMatic DIRECT
+      - PubMatic RESELLER
+      - Concorrentes principais
+      - Shares financeiros
     """
     if ads_txt is None:
-        return {"pubmatic_lines": 0, "total_lines": 0, "share": 0.0}
+        return {
+            "pubmatic_direct": 0,
+            "pubmatic_reseller": 0,
+            "pubmatic_total": 0,
+            "competitors": 0,
+            "total_lines": 0,
+            "pubmatic_direct_share": 0.0,
+            "pubmatic_total_share": 0.0,
+            "competitors_share": 0.0,
+        }
 
+    # limpar e ignorar comentários
     lines = [
         l.strip()
         for l in ads_txt.splitlines()
         if l.strip() and not l.strip().startswith("#")
     ]
     total = len(lines)
-    pub_lines = [l for l in lines if "pubmatic.com" in l.lower()]
-    pub_count = len(pub_lines)
-    share = pub_count / total if total > 0 else 0.0
+
+    # concorrentes principais
+    competitors_domains = [
+        "rubiconproject.com", "magnite.com", "telaria.com", "spotx.tv", "spotxchange.com",
+        "openx.com",
+        "indexexchange.com", "casalemedia.com",
+        "appnexus.com", "xandr.com",
+        "triplelift.com",
+        "sharethrough.com",
+        "sovrn.com", "lijit.com",
+        "adform.com"
+    ]
+
+    pub_direct = 0
+    pub_reseller = 0
+    competitors = 0
+
+    for l in lines:
+        ll = l.lower()
+
+        # PubMatic
+        if "pubmatic.com" in ll:
+            if "direct" in ll:
+                pub_direct += 1
+            elif "reseller" in ll:
+                pub_reseller += 1
+            else:
+                pub_reseller += 1  # default conservador
+            continue
+
+        # concorrentes
+        if any(c in ll for c in competitors_domains):
+            competitors += 1
+
+    pub_total = pub_direct + pub_reseller
 
     return {
-        "pubmatic_lines": pub_count,
+        "pubmatic_direct": pub_direct,
+        "pubmatic_reseller": pub_reseller,
+        "pubmatic_total": pub_total,
+        "competitors": competitors,
         "total_lines": total,
-        "share": share,
+        "pubmatic_direct_share": pub_direct / total if total > 0 else 0.0,
+        "pubmatic_total_share": pub_total / total if total > 0 else 0.0,
+        "competitors_share": competitors / total if total > 0 else 0.0,
     }
+
 
 
 # -------------------------
@@ -212,13 +260,27 @@ def analyze_domain(domain: str, start_year: int, end_year: int):
             "year": year,
             "month": month,
             "timestamp": ts,
-            "pubmatic_share": score["share"],
-            "pubmatic_lines": score["pubmatic_lines"],
+        
+            # PubMatic
+            "pubmatic_direct": score["pubmatic_direct"],
+            "pubmatic_reseller": score["pubmatic_reseller"],
+            "pubmatic_total": score["pubmatic_total"],
+            "pubmatic_direct_share": score["pubmatic_direct_share"],
+            "pubmatic_total_share": score["pubmatic_total_share"],
+        
+            # Concorrência
+            "competitors": score["competitors"],
+            "competitors_share": score["competitors_share"],
+        
+            # Total
             "total_lines": score["total_lines"],
+        
             "changed_vs_prev": changed,
         })
 
-        last_share = score["share"]
+
+        last_share = score["pubmatic_total_share"]
+
 
     return history
 
