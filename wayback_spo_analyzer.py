@@ -253,7 +253,8 @@ def analyze_domain(domain: str, start_year: int, end_year: int):
         score = compute_pubmatic_score(ads)
 
 
-        changed = (last_share is None) or (score["share"] != last_share)
+        changed = (last_share is None) or (score["pubmatic_total_share"] != last_share)
+
 
         history.append({
             "domain": domain,
