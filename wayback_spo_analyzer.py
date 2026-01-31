@@ -271,8 +271,8 @@ def parse_args():
     p.add_argument(
         "--start-year",
         type=int,
-        default=2024,
-        help="Ano inicial para análise (default: 2024)."
+        default=2020,
+        help="Ano inicial para análise (default: 2020)."
     )
     p.add_argument(
         "--end-year",
