@@ -73,7 +73,7 @@ def monthly_sampling(timestamps, max_candidates_per_month=3):
 
 
 
-def fetch_ads_txt_snapshot(url: str, timestamp: str, timeout: int = 60):
+def fetch_ads_txt_snapshot(url: str, timestamp: str, timeout: int = 15):
     wb_url = f"https://web.archive.org/web/{timestamp}id_/{url}"
 
     for attempt in range(3):
@@ -109,9 +109,9 @@ def fetch_ads_txt_snapshot(url: str, timestamp: str, timeout: int = 60):
 def compute_pubmatic_score(ads_txt: str):
     """
     Extrai métricas financeiras relevantes do ads.txt:
-      - PubMatic DIRECT
-      - PubMatic RESELLER
-      - Concorrentes principais
+      - PubMatic DIRECT / RESELLER
+      - Concorrentes principais (DIRECT / RESELLER)
+      - Totais por SSP
       - Shares financeiros
     """
     if ads_txt is None:
@@ -134,21 +134,45 @@ def compute_pubmatic_score(ads_txt: str):
     ]
     total = len(lines)
 
-    # concorrentes principais
-    competitors_domains = [
-        "rubiconproject.com", "magnite.com", "telaria.com", "spotx.tv", "spotxchange.com",
-        "openx.com",
-        "indexexchange.com", "casalemedia.com",
-        "appnexus.com", "xandr.com",
-        "triplelift.com",
-        "sharethrough.com",
-        "sovrn.com", "lijit.com",
-        "adform.com"
-    ]
+    # Mapa de concorrentes → SSP
+    competitor_map = {
+        "rubiconproject.com": "magnite",
+        "magnite.com": "magnite",
+        "telaria.com": "magnite",
+        "spotx.tv": "magnite",
+        "spotxchange.com": "magnite",
+
+        "openx.com": "openx",
+
+        "indexexchange.com": "index",
+        "casalemedia.com": "index",
+
+        "appnexus.com": "xandr",
+        "xandr.com": "xandr",
+
+        "triplelift.com": "triplelift",
+
+        "sharethrough.com": "sharethrough",
+
+        "sovrn.com": "sovrn",
+        "lijit.com": "sovrn",
+
+        "adform.com": "adform",
+    }
+
+    # Inicializar contadores detalhados
+    competitors_detail = {
+        f"{ssp}_direct": 0
+        for ssp in ["magnite", "openx", "index", "xandr", "triplelift", "sharethrough", "sovrn", "adform"]
+    }
+    competitors_detail.update({
+        f"{ssp}_reseller": 0
+        for ssp in ["magnite", "openx", "index", "xandr", "triplelift", "sharethrough", "sovrn", "adform"]
+    })
 
     pub_direct = 0
     pub_reseller = 0
-    competitors = 0
+    competitors_total = 0
 
     for l in lines:
         ll = l.lower()
@@ -160,12 +184,20 @@ def compute_pubmatic_score(ads_txt: str):
             elif "reseller" in ll:
                 pub_reseller += 1
             else:
-                pub_reseller += 1  # default conservador
+                pub_reseller += 1
             continue
 
-        # concorrentes
-        if any(c in ll for c in competitors_domains):
-            competitors += 1
+        # Concorrentes detalhados
+        for domain, ssp in competitor_map.items():
+            if domain in ll:
+                competitors_total += 1
+                if "direct" in ll:
+                    competitors_detail[f"{ssp}_direct"] += 1
+                elif "reseller" in ll:
+                    competitors_detail[f"{ssp}_reseller"] += 1
+                else:
+                    competitors_detail[f"{ssp}_reseller"] += 1
+                break
 
     pub_total = pub_direct + pub_reseller
 
@@ -173,13 +205,17 @@ def compute_pubmatic_score(ads_txt: str):
         "pubmatic_direct": pub_direct,
         "pubmatic_reseller": pub_reseller,
         "pubmatic_total": pub_total,
-        "competitors": competitors,
+
+        "competitors": competitors_total,
         "total_lines": total,
+
         "pubmatic_direct_share": pub_direct / total if total > 0 else 0.0,
         "pubmatic_total_share": pub_total / total if total > 0 else 0.0,
-        "competitors_share": competitors / total if total > 0 else 0.0,
-    }
+        "competitors_share": competitors_total / total if total > 0 else 0.0,
 
+        # adicionar métricas detalhadas
+        **competitors_detail,
+    }
 
 
 # -------------------------
@@ -236,11 +272,13 @@ def analyze_domain(domain: str, start_year: int, end_year: int):
     for (year, month), ts_list in sorted(monthly.items()):
         ts = None
         ads = None
+        time.sleep(1)
     
         # tentar snapshots do mês até encontrar um válido
         for candidate_ts in ts_list:
             print(f"[WAYBACK] Trying {domain} {year}-{month:02d} @ {candidate_ts}", flush=True)
             ads = fetch_ads_txt_snapshot(base_url, candidate_ts)
+            time.sleep(0.5)
             if ads:
                 ts = candidate_ts
                 break
@@ -269,15 +307,34 @@ def analyze_domain(domain: str, start_year: int, end_year: int):
             "pubmatic_direct_share": score["pubmatic_direct_share"],
             "pubmatic_total_share": score["pubmatic_total_share"],
         
-            # Concorrência
+            # Concorrência agregada
             "competitors": score["competitors"],
             "competitors_share": score["competitors_share"],
+        
+            # Concorrência detalhada
+            "magnite_direct": score["magnite_direct"],
+            "magnite_reseller": score["magnite_reseller"],
+            "openx_direct": score["openx_direct"],
+            "openx_reseller": score["openx_reseller"],
+            "index_direct": score["index_direct"],
+            "index_reseller": score["index_reseller"],
+            "xandr_direct": score["xandr_direct"],
+            "xandr_reseller": score["xandr_reseller"],
+            "triplelift_direct": score["triplelift_direct"],
+            "triplelift_reseller": score["triplelift_reseller"],
+            "sharethrough_direct": score["sharethrough_direct"],
+            "sharethrough_reseller": score["sharethrough_reseller"],
+            "sovrn_direct": score["sovrn_direct"],
+            "sovrn_reseller": score["sovrn_reseller"],
+            "adform_direct": score["adform_direct"],
+            "adform_reseller": score["adform_reseller"],
         
             # Total
             "total_lines": score["total_lines"],
         
             "changed_vs_prev": changed,
         })
+
 
 
         last_share = score["pubmatic_total_share"]
@@ -386,10 +443,15 @@ def main():
             save_log(args.log_file, log_data)
         except Exception as e:
             print(f"[ERR] Domain {domain} analysis error: {e}", flush=True)
-
+    
+        # ⭐ COOLDOWN ENTRE DOMÍNIOS — colocar AQUI
+        time.sleep(2)
+    
+    
     if not all_rows:
         print("[WARN] Nenhum dado recolhido. Nada para escrever no Excel.", flush=True)
         return
+
 
     # Converter para DataFrame e exportar
     df = pd.DataFrame(all_rows)
