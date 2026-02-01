@@ -1,0 +1,31 @@
+name: PubMatic Index
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  run-index:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt pandas openpyxl
+
+      - name: Run PubMatic Index builder
+        run: |
+          python pubmatic_index.py
+
+      - name: Upload PubMatic Index artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pubmatic-index
+          path: pubmatic_index.xlsx
