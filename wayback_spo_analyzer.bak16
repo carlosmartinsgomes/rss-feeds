@@ -70,7 +70,30 @@ def monthly_sampling(timestamps, max_candidates_per_month=3):
         sampled[ym] = tss_sorted[:max_candidates_per_month]
     return sampled
 
+def weekly_sampling(timestamps, max_candidates_per_week=2):
+    """
+    Agrupa snapshots por semana dentro de um mês.
+    Exemplo: Janeiro 2025 → semanas 1,2,3,4,5.
+    """
+    by_week = defaultdict(list)
 
+    for ts in timestamps:
+        y = int(ts[0:4])
+        m = int(ts[4:6])
+        d = int(ts[6:8])
+
+        # calcular número da semana dentro do mês
+        # semana 1 = dias 1–7, semana 2 = dias 8–14, etc.
+        week = (d - 1) // 7 + 1
+
+        by_week[(y, m, week)].append(ts)
+
+    sampled = {}
+    for key, tss in by_week.items():
+        tss_sorted = sorted(tss, reverse=True)
+        sampled[key] = tss_sorted[:max_candidates_per_week]
+
+    return sampled
 
 
 def fetch_ads_txt_snapshot(url: str, timestamp: str, timeout: int = 15):
@@ -268,13 +291,24 @@ def analyze_domain(domain: str, start_year: int, start_month: int, end_year: int
         print(f"[WARN] No snapshots in range {start_year}-{end_year} for {domain}", flush=True)
         return []
 
-    monthly = monthly_sampling(filtered)
-    print(f"[INFO] {domain}: {len(monthly)} monthly snapshots in range", flush=True)
+    # Janeiro 2025 e Janeiro 2026 → análise semanal
+    if (start_year == 2025 and start_month == 1) or (start_year == 2026 and start_month == 1):
+        sampled = weekly_sampling(filtered)
+        print(f"[INFO] {domain}: {len(sampled)} weekly snapshots in range", flush=True)
+    else:
+        sampled = monthly_sampling(filtered)
+        print(f"[INFO] {domain}: {len(sampled)} monthly snapshots in range", flush=True)
+
 
     history = []
     last_share = None
 
-    for (year, month), ts_list in sorted(monthly.items()):
+    for key, ts_list in sorted(sampled.items()):
+        year = key[0]
+        month = key[1]
+        # se for semanal, key = (year, month, week)
+        week = key[2] if len(key) == 3 else None
+
         ts = None
         ads = None
         time.sleep(1)
@@ -303,6 +337,7 @@ def analyze_domain(domain: str, start_year: int, start_month: int, end_year: int
             "domain": domain,
             "year": year,
             "month": month,
+            "week": week,
             "timestamp": ts,
         
             # PubMatic
