@@ -222,7 +222,7 @@ def compute_pubmatic_score(ads_txt: str):
 # Domain analysis
 # -------------------------
 
-def analyze_domain(domain: str, start_year: int, end_year: int):
+def analyze_domain(domain: str, start_year: int, start_month: int, end_year: int, end_month: int):
     """
     Pipeline otimizado: sampling mensal via timemap + métrica PubMatic.
     Retorna lista de registos (dicts) para o domínio.
@@ -423,7 +423,14 @@ def main():
     for domain in domains:
         # se quiseres, podes usar o log para skipar domínios já processados
         try:
-            history = analyze_domain(domain, args.start_year, args.end_year)
+            history = analyze_domain(
+                domain,
+                args.start_year,
+                args.start_month,
+                args.end_year,
+                args.end_month
+            )
+
             all_rows.extend(history)
             # atualizar log
             log_data[domain] = {
