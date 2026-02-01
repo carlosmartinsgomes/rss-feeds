@@ -3,7 +3,7 @@ import pandas as pd
 from pathlib import Path
 
 
-INPUT_FILE = "wayback_output.xlsx"
+INPUT_FILE = "data/wayback_output.xlsx"
 OUTPUT_FILE = "pubmatic_index.xlsx"
 
 
