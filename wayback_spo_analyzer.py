@@ -384,10 +384,10 @@ def parse_args():
     p.add_argument("--out", required=True)
 
     p.add_argument("--start-year", type=int, default=2025)
-    p.add_argument("--start-month", type=int, default=9)
+    p.add_argument("--start-month", type=int, default=10)
     
-    p.add_argument("--end-year", type=int, default=2026)
-    p.add_argument("--end-month", type=int, default=1)
+    p.add_argument("--end-year", type=int, default=2025)
+    p.add_argument("--end-month", type=int, default=11)
 
 
     return p.parse_args()
