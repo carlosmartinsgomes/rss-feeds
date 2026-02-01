@@ -255,10 +255,15 @@ def analyze_domain(domain: str, start_year: int, end_year: int):
 
 
     # filtrar por intervalo de anos
-    filtered = [
-        ts for ts in timestamps
-        if start_year <= int(ts[0:4]) <= end_year
-    ]
+    filtered = []
+    for ts in timestamps:
+        y = int(ts[0:4])
+        m = int(ts[4:6])
+    
+        if (y > start_year or (y == start_year and m >= start_month)) and \
+           (y < end_year   or (y == end_year   and m <= end_month)):
+            filtered.append(ts)
+
     if not filtered:
         print(f"[WARN] No snapshots in range {start_year}-{end_year} for {domain}", flush=True)
         return []
@@ -373,33 +378,17 @@ def save_log(log_file, data):
 
 def parse_args():
     p = argparse.ArgumentParser(description="Wayback SPO Analyzer (sampling mensal, PubMatic focus)")
-    p.add_argument(
-        "--domains-file",
-        required=True,
-        help="Ficheiro com lista de domínios (um por linha, sem http/https)."
-    )
-    p.add_argument(
-        "--log-file",
-        default=None,
-        help="Ficheiro JSON para log de progresso (opcional)."
-    )
-    p.add_argument(
-        "--out",
-        required=True,
-        help="Ficheiro Excel de saída (ex: wayback_output.xlsx)."
-    )
-    p.add_argument(
-        "--start-year",
-        type=int,
-        default=2025,
-        help="Ano inicial para análise (default: 2025)."
-    )
-    p.add_argument(
-        "--end-year",
-        type=int,
-        default=datetime.utcnow().year,
-        help="Ano final para análise (default: ano atual)."
-    )
+
+    p.add_argument("--domains-file", required=True)
+    p.add_argument("--log-file", default=None)
+    p.add_argument("--out", required=True)
+
+    p.add_argument("--start-year", type=int, default=2020)
+    p.add_argument("--start-month", type=int, default=1)
+
+    p.add_argument("--end-year", type=int, default=datetime.utcnow().year)
+    p.add_argument("--end-month", type=int, default=12)
+
     return p.parse_args()
 
 
