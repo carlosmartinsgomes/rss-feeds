@@ -7,6 +7,10 @@ INPUT_FILE = "data/wayback_output.xlsx"
 OUTPUT_FILE = "pubmatic_index.xlsx"
 
 
+# ---------------------------------------------------------
+# LOAD DATA
+# ---------------------------------------------------------
+
 def load_wayback_data(path: str = INPUT_FILE) -> pd.DataFrame:
     df = pd.read_excel(path)
 
@@ -29,6 +33,10 @@ def load_wayback_data(path: str = INPUT_FILE) -> pd.DataFrame:
 
     return df
 
+
+# ---------------------------------------------------------
+# MONTHLY INDEX
+# ---------------------------------------------------------
 
 def build_monthly_index(df: pd.DataFrame) -> pd.DataFrame:
     monthly = (
@@ -55,6 +63,10 @@ def build_monthly_index(df: pd.DataFrame) -> pd.DataFrame:
     return monthly
 
 
+# ---------------------------------------------------------
+# QUARTERLY INDEX
+# ---------------------------------------------------------
+
 def build_quarterly_index(monthly: pd.DataFrame) -> pd.DataFrame:
     monthly["year_quarter"] = monthly["date"].dt.to_period("Q")
 
@@ -77,6 +89,10 @@ def build_quarterly_index(monthly: pd.DataFrame) -> pd.DataFrame:
 
     return q
 
+
+# ---------------------------------------------------------
+# WEEKLY INDEX (2025–2026)
+# ---------------------------------------------------------
 
 def build_weekly_january_index(df: pd.DataFrame) -> pd.DataFrame:
     jan = df[(df["month"] == 1) & (df["year"].isin([2025, 2026]))].copy()
@@ -115,7 +131,7 @@ def build_weekly_january_index(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------
-# NEW: SIGNAL INDEX (PRIORITÁRIO)
+# SIGNAL INDEX (MONTHLY)
 # ---------------------------------------------------------
 
 def build_signal_index(df: pd.DataFrame) -> pd.DataFrame:
@@ -162,6 +178,95 @@ def build_signal_index(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------
+# SIGNAL INDEX (QUARTERLY)
+# ---------------------------------------------------------
+
+def build_quarterly_signal_index(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+
+    df["date"] = pd.to_datetime(
+        dict(year=df["year"], month=df["month"], day=1)
+    )
+    df = df.sort_values(["domain", "date"])
+
+    df["prev_pub_total"] = df.groupby("domain")["pubmatic_total"].shift(1)
+
+    df["pub_entered"] = (
+        (df["prev_pub_total"].fillna(0) == 0) & (df["pubmatic_total"] > 0)
+    )
+    df["pub_exited"] = (
+        (df["prev_pub_total"] > 0) & (df["pubmatic_total"] == 0)
+    )
+
+    df["quarter"] = df["date"].dt.to_period("Q")
+
+    q = (
+        df.groupby("quarter", as_index=False)
+        .agg(
+            pub_share_mean_q=("pubmatic_total_share", "mean"),
+            comp_share_mean_q=("competitors_share", "mean"),
+            enter_pct_q=("pub_entered", "mean"),
+            exit_pct_q=("pub_exited", "mean"),
+            domains_q=("domain", "nunique"),
+        )
+    )
+
+    q = q.sort_values("quarter").reset_index(drop=True)
+
+    # QoQ em nível
+    q["pub_share_delta_q"] = q["pub_share_mean_q"].diff()
+    q["comp_share_delta_q"] = q["comp_share_mean_q"].diff()
+
+    # Outperformance trimestral (QoQ)
+    q["outperformance_score_q"] = (
+        q["pub_share_delta_q"] - q["comp_share_delta_q"]
+    )
+
+    # YoY em nível (quarter análogo: lag 4)
+    q["pub_share_yoy_q"] = q["pub_share_mean_q"].diff(4)
+    q["comp_share_yoy_q"] = q["comp_share_mean_q"].diff(4)
+
+    # YoY do sinal de outperformance (quarter análogo)
+    q["outperformance_score_q_yoy"] = q["outperformance_score_q"].diff(4)
+
+    return q
+
+
+
+# ---------------------------------------------------------
+# SIGNAL INDEX (WEEKLY, YEAR ≥ 2026)
+# ---------------------------------------------------------
+
+def build_weekly_signal_index(df: pd.DataFrame) -> pd.DataFrame:
+    df = df[df["year"] >= 2026].copy()
+
+    if df["week"].isna().all():
+        return pd.DataFrame()
+
+    weekly = (
+        df.groupby(["year", "week"], as_index=False)
+        .agg(
+            pub_share_mean_week=("pubmatic_total_share", "mean"),
+            comp_share_mean_week=("competitors_share", "mean"),
+            domains_week=("domain", "nunique"),
+        )
+    )
+
+    weekly = weekly.sort_values(["year", "week"]).reset_index(drop=True)
+
+    weekly["pub_share_delta_week"] = weekly["pub_share_mean_week"].diff()
+    weekly["comp_share_delta_week"] = weekly["comp_share_mean_week"].diff()
+
+    weekly["outperformance_score_week"] = (
+        weekly["pub_share_delta_week"] - weekly["comp_share_delta_week"]
+    )
+
+    weekly["pub_share_yoy_week"] = weekly["pub_share_mean_week"].diff(52)
+
+    return weekly
+
+
+# ---------------------------------------------------------
 # MAIN
 # ---------------------------------------------------------
 
@@ -178,14 +283,22 @@ def main():
     print("[INDEX] Building weekly January index...")
     weekly_jan = build_weekly_january_index(df)
 
-    print("[INDEX] Building signal index (PRIORITÁRIO)...")
-    signal_index = build_signal_index(df)
+    print("[INDEX] Building monthly signal index...")
+    signal_monthly = build_signal_index(df)
+
+    print("[INDEX] Building quarterly signal index...")
+    signal_quarterly = build_quarterly_signal_index(df)
+
+    print("[INDEX] Building weekly signal index (2026+)...")
+    signal_weekly = build_weekly_signal_index(df)
 
     print(f"[INDEX] Writing index report -> {OUTPUT_FILE}")
     with pd.ExcelWriter(OUTPUT_FILE, engine="openpyxl") as writer:
         monthly.to_excel(writer, sheet_name="monthly_index", index=False)
         quarterly.to_excel(writer, sheet_name="quarterly_index", index=False)
-        signal_index.to_excel(writer, sheet_name="signal_index", index=False)
+        signal_monthly.to_excel(writer, sheet_name="signal_monthly", index=False)
+        signal_quarterly.to_excel(writer, sheet_name="signal_quarterly", index=False)
+        signal_weekly.to_excel(writer, sheet_name="signal_weekly", index=False)
         if not weekly_jan.empty:
             weekly_jan.to_excel(writer, sheet_name="weekly_january", index=False)
 
