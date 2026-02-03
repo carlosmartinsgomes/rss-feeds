@@ -180,6 +180,9 @@ def build_signal_index(df: pd.DataFrame) -> pd.DataFrame:
     monthly["outperformance_score"] = (
         monthly["pub_share_delta"] - monthly["comp_share_delta"]
     )
+    
+    monthly["enter_pct"] = monthly["enter_pct"].fillna(0)
+    monthly["exit_pct"] = monthly["exit_pct"].fillna(0)
 
     return monthly
 
@@ -197,6 +200,9 @@ def build_quarterly_signal_index(signal_monthly: pd.DataFrame) -> pd.DataFrame:
         )
 
     m["quarter"] = m["date"].dt.to_period("Q")
+
+    m["enter_pct"] = m["enter_pct"].fillna(0)
+    m["exit_pct"] = m["exit_pct"].fillna(0)
 
     q = (
         m.groupby("quarter", as_index=False)
