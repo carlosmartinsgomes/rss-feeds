@@ -59,4 +59,24 @@ for s in signals_to_test:
         corr_value = df[s].corr(df[t])
         print(f"{s}  vs  {t}:   {corr_value:.4f}")
 
-print("\n[CORR] Done.")
+# ---------------------------------------------------------
+# SAVE CORRELATIONS TO EXCEL
+# ---------------------------------------------------------
+
+output_rows = []
+
+for s in signals_to_test:
+    for t in targets:
+        corr_value = df[s].corr(df[t])
+        output_rows.append({
+            "signal": s,
+            "target": t,
+            "correlation": corr_value
+        })
+
+corr_df = pd.DataFrame(output_rows)
+corr_df = corr_df.sort_values(["signal", "target"]).reset_index(drop=True)
+
+corr_df.to_excel("correlation_results.xlsx", index=False)
+print("\n[CORR] correlation_results.xlsx written.")
+
