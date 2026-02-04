@@ -102,27 +102,33 @@ def fetch_ads_txt_snapshot(url: str, timestamp: str, timeout: int = 15):
     for attempt in range(3):
         try:
             r = requests.get(wb_url, timeout=timeout)
-            if r.status_code == 200:
-                return r.text
-            else:
+            if r.status_code != 200:
                 print(f"[WARN] snapshot status {r.status_code} for {url} @ {timestamp}", flush=True)
                 return None
 
-        except ConnectionError as e:
-            # Ligação recusada: não vale a pena insistir 3 vezes seguidas
-            print(f"[ERR] connection error for {url} @ {timestamp}: {e}", flush=True)
-            return None
+            text = r.text
+
+            # Conteúdo inválido → HTML, erro, redirect, etc.
+            lower = text.lower()
+
+            if "<html" in lower or "<!doctype" in lower or "<body" in lower:
+                print(f"[WARN] Snapshot is HTML, not ads.txt → skipping", flush=True)
+                return None
+
+            # ads.txt deve ter pelo menos 1 vírgula
+            if "," not in text:
+                print(f"[WARN] Snapshot does not look like ads.txt → skipping", flush=True)
+                return None
+
+            return text
 
         except Exception as e:
-            print(f"[ERR] fetch snapshot failed (attempt {attempt+1}/3) for {url} @ {timestamp}: {e}", flush=True)
+            print(f"[ERR] fetch snapshot failed for {url} @ {timestamp}: {e}", flush=True)
             if attempt == 2:
                 return None
-            # pequeno backoff antes de tentar outra vez
             time.sleep(2)
 
     return None
-
-
 
 
 # -------------------------
@@ -419,10 +425,10 @@ def parse_args():
     p.add_argument("--out", required=True)
 
     p.add_argument("--start-year", type=int, default=2023)
-    p.add_argument("--start-month", type=int, default=11)
+    p.add_argument("--start-month", type=int, default=12)
     
-    p.add_argument("--end-year", type=int, default=2024)
-    p.add_argument("--end-month", type=int, default=1)
+    p.add_argument("--end-year", type=int, default=2023)
+    p.add_argument("--end-month", type=int, default=12)
 
 
     return p.parse_args()
