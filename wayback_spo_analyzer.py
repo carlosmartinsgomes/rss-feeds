@@ -107,17 +107,53 @@ def fetch_ads_txt_snapshot(url: str, timestamp: str, timeout: int = 15):
                 return None
 
             text = r.text
-
-            # Conteúdo inválido → HTML, erro, redirect, etc.
             lower = text.lower()
 
-            if "<html" in lower or "<!doctype" in lower or "<body" in lower:
-                print(f"[WARN] Snapshot is HTML, not ads.txt → skipping", flush=True)
+            # 1. HTML detection
+            if "<html" in lower or "<body" in lower or "<!doctype" in lower:
+                print(f"[WARN] HTML detected → skipping", flush=True)
                 return None
 
-            # ads.txt deve ter pelo menos 1 vírgula
+            # 2. Wayback error/redirect pages
+            error_signatures = [
+                "memento not found",
+                "resource not in archive",
+                "does not have an archive",
+                "wayback machine doesn't have",
+                "robots.txt",
+                "blocked",
+                "file not found",
+                "not found",
+                "redirecting",
+                "<meta http-equiv",
+                "refresh content",
+            ]
+
+            if any(sig in lower for sig in error_signatures):
+                print(f"[WARN] Wayback error/redirect detected → skipping", flush=True)
+                return None
+
+            # 3. ads.txt must contain at least one comma
             if "," not in text:
-                print(f"[WARN] Snapshot does not look like ads.txt → skipping", flush=True)
+                print(f"[WARN] No comma found → not ads.txt → skipping", flush=True)
+                return None
+
+            # 4. ads.txt must contain at least one known SSP domain
+            valid_ssps = [
+                "pubmatic.com",
+                "rubiconproject.com",
+                "openx.com",
+                "indexexchange.com",
+                "appnexus.com",
+                "xandr.com",
+                "triplelift.com",
+                "sharethrough.com",
+                "sovrn.com",
+                "adform.com",
+            ]
+
+            if not any(ssp in lower for ssp in valid_ssps):
+                print(f"[WARN] No SSP domains found → skipping", flush=True)
                 return None
 
             return text
