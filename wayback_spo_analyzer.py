@@ -216,7 +216,7 @@ def compute_pubmatic_score(ads_txt: str):
         for l in ads_txt.splitlines()
         if l.strip() and not l.strip().startswith("#")
     ]
-    total = len(lines)
+    
 
     # Mapa de concorrentes → SSP
     competitor_map = {
@@ -290,34 +290,14 @@ def compute_pubmatic_score(ads_txt: str):
         normalized.append(l)
     
     lines = normalized
-    
+
+    total = len(lines)
+
     # ----------------------------------------
     # LOOP PRINCIPAL DE PARSING
     # ----------------------------------------
     for l in lines:
         ll = l.lower()
-    
-        # PubMatic
-        if "pubmatic.com" in ll:
-            if "direct" in ll:
-                pub_direct += 1
-            elif "reseller" in ll:
-                pub_reseller += 1
-            else:
-                pub_reseller += 1
-            continue
-    
-        # Concorrentes detalhados
-        for domain, ssp in competitor_map.items():
-            if domain in ll:
-                competitors_total += 1
-                if "direct" in ll:
-                    competitors_detail[f"{ssp}_direct"] += 1
-                elif "reseller" in ll:
-                    competitors_detail[f"{ssp}_reseller"] += 1
-                else:
-                    competitors_detail[f"{ssp}_reseller"] += 1
-                break
 
 
         # PubMatic
