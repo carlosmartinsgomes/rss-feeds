@@ -332,13 +332,33 @@ def analyze_domain(domain: str, start_year: int, start_month: int, end_year: int
         sampled = monthly_sampling(filtered)
         print(f"[INFO] {domain}: {len(sampled)} monthly snapshots in range", flush=True)
 
-    # Fallback: se um mês não tiver snapshots no timemap, tenta closest
-    for ym in list(sampled.keys()):
-        if not sampled[ym]:  # lista vazia
-            y, m = ym[0], ym[1]
-            fallback_ts = get_closest_snapshot(base_url, y, m)
-            if fallback_ts:
-                sampled[ym] = [fallback_ts]
+    # ---------------------------------------------------------
+    # Fallback: se um mês não tiver snapshots no timemap, tenta "closest"
+    # ---------------------------------------------------------
+    new_sampled = {}
+    
+    for key, ts_list in sampled.items():
+        # key pode ser (y, m) ou (y, m, w)
+        if len(key) == 2:
+            y, m = key
+            w = None
+        else:
+            y, m, w = key
+    
+        # se já há snapshots, mantém
+        if ts_list:
+            new_sampled[key] = ts_list
+            continue
+    
+        # tentar fallback
+        fallback_ts = get_closest_snapshot(base_url, y, m)
+        if fallback_ts:
+            new_sampled[key] = [fallback_ts]
+        else:
+            new_sampled[key] = []  # mantém vazio
+    
+    sampled = new_sampled
+
 
 
 
