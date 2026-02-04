@@ -284,7 +284,7 @@ def analyze_domain(domain: str, start_year: int, start_month: int, end_year: int
         f"https://{domain}/ads.txt",
         f"http://www.{domain}/ads.txt",
         f"http://{domain}/ads.txt",
-    
+
         # novas variantes
         f"https://{domain}/ads.txt/",
         f"https://{domain}/ads.txt?",
@@ -292,10 +292,9 @@ def analyze_domain(domain: str, start_year: int, start_month: int, end_year: int
         f"https://{domain}/ads.txt?nocache=1",
     ]
 
-    
     base_url = None
     timestamps = []
-    
+
     for url in variants:
         print(f"[WAYBACK] Trying variant {url}", flush=True)
         ts = get_timemap_snapshots(url)
@@ -304,18 +303,17 @@ def analyze_domain(domain: str, start_year: int, start_month: int, end_year: int
             timestamps = ts
             print(f"[WAYBACK] Using variant {url}", flush=True)
             break
-    
+
     if not timestamps:
         print(f"[WARN] No snapshots for ANY variant of {domain}", flush=True)
         return []
 
-
-    # filtrar por intervalo de anos
+    # filtrar por intervalo de anos/meses
     filtered = []
     for ts in timestamps:
         y = int(ts[0:4])
         m = int(ts[4:6])
-    
+
         if (y > start_year or (y == start_year and m >= start_month)) and \
            (y < end_year   or (y == end_year   and m <= end_month)):
             filtered.append(ts)
@@ -325,18 +323,31 @@ def analyze_domain(domain: str, start_year: int, start_month: int, end_year: int
         return []
 
     # Janeiro 2025 e Janeiro 2026 → análise semanal
+    use_weekly = False
     if (start_year == 2025 and start_month == 1) or (start_year == 2026 and start_month == 1):
         sampled = weekly_sampling(filtered)
+        use_weekly = True
         print(f"[INFO] {domain}: {len(sampled)} weekly snapshots in range", flush=True)
     else:
         sampled = monthly_sampling(filtered)
         print(f"[INFO] {domain}: {len(sampled)} monthly snapshots in range", flush=True)
 
+        # garantir que TODOS os meses do intervalo existem como chave,
+        # mesmo que não haja snapshots no timemap (para o fallback funcionar)
+        y, m = start_year, start_month
+        while (y < end_year) or (y == end_year and m <= end_month):
+            if (y, m) not in sampled:
+                sampled[(y, m)] = []  # mês sem snapshots → lista vazia
+            m += 1
+            if m == 13:
+                m = 1
+                y += 1
+
     # ---------------------------------------------------------
     # Fallback: se um mês não tiver snapshots no timemap, tenta "closest"
     # ---------------------------------------------------------
     new_sampled = {}
-    
+
     for key, ts_list in sampled.items():
         # key pode ser (y, m) ou (y, m, w)
         if len(key) == 2:
@@ -344,23 +355,20 @@ def analyze_domain(domain: str, start_year: int, start_month: int, end_year: int
             w = None
         else:
             y, m, w = key
-    
+
         # se já há snapshots, mantém
         if ts_list:
             new_sampled[key] = ts_list
             continue
-    
-        # tentar fallback
+
+        # tentar fallback (closest snapshot ao dia 15 desse mês)
         fallback_ts = get_closest_snapshot(base_url, y, m)
         if fallback_ts:
             new_sampled[key] = [fallback_ts]
         else:
-            new_sampled[key] = []  # mantém vazio
-    
+            new_sampled[key] = []  # mantém vazio se nem o closest devolve nada
+
     sampled = new_sampled
-
-
-
 
     history = []
     last_share = None
@@ -374,7 +382,7 @@ def analyze_domain(domain: str, start_year: int, start_month: int, end_year: int
         ts = None
         ads = None
         time.sleep(1)
-    
+
         # tentar snapshots do mês até encontrar um válido
         for candidate_ts in ts_list:
             print(f"[WAYBACK] Trying {domain} {year}-{month:02d} @ {candidate_ts}", flush=True)
@@ -383,17 +391,15 @@ def analyze_domain(domain: str, start_year: int, start_month: int, end_year: int
             if ads:
                 ts = candidate_ts
                 break
-    
+
         if ts is None or ads is None:
             print(f"[WARN] No valid snapshot for {domain} {year}-{month:02d}", flush=True)
             continue
-    
+
         # já temos ads válido, não é preciso novo fetch
         score = compute_pubmatic_score(ads)
 
-
         changed = (last_share is None) or (score["pubmatic_total_share"] != last_share)
-
 
         history.append({
             "domain": domain,
@@ -401,18 +407,18 @@ def analyze_domain(domain: str, start_year: int, start_month: int, end_year: int
             "month": month,
             "week": week,
             "timestamp": ts,
-        
+
             # PubMatic
             "pubmatic_direct": score["pubmatic_direct"],
             "pubmatic_reseller": score["pubmatic_reseller"],
             "pubmatic_total": score["pubmatic_total"],
             "pubmatic_direct_share": score["pubmatic_direct_share"],
             "pubmatic_total_share": score["pubmatic_total_share"],
-        
+
             # Concorrência agregada
             "competitors": score["competitors"],
             "competitors_share": score["competitors_share"],
-        
+
             # Concorrência detalhada
             "magnite_direct": score["magnite_direct"],
             "magnite_reseller": score["magnite_reseller"],
@@ -430,17 +436,14 @@ def analyze_domain(domain: str, start_year: int, start_month: int, end_year: int
             "sovrn_reseller": score["sovrn_reseller"],
             "adform_direct": score["adform_direct"],
             "adform_reseller": score["adform_reseller"],
-        
+
             # Total
             "total_lines": score["total_lines"],
-        
+
             "changed_vs_prev": changed,
         })
 
-
-
         last_share = score["pubmatic_total_share"]
-
 
     return history
 
