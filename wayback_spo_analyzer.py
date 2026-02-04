@@ -108,12 +108,12 @@ def fetch_ads_txt_snapshot(url: str, timestamp: str, timeout: int = 15):
 
             text = r.text
             lower = text.lower()
-
+            
             # 1. HTML detection
             if "<html" in lower or "<body" in lower or "<!doctype" in lower:
                 print(f"[WARN] HTML detected → skipping", flush=True)
                 return None
-
+            
             # 2. Wayback error/redirect pages
             error_signatures = [
                 "memento not found",
@@ -128,16 +128,16 @@ def fetch_ads_txt_snapshot(url: str, timestamp: str, timeout: int = 15):
                 "<meta http-equiv",
                 "refresh content",
             ]
-
+            
             if any(sig in lower for sig in error_signatures):
                 print(f"[WARN] Wayback error/redirect detected → skipping", flush=True)
                 return None
-
+            
             # 3. ads.txt must contain at least one comma
             if "," not in text:
                 print(f"[WARN] No comma found → not ads.txt → skipping", flush=True)
                 return None
-
+            
             # 4. ads.txt must contain at least one known SSP domain
             valid_ssps = [
                 "pubmatic.com",
@@ -151,12 +151,13 @@ def fetch_ads_txt_snapshot(url: str, timestamp: str, timeout: int = 15):
                 "sovrn.com",
                 "adform.com",
             ]
-
+            
             if not any(ssp in lower for ssp in valid_ssps):
                 print(f"[WARN] No SSP domains found → skipping", flush=True)
                 return None
-
+            
             return text
+
 
         except Exception as e:
             print(f"[ERR] fetch snapshot failed for {url} @ {timestamp}: {e}", flush=True)
@@ -240,7 +241,25 @@ def compute_pubmatic_score(ads_txt: str):
     competitors_total = 0
 
     for l in lines:
+        # remover comentários no fim da linha
+        l = l.split("#")[0].strip()
+        if not l:
+            continue
+    
         ll = l.lower()
+
+    # remover duplicados mantendo ordem
+    seen_lines = set()
+    clean_lines = []
+    for l in lines:
+        base = l.split("#")[0].strip()
+        if base and base not in seen_lines:
+            seen_lines.add(base)
+            clean_lines.append(base)
+    
+    lines = clean_lines
+
+
 
         # PubMatic
         if "pubmatic.com" in ll:
