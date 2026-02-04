@@ -27,3 +27,9 @@ jobs:
       - name: Run correlation analysis
         run: |
           python analysis_correlation.py
+
+      - name: Upload correlation results
+        uses: actions/upload-artifact@v4
+        with:
+          name: correlation_results
+          path: correlation_results.xlsx
