@@ -103,14 +103,14 @@ def fetch_ads_txt_snapshot(url: str, timestamp: str, timeout: int = 15):
         f"https://web.archive.org/web/{timestamp}/{url}",
         f"https://web.archive.org/web/{timestamp}if_/{url}",
     ]
-    
+
     for attempt in range(3):
         for wb_url in snapshot_variants:
             try:
                 r = requests.get(wb_url, timeout=timeout)
                 if r.status_code != 200:
                     continue
-    
+
                 # DECODIFICAÇÃO ROBUSTA
                 try:
                     text = r.content.decode("utf-8", errors="replace")
@@ -119,13 +119,13 @@ def fetch_ads_txt_snapshot(url: str, timestamp: str, timeout: int = 15):
                         text = r.content.decode("latin-1", errors="replace")
                     except:
                         continue
-    
+
                 lower = text.lower()
-    
+
                 # DETEÇÃO DE HTML
                 if "<html" in lower or "<body" in lower or "<!doctype" in lower:
                     continue
-    
+
                 # DETEÇÃO DE ERROS DO WAYBACK
                 error_signatures = [
                     "memento not found",
@@ -142,11 +142,11 @@ def fetch_ads_txt_snapshot(url: str, timestamp: str, timeout: int = 15):
                 ]
                 if any(sig in lower for sig in error_signatures):
                     continue
-    
+
                 # TEM DE TER PELO MENOS UMA VÍRGULA
                 if "," not in text:
                     continue
-    
+
                 # TEM DE TER PELO MENOS UM SSP CONHECIDO
                 valid_ssps = [
                     "pubmatic.com",
@@ -162,99 +162,12 @@ def fetch_ads_txt_snapshot(url: str, timestamp: str, timeout: int = 15):
                 ]
                 if not any(ssp in lower for ssp in valid_ssps):
                     continue
-    
+
                 return text
-    
+
             except Exception:
                 time.sleep(1)
                 continue
-    
-    return None
-
-
-    for attempt in range(3):
-        try:
-            r = requests.get(wb_url, timeout=timeout)
-            if r.status_code != 200:
-                print(f"[WARN] snapshot status {r.status_code} for {url} @ {timestamp}", flush=True)
-                return None
-
-            # ---------------------------
-            # 1) DECODIFICAÇÃO ROBUSTA
-            # ---------------------------
-            try:
-                text = r.content.decode("utf-8", errors="replace")
-            except:
-                try:
-                    text = r.content.decode("latin-1", errors="replace")
-                except:
-                    print("[WARN] Encoding error → skipping snapshot", flush=True)
-                    return None
-
-            lower = text.lower()
-
-            # ---------------------------
-            # 2) DETEÇÃO DE HTML
-            # ---------------------------
-            if "<html" in lower or "<body" in lower or "<!doctype" in lower:
-                print(f"[WARN] HTML detected → skipping", flush=True)
-                return None
-
-            # ---------------------------
-            # 3) DETEÇÃO DE ERROS DO WAYBACK
-            # ---------------------------
-            error_signatures = [
-                "memento not found",
-                "resource not in archive",
-                "does not have an archive",
-                "wayback machine doesn't have",
-                "robots.txt",
-                "blocked",
-                "file not found",
-                "not found",
-                "redirecting",
-                "<meta http-equiv",
-                "refresh content",
-            ]
-
-            if any(sig in lower for sig in error_signatures):
-                print(f"[WARN] Wayback error/redirect detected → skipping", flush=True)
-                return None
-
-            # ---------------------------
-            # 4) TEM DE TER PELO MENOS UMA VÍRGULA
-            # ---------------------------
-            if "," not in text:
-                print(f"[WARN] No comma found → not ads.txt → skipping", flush=True)
-                return None
-
-            # ---------------------------
-            # 5) TEM DE TER PELO MENOS UM SSP CONHECIDO
-            # ---------------------------
-            valid_ssps = [
-                "pubmatic.com",
-                "rubiconproject.com",
-                "openx.com",
-                "indexexchange.com",
-                "appnexus.com",
-                "xandr.com",
-                "triplelift.com",
-                "sharethrough.com",
-                "sovrn.com",
-                "adform.com",
-            ]
-
-            if not any(ssp in lower for ssp in valid_ssps):
-                print(f"[WARN] No SSP domains found → skipping", flush=True)
-                return None
-
-            return text
-
-        except Exception as e:
-            print(f"[ERR] fetch snapshot failed for {url} @ {timestamp}: {e}", flush=True)
-            if attempt == 2:
-                return None
-            time.sleep(2)
 
     return None
 
