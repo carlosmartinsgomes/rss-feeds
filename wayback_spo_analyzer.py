@@ -418,10 +418,10 @@ def parse_args():
     p.add_argument("--log-file", default=None)
     p.add_argument("--out", required=True)
 
-    p.add_argument("--start-year", type=int, default=2021)
-    p.add_argument("--start-month", type=int, default=10)
+    p.add_argument("--start-year", type=int, default=2023)
+    p.add_argument("--start-month", type=int, default=12)
     
-    p.add_argument("--end-year", type=int, default=2022)
+    p.add_argument("--end-year", type=int, default=2023)
     p.add_argument("--end-month", type=int, default=12)
 
 
