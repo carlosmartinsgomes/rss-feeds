@@ -106,15 +106,30 @@ def fetch_ads_txt_snapshot(url: str, timestamp: str, timeout: int = 15):
                 print(f"[WARN] snapshot status {r.status_code} for {url} @ {timestamp}", flush=True)
                 return None
 
-            text = r.text
+            # ---------------------------
+            # 1) DECODIFICAÇÃO ROBUSTA
+            # ---------------------------
+            try:
+                text = r.content.decode("utf-8", errors="replace")
+            except:
+                try:
+                    text = r.content.decode("latin-1", errors="replace")
+                except:
+                    print("[WARN] Encoding error → skipping snapshot", flush=True)
+                    return None
+
             lower = text.lower()
-            
-            # 1. HTML detection
+
+            # ---------------------------
+            # 2) DETEÇÃO DE HTML
+            # ---------------------------
             if "<html" in lower or "<body" in lower or "<!doctype" in lower:
                 print(f"[WARN] HTML detected → skipping", flush=True)
                 return None
-            
-            # 2. Wayback error/redirect pages
+
+            # ---------------------------
+            # 3) DETEÇÃO DE ERROS DO WAYBACK
+            # ---------------------------
             error_signatures = [
                 "memento not found",
                 "resource not in archive",
@@ -128,17 +143,21 @@ def fetch_ads_txt_snapshot(url: str, timestamp: str, timeout: int = 15):
                 "<meta http-equiv",
                 "refresh content",
             ]
-            
+
             if any(sig in lower for sig in error_signatures):
                 print(f"[WARN] Wayback error/redirect detected → skipping", flush=True)
                 return None
-            
-            # 3. ads.txt must contain at least one comma
+
+            # ---------------------------
+            # 4) TEM DE TER PELO MENOS UMA VÍRGULA
+            # ---------------------------
             if "," not in text:
                 print(f"[WARN] No comma found → not ads.txt → skipping", flush=True)
                 return None
-            
-            # 4. ads.txt must contain at least one known SSP domain
+
+            # ---------------------------
+            # 5) TEM DE TER PELO MENOS UM SSP CONHECIDO
+            # ---------------------------
             valid_ssps = [
                 "pubmatic.com",
                 "rubiconproject.com",
@@ -151,13 +170,12 @@ def fetch_ads_txt_snapshot(url: str, timestamp: str, timeout: int = 15):
                 "sovrn.com",
                 "adform.com",
             ]
-            
+
             if not any(ssp in lower for ssp in valid_ssps):
                 print(f"[WARN] No SSP domains found → skipping", flush=True)
                 return None
-            
-            return text
 
+            return text
 
         except Exception as e:
             print(f"[ERR] fetch snapshot failed for {url} @ {timestamp}: {e}", flush=True)
@@ -240,25 +258,66 @@ def compute_pubmatic_score(ads_txt: str):
     pub_reseller = 0
     competitors_total = 0
 
+    # ----------------------------------------
+    # REMOVER COMENTÁRIOS PARCIAIS E DUPLICADOS
+    # ----------------------------------------
+    clean_lines = []
+    seen = set()
+    
     for l in lines:
         # remover comentários no fim da linha
-        l = l.split("#")[0].strip()
-        if not l:
+        base = l.split("#")[0].strip()
+        if not base:
             continue
     
-        ll = l.lower()
-
-    # remover duplicados mantendo ordem
-    seen_lines = set()
-    clean_lines = []
-    for l in lines:
-        base = l.split("#")[0].strip()
-        if base and base not in seen_lines:
-            seen_lines.add(base)
+        # evitar duplicados
+        if base not in seen:
+            seen.add(base)
             clean_lines.append(base)
     
     lines = clean_lines
-
+    
+    # ----------------------------------------
+    # NORMALIZAR FORMATAÇÃO ESTRANHA
+    # ----------------------------------------
+    normalized = []
+    for l in lines:
+        # substituir separadores estranhos por vírgulas
+        l = l.replace(";", ",").replace(":", ",").replace(" - ", ",").replace(" ", ",")
+        # remover vírgulas duplicadas
+        while ",," in l:
+            l = l.replace(",,", ",")
+        normalized.append(l)
+    
+    lines = normalized
+    
+    # ----------------------------------------
+    # LOOP PRINCIPAL DE PARSING
+    # ----------------------------------------
+    for l in lines:
+        ll = l.lower()
+    
+        # PubMatic
+        if "pubmatic.com" in ll:
+            if "direct" in ll:
+                pub_direct += 1
+            elif "reseller" in ll:
+                pub_reseller += 1
+            else:
+                pub_reseller += 1
+            continue
+    
+        # Concorrentes detalhados
+        for domain, ssp in competitor_map.items():
+            if domain in ll:
+                competitors_total += 1
+                if "direct" in ll:
+                    competitors_detail[f"{ssp}_direct"] += 1
+                elif "reseller" in ll:
+                    competitors_detail[f"{ssp}_reseller"] += 1
+                else:
+                    competitors_detail[f"{ssp}_reseller"] += 1
+                break
 
 
         # PubMatic
