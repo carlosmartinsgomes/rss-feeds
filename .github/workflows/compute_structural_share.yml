@@ -7,7 +7,7 @@ on:
 
 jobs:
   compute-structural-share:
-    runs-on: self-hosted  # ou ubuntu-latest, se não for runner próprio
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repo
