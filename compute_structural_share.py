@@ -1,83 +1,62 @@
 import pandas as pd
-import numpy as np
+from pathlib import Path
 
-# ============================
-# 1. PESOS POR PUBLISHER
-# ============================
-
-weights = {
-    "foxnews.com": 0.22,
-    "crunchyroll.com": 0.20,
-    "mlb.com": 0.18,
-    "nypost.com": 0.15,
-    "imdb.com": 0.10,
-    "nextdoor.com": 0.05,
-    "x.com": 0.03,
+PUBLISHER_WEIGHTS = {
+    "foxnews.com": 1.0,
+    "nypost.com": 1.0,
+    "mlb.com": 1.0,
+    "crunchyroll.com": 1.0,
+    "imdb.com": 1.0,
+    "x.com": 1.0,
 }
+DEFAULT_WEIGHT = 0.3
 
-# Os restantes 20 publishers recebem peso mínimo
-# Vais preencher automaticamente com 0.0035 cada
-MIN_WEIGHT = 0.0035
+def get_weight(domain: str) -> float:
+    return PUBLISHER_WEIGHTS.get(domain, DEFAULT_WEIGHT)
 
-# ============================
-# 2. CARREGAR WAYBACK
-# ============================
+def main():
+    input_path = Path("data/wayback_output.xlsx")          # ajusta ao teu path real
+    output_path = Path("data/structural_share_index.xlsx") # output final
 
-df = pd.read_excel("wayback_output.xlsx")
+    df = pd.read_excel(input_path)
 
-# Normalizar domínio
-df["domain"] = df["domain"].str.lower().str.strip()
+    # garantir colunas necessárias
+    # domain, year, month, pubmatic_total_share, competitors_share, etc.
+    # Structural share por linha:
+    df["structural_share_raw"] = df["pubmatic_total_share"]  # ou outra métrica base
+    df["publisher_weight"] = df["domain"].apply(get_weight)
+    df["structural_share_weighted"] = df["structural_share_raw"] * df["publisher_weight"]
 
-# Identificar publishers sem peso explícito
-all_publishers = df["domain"].unique()
-remaining = [p for p in all_publishers if p not in weights]
+    # Agregar por mês global (ou por quarter, se preferires)
+    monthly = (
+        df.groupby(["year", "month"])
+          .agg(
+              structural_share_weighted_sum=("structural_share_weighted", "sum"),
+              weight_sum=("publisher_weight", "sum")
+          )
+          .reset_index()
+    )
 
-for p in remaining:
-    weights[p] = MIN_WEIGHT
+    # score médio ponderado
+    monthly["structural_share_score"] = (
+        monthly["structural_share_weighted_sum"] / monthly["weight_sum"]
+    )
 
-# ============================
-# 3. CALCULAR SHARE MENSAL
-# ============================
+    # Se quiseres já em quarter:
+    monthly["quarter"] = (
+        monthly["year"].astype(str)
+        + "Q"
+        + ((monthly["month"] - 1) // 3 + 1).astype(str)
+    )
+    quarterly = (
+        monthly.groupby("quarter")
+               .agg(structural_share_score_q=("structural_share_score", "mean"))
+               .reset_index()
+    )
 
-df["pub_share"] = df["pubmatic_total_share"]
-df["comp_share"] = df["competitors_share"]
+    with pd.ExcelWriter(output_path) as writer:
+        monthly.to_excel(writer, sheet_name="monthly", index=False)
+        quarterly.to_excel(writer, sheet_name="quarterly", index=False)
 
-# ============================
-# 4. AGREGAR POR QUARTER
-# ============================
-
-df["date"] = pd.to_datetime(df["timestamp"], format="%Y%m%d%H%M%S")
-df["quarter"] = df["date"].dt.to_period("Q")
-
-# ============================
-# 5. CALCULAR STRUCTURAL SHARE
-# ============================
-
-# Função para calcular weighted mean por quarter
-def weighted_mean(group):
-    pubs = group["domain"]
-    w = np.array([weights[p] for p in pubs])
-    w = w / w.sum()  # normalizar dentro do quarter
-    return pd.Series({
-        "struct_pub_share": np.sum(group["pub_share"] * w),
-        "struct_comp_share": np.sum(group["comp_share"] * w),
-    })
-
-struct = df.groupby("quarter").apply(weighted_mean).reset_index()
-
-# ============================
-# 6. OUTPERFORMANCE
-# ============================
-
-struct["struct_outperf"] = struct["struct_pub_share"] - struct["struct_comp_share"]
-
-# YoY
-struct["struct_outperf_yoy"] = struct["struct_outperf"].pct_change(4)
-
-# ============================
-# 7. EXPORTAR
-# ============================
-
-struct.to_excel("pubmatic_index.xlsx", index=False)
-
-print("Novo pubmatic_index.xlsx gerado com sucesso!")
+if __name__ == "__main__":
+    main()
