@@ -1,0 +1,31 @@
+name: Compute Structural Share
+
+on:
+  workflow_dispatch:
+
+jobs:
+  compute-structural-share:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install pandas numpy openpyxl
+
+      - name: Compute Structural Share Score
+        run: |
+          python compute_structural_share.py
+
+      - name: Upload Structural Share Index
+        uses: actions/upload-artifact@v4
+        with:
+          name: structural_share_index
+          path: structural_share_index.xlsx
