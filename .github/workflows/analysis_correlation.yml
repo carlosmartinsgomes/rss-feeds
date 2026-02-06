@@ -1,31 +1,35 @@
-name: Compute Structural Share
+name: Run Correlation Analysis
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
 
 jobs:
-  compute:
+  run-analysis:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.10"
 
       - name: Install dependencies
         run: |
-          pip install pandas openpyxl numpy
+          python -m pip install --upgrade pip
+          pip install pandas openpyxl
 
-      - name: Run structural share script
+      - name: Run correlation analysis
         run: |
-          python compute_structural_share.py
+          python analysis_correlation.py
 
-      - name: Upload artifact
+      - name: Upload correlation results
         uses: actions/upload-artifact@v4
         with:
-          name: structural_share_index
-          path: structural_share_index.xlsx
+          name: correlation_results
+          path: correlation_results.xlsx
