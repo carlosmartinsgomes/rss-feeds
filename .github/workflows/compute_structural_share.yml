@@ -25,3 +25,9 @@ jobs:
       - name: Compute Structural Share Score
         run: |
           python compute_structural_share.py
+
+      - name: Upload Structural Share Index
+        uses: actions/upload-artifact@v4
+        with:
+          name: structural_share_index
+          path: structural_share_index.xlsx
