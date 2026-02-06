@@ -1,62 +1,58 @@
 import pandas as pd
+import numpy as np
 from pathlib import Path
 
+# ============================
+# PESOS POR PUBLISHER
+# ============================
+
 PUBLISHER_WEIGHTS = {
-    "foxnews.com": 1.0,
-    "nypost.com": 1.0,
-    "mlb.com": 1.0,
-    "crunchyroll.com": 1.0,
-    "imdb.com": 1.0,
-    "x.com": 1.0,
+    "foxnews.com": 0.22,
+    "crunchyroll.com": 0.20,
+    "mlb.com": 0.18,
+    "nypost.com": 0.15,
+    "imdb.com": 0.10,
+    "nextdoor.com": 0.05,
+    "x.com": 0.03,
 }
-DEFAULT_WEIGHT = 0.3
+
+DEFAULT_WEIGHT = 0.0035
+
 
 def get_weight(domain: str) -> float:
     return PUBLISHER_WEIGHTS.get(domain, DEFAULT_WEIGHT)
 
 def main():
-    input_path = Path("data/wayback_output.xlsx")          # ajusta ao teu path real
-    output_path = Path("data/structural_share_index.xlsx") # output final
+    input_path = Path("wayback_output.xlsx")
+    output_path = Path("structural_share_index.xlsx")
 
     df = pd.read_excel(input_path)
 
-    # garantir colunas necessárias
-    # domain, year, month, pubmatic_total_share, competitors_share, etc.
-    # Structural share por linha:
-    df["structural_share_raw"] = df["pubmatic_total_share"]  # ou outra métrica base
+    df["domain"] = df["domain"].str.lower().str.strip()
+    df["pub_share"] = df["pubmatic_total_share"]
+    df["comp_share"] = df["competitors_share"]
+
     df["publisher_weight"] = df["domain"].apply(get_weight)
-    df["structural_share_weighted"] = df["structural_share_raw"] * df["publisher_weight"]
+    df["weighted_pub"] = df["pub_share"] * df["publisher_weight"]
+    df["weighted_comp"] = df["comp_share"] * df["publisher_weight"]
 
-    # Agregar por mês global (ou por quarter, se preferires)
-    monthly = (
-        df.groupby(["year", "month"])
-          .agg(
-              structural_share_weighted_sum=("structural_share_weighted", "sum"),
-              weight_sum=("publisher_weight", "sum")
-          )
-          .reset_index()
-    )
+    df["date"] = pd.to_datetime(df["timestamp"], format="%Y%m%d%H%M%S")
+    df["quarter"] = df["date"].dt.to_period("Q")
 
-    # score médio ponderado
-    monthly["structural_share_score"] = (
-        monthly["structural_share_weighted_sum"] / monthly["weight_sum"]
-    )
+    grouped = df.groupby("quarter").agg(
+        struct_pub_share=("weighted_pub", "sum"),
+        struct_comp_share=("weighted_comp", "sum"),
+        total_weight=("publisher_weight", "sum")
+    ).reset_index()
 
-    # Se quiseres já em quarter:
-    monthly["quarter"] = (
-        monthly["year"].astype(str)
-        + "Q"
-        + ((monthly["month"] - 1) // 3 + 1).astype(str)
-    )
-    quarterly = (
-        monthly.groupby("quarter")
-               .agg(structural_share_score_q=("structural_share_score", "mean"))
-               .reset_index()
-    )
+    grouped["struct_pub_share"] /= grouped["total_weight"]
+    grouped["struct_comp_share"] /= grouped["total_weight"]
+    grouped["struct_outperf"] = grouped["struct_pub_share"] - grouped["struct_comp_share"]
+    grouped["struct_outperf_yoy"] = grouped["struct_outperf"].pct_change(4)
 
-    with pd.ExcelWriter(output_path) as writer:
-        monthly.to_excel(writer, sheet_name="monthly", index=False)
-        quarterly.to_excel(writer, sheet_name="quarterly", index=False)
+    grouped.to_excel(output_path, index=False)
+
+    print("✔ structural_share_index.xlsx criado com sucesso!")
 
 if __name__ == "__main__":
     main()
