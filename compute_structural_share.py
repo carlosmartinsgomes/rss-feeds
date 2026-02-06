@@ -23,7 +23,7 @@ def get_weight(domain: str) -> float:
     return PUBLISHER_WEIGHTS.get(domain, DEFAULT_WEIGHT)
 
 def main():
-    input_path = Path("wayback_output.xlsx")
+    input_path = Path("data/wayback_output.xlsx")
     output_path = Path("structural_share_index.xlsx")
 
     df = pd.read_excel(input_path)
