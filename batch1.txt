@@ -1,5 +1,4 @@
-abcnews.go.com
-cbsnews.com
+investing.com
+seekingalpha.com
 theguardian.com
-dailymail.co.uk
-reuters.com
+
