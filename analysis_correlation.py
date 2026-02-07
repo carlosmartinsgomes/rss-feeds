@@ -6,7 +6,7 @@ import pandas as pd
 # ---------------------------------------------------------
 
 print("[CORR] Loading quarterly signals...")
-signals = pd.read_excel("pubmatic_index.xlsx", sheet_name="quarterly_index")
+signals = pd.read_excel("pubmatic_index.xlsx", sheet_name="signal_quarterly")
 
 print("[CORR] Loading PubMatic earnings...")
 earnings = pd.read_excel("data/dados_pubmatic.xlsx")
@@ -15,7 +15,7 @@ earnings = pd.read_excel("data/dados_pubmatic.xlsx")
 # NORMALIZE QUARTER FORMAT
 # ---------------------------------------------------------
 
-signals["year_quarter"] = signals["year_quarter"].astype(str)
+signals["quarter"] = signals["quarter"].astype(str)
 earnings["quarter"] = earnings["quarter"].astype(str)
 
 # ---------------------------------------------------------
@@ -26,8 +26,7 @@ print("[CORR] Merging signals + earnings...")
 df = pd.merge(
     signals,
     earnings,
-    left_on="year_quarter",
-    right_on="quarter",
+    on="quarter",
     how="inner"
 )
 
