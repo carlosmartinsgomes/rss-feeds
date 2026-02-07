@@ -1,0 +1,24 @@
+name: Wayback Batch 3
+
+on:
+  workflow_dispatch:
+
+jobs:
+  run-wayback:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - run: pip install pandas requests openpyxl
+
+      - run: python wayback_spo_analyzer.py --domains-file batch3.txt --log-file "" --out wayback_output_batch3.xlsx
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wayback_output_batch3
+          path: wayback_output_batch3.xlsx
