@@ -1,0 +1,5 @@
+abcnews.go.com
+cbsnews.com
+theguardian.com
+dailymail.co.uk
+reuters.com
