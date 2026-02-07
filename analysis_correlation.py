@@ -18,14 +18,18 @@ earnings = pd.read_excel("data/dados_pubmatic.xlsx")
 signals["year_quarter"] = signals["year_quarter"].astype(str)
 earnings["quarter"] = earnings["quarter"].astype(str)
 
-
 # ---------------------------------------------------------
 # MERGE DATASETS
 # ---------------------------------------------------------
 
 print("[CORR] Merging signals + earnings...")
-df = pd.merge(signals, earnings, left_on="year_quarter", right_on="quarter", how="inner")
-
+df = pd.merge(
+    signals,
+    earnings,
+    left_on="year_quarter",
+    right_on="quarter",
+    how="inner"
+)
 
 print(f"[CORR] Merged rows: {len(df)}")
 print(df[["quarter"]])
@@ -54,7 +58,6 @@ signals_to_test = [
     "struct_outperf",
     "struct_outperf_yoy",
 ]
-
 
 print("\n==============================")
 print(" CORRELAÇÕES ENTRE SINAIS E EARNINGS ")
@@ -86,4 +89,3 @@ corr_df = corr_df.sort_values(["signal", "target"]).reset_index(drop=True)
 
 corr_df.to_excel("correlation_results.xlsx", index=False)
 print("\n[CORR] correlation_results.xlsx written.")
-
