@@ -541,44 +541,55 @@ def main():
 
     all_rows = []
 
-    for domain in domains:
-        # se quiseres, podes usar o log para skipar domínios já processados
+    try:
+        for domain in domains:
+            # se quiseres, podes usar o log para skipar domínios já processados
+            try:
+                history = analyze_domain(
+                    domain,
+                    args.start_year,
+                    args.start_month,
+                    args.end_year,
+                    args.end_month
+                )
+    
+                all_rows.extend(history)
+    
+                # ⭐ SAVE PARTIAL RESULTS AFTER EACH DOMAIN
+                try:
+                    df_partial = pd.DataFrame(all_rows)
+                    df_partial.sort_values(["domain", "year", "month"], inplace=True)
+                    df_partial.to_excel(args.out, index=False)
+                    print(f"[INFO] Partial save after {domain} -> {args.out}", flush=True)
+                except Exception as e:
+                    print(f"[WARN] Failed partial save after {domain}: {e}", flush=True)
+    
+                # atualizar log
+                log_data[domain] = {
+                    "last_run": datetime.utcnow().isoformat(),
+                    "entries": len(history),
+                }
+                save_log(args.log_file, log_data)
+    
+            except Exception as e:
+                print(f"[ERR] Domain {domain} analysis error: {e}", flush=True)
+    
+            # ⭐ COOLDOWN ENTRE DOMÍNIOS
+            time.sleep(2)
+    
+    finally:
+        # ⭐ FINAL SAVE EVEN IF CRASHED
         try:
-            history = analyze_domain(
-                domain,
-                args.start_year,
-                args.start_month,
-                args.end_year,
-                args.end_month
-            )
-
-            all_rows.extend(history)
-            # atualizar log
-            log_data[domain] = {
-                "last_run": datetime.utcnow().isoformat(),
-                "entries": len(history),
-            }
-            save_log(args.log_file, log_data)
+            if all_rows:
+                df_final = pd.DataFrame(all_rows)
+                df_final.sort_values(["domain", "year", "month"], inplace=True)
+                df_final.to_excel(args.out, index=False)
+                print(f"[INFO] Final save in FINALLY block -> {args.out}", flush=True)
+            else:
+                print("[WARN] FINALLY block reached but no rows to save.", flush=True)
         except Exception as e:
-            print(f"[ERR] Domain {domain} analysis error: {e}", flush=True)
-    
-        # ⭐ COOLDOWN ENTRE DOMÍNIOS — colocar AQUI
-        time.sleep(2)
+            print(f"[ERR] Failed final save in FINALLY block: {e}", flush=True)
     
     
-    if not all_rows:
-        print("[WARN] Nenhum dado recolhido. Nada para escrever no Excel.", flush=True)
-        return
-
-
-    # Converter para DataFrame e exportar
-    df = pd.DataFrame(all_rows)
-    df.sort_values(["domain", "year", "month"], inplace=True)
-
-    print(f"[INFO] Writing report -> {args.out}", flush=True)
-    df.to_excel(args.out, index=False)
-    print(f"[INFO] Report written -> {args.out}", flush=True)
-
-
-if __name__ == "__main__":
-    main()
+    if __name__ == "__main__":
+        main()
