@@ -15,15 +15,16 @@ earnings = pd.read_excel("data/dados_pubmatic.xlsx")
 # NORMALIZE QUARTER FORMAT
 # ---------------------------------------------------------
 
-signals["quarter"] = signals["quarter"].astype(str)
+signals["year_quarter"] = signals["year_quarter"].astype(str)
 earnings["quarter"] = earnings["quarter"].astype(str)
+
 
 # ---------------------------------------------------------
 # MERGE DATASETS
 # ---------------------------------------------------------
 
 print("[CORR] Merging signals + earnings...")
-df = pd.merge(signals, earnings, on="quarter", how="inner")
+df = pd.merge(signals, earnings, left_on="year_quarter", right_on="quarter", how="inner"
 
 print(f"[CORR] Merged rows: {len(df)}")
 print(df[["quarter"]])
