@@ -6,7 +6,7 @@ import pandas as pd
 # ---------------------------------------------------------
 
 print("[CORR] Loading quarterly signals...")
-signals = pd.read_excel("pubmatic_index.xlsx", sheet_name="signal_quarterly")
+signals = pd.read_excel("pubmatic_index.xlsx", sheet_name="quarterly_index")
 
 print("[CORR] Loading PubMatic earnings...")
 earnings = pd.read_excel("data/dados_pubmatic.xlsx")
@@ -47,7 +47,12 @@ signals_to_test = [
     "exit_pct_q",
     "outperformance_score_q",
     "outperformance_score_q_yoy",
+    "struct_pub_share",
+    "struct_comp_share",
+    "struct_outperf",
+    "struct_outperf_yoy",
 ]
+
 
 print("\n==============================")
 print(" CORRELAÇÕES ENTRE SINAIS E EARNINGS ")
