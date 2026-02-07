@@ -5,8 +5,11 @@ import pandas as pd
 # LOAD DATA
 # ---------------------------------------------------------
 
-print("[CORR] Loading quarterly signals...")
-signals = pd.read_excel("pubmatic_index.xlsx", sheet_name="signal_quarterly")
+print("[CORR] Loading quarterly signals (old signals)...")
+signal_q = pd.read_excel("pubmatic_index.xlsx", sheet_name="signal_quarterly")
+
+print("[CORR] Loading quarterly index (structural signals)...")
+struct_q = pd.read_excel("pubmatic_index.xlsx", sheet_name="quarterly_index")
 
 print("[CORR] Loading PubMatic earnings...")
 earnings = pd.read_excel("data/dados_pubmatic.xlsx")
@@ -15,16 +18,39 @@ earnings = pd.read_excel("data/dados_pubmatic.xlsx")
 # NORMALIZE QUARTER FORMAT
 # ---------------------------------------------------------
 
-signals["quarter"] = signals["quarter"].astype(str)
+signal_q["quarter"] = signal_q["quarter"].astype(str)
+struct_q["year_quarter"] = struct_q["year_quarter"].astype(str)
 earnings["quarter"] = earnings["quarter"].astype(str)
 
 # ---------------------------------------------------------
-# MERGE DATASETS
+# MERGE OLD SIGNALS + STRUCTURAL SIGNALS
+# ---------------------------------------------------------
+
+print("[CORR] Merging old + structural signals...")
+merged = pd.merge(
+    signal_q,
+    struct_q[[
+        "year_quarter",
+        "struct_pub_share",
+        "struct_comp_share",
+        "struct_outperf",
+        "struct_outperf_yoy"
+    ]],
+    left_on="quarter",
+    right_on="year_quarter",
+    how="left"
+)
+
+# remove duplicate key
+merged = merged.drop(columns=["year_quarter"])
+
+# ---------------------------------------------------------
+# MERGE WITH EARNINGS
 # ---------------------------------------------------------
 
 print("[CORR] Merging signals + earnings...")
 df = pd.merge(
-    signals,
+    merged,
     earnings,
     on="quarter",
     how="inner"
