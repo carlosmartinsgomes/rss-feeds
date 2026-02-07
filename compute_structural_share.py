@@ -7,16 +7,29 @@ from pathlib import Path
 # ============================
 
 PUBLISHER_WEIGHTS = {
-    "foxnews.com": 0.22,
-    "crunchyroll.com": 0.20,
-    "mlb.com": 0.18,
-    "nypost.com": 0.15,
-    "imdb.com": 0.10,
-    "nextdoor.com": 0.05,
+    # Tier 1 — Gigantes
+    "cnn.com": 0.14,
+    "nytimes.com": 0.14,
+    "foxnews.com": 0.14,
+
+    # Tier 2 — Muito grandes
+    "washingtonpost.com": 0.09,
+    "nbcnews.com": 0.09,
+    "usatoday.com": 0.09,
+    "crunchyroll.com": 0.09,
+    "mlb.com": 0.09,
+
+    # Tier 3 — Médios
+    "nypost.com": 0.06,
+    "imdb.com": 0.06,
+
+    # Tier 4 — Pequenos
+    "nextdoor.com": 0.03,
     "x.com": 0.03,
 }
 
 DEFAULT_WEIGHT = 0.0035
+
 
 
 def get_weight(domain: str) -> float:
