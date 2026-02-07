@@ -24,7 +24,8 @@ earnings["quarter"] = earnings["quarter"].astype(str)
 # ---------------------------------------------------------
 
 print("[CORR] Merging signals + earnings...")
-df = pd.merge(signals, earnings, left_on="year_quarter", right_on="quarter", how="inner"
+df = pd.merge(signals, earnings, left_on="year_quarter", right_on="quarter", how="inner")
+
 
 print(f"[CORR] Merged rows: {len(df)}")
 print(df[["quarter"]])
