@@ -1,4 +1,10 @@
-investing.com
-seekingalpha.com
-theguardian.com
-
+fool.com
+cnet.com
+engadget.com
+wired.com
+theverge.com
+techcrunch.com
+arstechnica.com
+ign.com
+gamespot.com
+polygon.com
