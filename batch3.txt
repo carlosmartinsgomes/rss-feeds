@@ -1,5 +1,10 @@
-nba.com
-nhl.com
-bleacherreport.com
-cbssports.com
-si.com
+politico.com
+time.com
+newsweek.com
+usatodaymoney.com
+latimes.com
+chicagotribune.com
+miamiherald.com
+denverpost.com
+startribune.com
+boston.com
