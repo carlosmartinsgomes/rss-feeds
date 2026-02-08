@@ -1,3 +1,10 @@
-bloomberg.com
-businessinsider.com
-marketwatch.com
+sandiegouniontribune.com
+theatlantic.com
+newyorker.com
+slate.com
+vox.com
+axios.com
+thecut.com
+gizmodo.com
+lifehacker.com
+kotaku.com
