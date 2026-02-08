@@ -1,3 +1,10 @@
-weather.com
-accuweather.com
-forbes.com
+sfchronicle.com
+mercurynews.com
+oregonlive.com
+nj.com
+nola.com
+chron.com
+houstonchronicle.com
+seattletimes.com
+tampabay.com
+orlandosentinel.com
