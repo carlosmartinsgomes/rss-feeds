@@ -7,28 +7,61 @@ from pathlib import Path
 # ============================
 
 PUBLISHER_WEIGHTS = {
-    # Tier 1 — Gigantes
-    "cnn.com": 0.14,
-    "nytimes.com": 0.14,
-    "foxnews.com": 0.14,
+    # Tier 1 — Gigantes absolutos
+    "cnn.com": 0.12,
+    "nytimes.com": 0.12,
+    "foxnews.com": 0.11,
+    "yahoo.com": 0.11,
+    "msn.com": 0.10,
+    "espn.com": 0.10,
+    "reuters.com": 0.10,
 
     # Tier 2 — Muito grandes
-    "washingtonpost.com": 0.09,
-    "nbcnews.com": 0.09,
-    "usatoday.com": 0.09,
-    "crunchyroll.com": 0.09,
-    "mlb.com": 0.09,
+    "washingtonpost.com": 0.08,
+    "nbcnews.com": 0.08,
+    "usatoday.com": 0.07,
+    "apnews.com": 0.07,
+    "abcnews.go.com": 0.07,
+    "cbsnews.com": 0.07,
+    "bleacherreport.com": 0.07,
+    "cbssports.com": 0.07,
+    "si.com": 0.07,
+    "weather.com": 0.07,
+    "bloomberg.com": 0.07,
+    "businessinsider.com": 0.07,
+    "marketwatch.com": 0.07,
 
-    # Tier 3 — Médios
-    "nypost.com": 0.06,
-    "imdb.com": 0.06,
+    # Tier 3 — Grandes
+    "accuweather.com": 0.05,
+    "investing.com": 0.05,
+    "fool.com": 0.05,
+    "cnet.com": 0.05,
+    "forbes.com": 0.05,
+    "variety.com": 0.05,
+    "hollywoodreporter.com": 0.05,
+    "nfl.com": 0.05,
+    "nba.com": 0.05,
+    "nhl.com": 0.05,
+    "dailymail.co.uk": 0.05,
 
-    # Tier 4 — Pequenos
-    "nextdoor.com": 0.03,
-    "x.com": 0.03,
+    # Tier 4 — Médios
+    "techcrunch.com": 0.04,
+    "arstechnica.com": 0.04,
+    "ign.com": 0.04,
+    "gamespot.com": 0.04,
+    "polygon.com": 0.04,
+
+    # Tier 5 — Pequenos-médios (originais)
+    "nypost.com": 0.03,
+    "imdb.com": 0.03,
+    "nextdoor.com": 0.02,
+    "x.com": 0.02,
+    "crunchyroll.com": 0.02,
+    "mlb.com": 0.02,
 }
 
 DEFAULT_WEIGHT = 0.0035
+
 
 
 
