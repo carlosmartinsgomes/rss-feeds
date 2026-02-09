@@ -155,7 +155,7 @@ PUBLISHER_WEIGHTS = {
 
 
 def get_weight(domain: str) -> float:
-    return PUBLISHER_WEIGHTS.get(domain, DEFAULT_WEIGHT)
+    return PUBLISHER_WEIGHTS.get(domain, 0.0)
 
 def main():
     input_path = Path("data/wayback_output.xlsx")
