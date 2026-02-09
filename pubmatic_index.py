@@ -309,20 +309,20 @@ def main():
     print("[INDEX] Building monthly signal index...")
     signal_monthly = build_signal_index(df)
 
-    # FILTER MONTHLY SIGNALS (start at 2023-05)
+    # FILTER MONTHLY SIGNALS (start at 2022-11)
     signal_monthly["date"] = pd.to_datetime(signal_monthly["date"])
-    signal_monthly = signal_monthly[signal_monthly["date"] >= "2023-05-01"]
+    signal_monthly = signal_monthly[signal_monthly["date"] >= "2022-11-01"]
 
 
     print("[INDEX] Building quarterly signal index (from monthly signal)...")
     signal_quarterly = build_quarterly_signal_index(signal_monthly)
 
-    # FILTER QUARTERLY SIGNALS (QoQ) — start at 2023Q3
-    signal_quarterly = signal_quarterly[signal_quarterly["quarter"] >= "2023Q3"]
+    # FILTER QUARTERLY SIGNALS (QoQ) — start at 2023Q1
+    signal_quarterly = signal_quarterly[signal_quarterly["quarter"] >= "2023Q1"]
 
 
-    # FILTER QUARTERLY YoY SIGNALS — start at 2024Q2
-    signal_quarterly = signal_quarterly[signal_quarterly["quarter"] >= "2024Q2"]
+    # FILTER QUARTERLY YoY SIGNALS — start at 2023Q4
+    signal_quarterly = signal_quarterly[signal_quarterly["quarter"] >= "2023Q4"]
 
 
     print("[INDEX] Building weekly signal index (2026+)...")
