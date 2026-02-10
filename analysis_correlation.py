@@ -82,6 +82,7 @@ signals_to_test = [
     "struct_comp_share",
     "struct_outperf",
     "struct_outperf_yoy",
+    "pub_share_yoy_q",
 ]
 
 print("\n==============================")
